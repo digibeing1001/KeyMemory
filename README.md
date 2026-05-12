@@ -70,15 +70,51 @@ AI Agent 最大的痛点之一就是「记不住」。每次对话从零开始�
 git clone https://github.com/digibeing1001/KeyMemory.git
 cd KeyMemory
 pnpm install
+pnpm run build
 ```
 
-### 启动服务
+### 启动方式
+
+KeyMemory 有两种启动方式，根据你的使用场景选择：
+
+#### 方式一：Agent 自动启动（推荐）
+
+配置好 Agent 后，**Agent 启动时自动拉起 KeyMemory**，无需手动运行任何命令。MCP 服务器启动后，REST API 和 Web 管理界面也会在后台自动启动。
+
+**Claude Desktop / Hermes 配置：**
+
+编辑 `claude_desktop_config.json`（通常在 `~/.claude/` 目录下）：
+
+```json
+{
+  "mcpServers": {
+    "keymemory": {
+      "command": "node",
+      "args": ["/你的路径/KeyMemory/packages/server/dist/mcp-server.js"],
+      "env": {}
+    }
+  }
+}
+```
+
+配置完成后，每次启动 Claude Desktop / Hermes，KeyMemory 自动可用：
+- ✅ Agent 可直接使用 `memory_search`、`memory_auto_remember` 等工具
+- ✅ Web 管理界面自动在 `http://localhost:3100` 可用
+- ✅ REST API 自动可用
+
+**OpenClaw 配置：**
+
+在 OpenClaw 的 MCP 配置中添加相同的 server 配置即可。
+
+#### 方式二：手动启动（独立使用）
+
+如果你只想使用 Web 管理界面或 REST API，不通过 Agent：
 
 ```bash
 pnpm run dev
 ```
 
-服务默认运行在 `http://localhost:3100`，Web 管理界面自动可用。
+服务运行在 `http://localhost:3100`，Web 管理界面自动可用。
 
 ### 环境变量
 
@@ -206,6 +242,7 @@ KeyMemory/
 │   │       ├── types.ts     # TypeScript 类型定义
 │   │       └── constants.ts # 层级配置、阈值、权重
 │   ├── server/          # 后端服务
+│   │   ├── mcp-server.ts    # MCP stdio 服务器（Agent 自动启动入口）
 │   │   └── src/
 │   │       ├── api/         # REST + MCP 路由
 │   │       ├── core/        # 核心业务逻辑
