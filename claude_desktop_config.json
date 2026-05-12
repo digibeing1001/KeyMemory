@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "keymemory": {
+      "command": "pnpm",
+      "args": [
+        "start:mcp"
+      ],
+      "cwd": "c:\\Users\\zexin\\Desktop\\KeyMemory"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "preset": "hermes",
+  "description": "预设的 Hermes 集成配置",
+  "isolationMode": "hybrid",
+  "autoRecord": true,
+  "autoSearch": true,
+  "layers": ["short", "long", "project"],
+  "agentSpace": "agent:hermes",
+  "globalAccess": true,
+  "mcp": {
+    "enabled": true,
+    "serverName": "keymemory-hermes",
+    "tools": ["memory_create", "memory_search", "memory_read", "memory_list", "memory_delete"]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "keymemory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KeyMemory - 个人记忆系统 MCP 服务器",
+  "homepage": "https://github.com/your-username/keymemory",
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "dev:server": "pnpm --filter @keymemory/server run dev",
+    "dev:web": "pnpm --filter @keymemory/web run dev",
+    "start:mcp": "pnpm --filter keymemory-mcp run start:mcp",
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "setup": "node --experimental-vm-modules packages/server/dist/setup.js",
+    "install:local": "pnpm build && pnpm --filter keymemory-mcp link"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
