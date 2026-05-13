@@ -5,12 +5,22 @@ import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, EMBEDDIN
 import { recordHit } from './atom.js';
 import { rowToMemory } from '../db/mapper.js';
 
-export async function ensureEmbedding(memoryId: string, title: string, content: string): Promise<void> {
+export async function ensureEmbedding(memoryId: string, title: string, content: string, tags?: string[], metadata?: Record<string, unknown>, force?: boolean): Promise<void> {
   const db = getDatabase();
   const existing = db.prepare(`SELECT memory_id FROM embeddings WHERE memory_id = ?`).get(memoryId);
-  if (existing) return;
+  if (existing && !force) return;
+  if (existing && force) {
+    db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(memoryId);
+  }
 
-  const vector = await embed(`${title} ${content}`);
+  let embedText = `${title} ${content}`;
+  if (tags && tags.length > 0) embedText += ` ${tags.join(' ')}`;
+  if (metadata) {
+    const metaValues = Object.values(metadata).filter(v => typeof v === 'string' || Array.isArray(v));
+    if (metaValues.length > 0) embedText += ` ${metaValues.flat().join(' ')}`;
+  }
+
+  const vector = await embed(embedText);
   const now = new Date().toISOString();
   db.prepare(`
     INSERT INTO embeddings (memory_id, embedding, model, created_at)

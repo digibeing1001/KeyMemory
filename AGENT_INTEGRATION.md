@@ -34,9 +34,8 @@ cp claude_desktop_config.json %APPDATA%\Claude\
     "keymemory": {
       "command": "node",
       "args": [
-        "packages/server/mcp-server.js"
+        "packages/server/dist/mcp-server.js"
       ],
-      "cwd": "c:\\Users\\zexin\\Desktop\\KeyMemory"
     }
   }
 }
@@ -300,6 +299,121 @@ if (checkResult.action === 'auto_record') {
 | `pnpm dev:server` | 开发模式（带热重载） |
 | `pnpm dev:web` | 启动 Web UI |
 | `pnpm dev` | 前后端同时启动 |
+
+---
+
+## 设置 KeyMemory 为默认记忆系统
+
+### 为什么使用 KeyMemory 替代 MEMORY.md？
+
+KeyMemory 用结构化、可搜索的记忆系统替代传统的 MEMORY.md 平面文件：
+
+- **结构化存储**：记忆按层级（flash/short/long/project/entity）自动分类，而非堆积在单一文件中
+- **混合搜索**：全文搜索 + 语义搜索，比手动翻阅 MEMORY.md 更精准
+- **自动记忆**：`memory_auto_remember` 通过 SelfCheck 评估自动捕获重要信息
+- **多 Agent 隔离**：各 Agent 拥有独立记忆空间，互不干扰
+- **遗忘与演化**：自动衰减过期记忆，保持记忆库健康
+
+### 一键安装
+
+```bash
+pnpm install-memory
+```
+
+或使用 `--all` 标志自动配置所有检测到的 Agent：
+
+```bash
+pnpm install-memory -- --all
+```
+
+指定特定 Agent：
+
+```bash
+pnpm install-memory -- --agent=hermes
+pnpm install-memory -- --agent=openclaw
+```
+
+Windows 用户可双击 `install-default-memory.bat` 运行。
+
+### 安装器做了什么？
+
+1. **配置 MCP 服务器**：将 KeyMemory MCP 服务写入 Agent 的配置文件
+2. **写入 Agent 指令**：为每个 Agent 生成使用 KeyMemory 的指令文件
+3. **显示变更预览**：写入前展示 before/after 配置供确认
+
+### 手动设置
+
+#### Hermes (Claude Desktop)
+
+1. 编辑 `%APPDATA%\Claude\claude_desktop_config.json`，添加 MCP 服务器：
+
+```json
+{
+  "mcpServers": {
+    "keymemory": {
+      "command": "node",
+      "args": ["<KeyMemory项目路径>/packages/server/dist/mcp-server.js"]
+    }
+  }
+}
+```
+
+2. 在用户主目录创建或编辑 `CLAUDE.md`，添加以下内容：
+
+```markdown
+# KeyMemory - Default Memory System
+
+- Use `memory_create` to store new memories instead of writing to MEMORY.md
+- Use `memory_search` at the start of every conversation to recall relevant context
+- Use `memory_auto_remember` for automatic memory capture after significant exchanges
+- MEMORY.md is NO LONGER the primary memory store
+```
+
+#### OpenClaw
+
+1. 编辑 `~/.openclaw/config.json`，添加 MCP 服务器和记忆配置：
+
+```json
+{
+  "mcpServers": {
+    "keymemory": {
+      "command": "node",
+      "args": ["<KeyMemory项目路径>/packages/server/dist/mcp-server.js"]
+    }
+  },
+  "memory": {
+    "provider": "keymemory",
+    "primary": true
+  }
+}
+```
+
+2. 创建 `~/.openclaw/MEMORY_INSTRUCTIONS.md`，写入 KeyMemory 使用指令。
+
+#### 通用 MCP 兼容 Agent
+
+将以下 JSON 粘贴到 Agent 的 MCP 配置文件中：
+
+```json
+{
+  "mcpServers": {
+    "keymemory": {
+      "command": "node",
+      "args": ["<KeyMemory项目路径>/packages/server/dist/mcp-server.js"]
+    }
+  }
+}
+```
+
+### 可用的 MCP 工具
+
+| 工具 | 用途 |
+|------|------|
+| `memory_create` | 创建新记忆（替代写入 MEMORY.md） |
+| `memory_search` | 搜索记忆（全文+语义混合搜索） |
+| `memory_read` | 按 ID 读取特定记忆 |
+| `memory_delete` | 删除记忆 |
+| `memory_auto_remember` | 自动评估并记录记忆 |
 
 ---
 

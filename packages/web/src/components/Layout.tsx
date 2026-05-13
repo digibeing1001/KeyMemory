@@ -15,7 +15,7 @@ export default function Layout({ children, onSearch, onClearSearch, onCreateNew,
     <div className="flex h-screen flex-col" style={{ background: 'var(--bg-warm)' }}>
       <header className="flex h-11 shrink-0 items-center justify-between border-b px-5" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
         <div className="flex items-center gap-3">
-          <span className="font-serif text-lg tracking-tight" style={{ color: 'var(--text-primary)' }}>
+          <span className="font-serif text-xl tracking-tight" style={{ color: 'var(--text-primary)' }}>
             KeyMemory
           </span>
           {loading && (

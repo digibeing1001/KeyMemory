@@ -16,5 +16,9 @@ export function rowToMemory(row: Record<string, unknown>): Memory {
     decayFactor: row.decay_factor as number,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+    tags: row.tags ? JSON.parse(row.tags as string) : undefined,
+    metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
+    source: (row.source as string) || undefined,
+    sourceId: (row.source_id as string) || undefined,
   };
 }

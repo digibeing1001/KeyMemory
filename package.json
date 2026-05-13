@@ -13,7 +13,11 @@
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "setup": "node --experimental-vm-modules packages/server/dist/setup.js",
-    "install:local": "pnpm build && pnpm --filter keymemory-mcp link"
+    "update": "node update-hermes.js",
+    "download-model": "node scripts/download-model.js",
+    "install:local": "pnpm build && pnpm --filter keymemory-mcp link",
+    "install-memory": "node install-default-memory.js",
+    "start:ui": "node start-ui.js"
   },
   "engines": {
     "node": ">=20.0.0"

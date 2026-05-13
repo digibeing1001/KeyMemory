@@ -1,4 +1,4 @@
-import type { Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version } from '@keymemory/shared';
+import type { Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version, SearchResult } from '@keymemory/shared';
 
 const BASE = '/api';
 
@@ -64,7 +64,8 @@ export async function searchMemories(query: string, layer?: Layer, limit?: numbe
   sp.set('q', query);
   if (layer) sp.set('layer', layer);
   if (limit) sp.set('limit', String(limit));
-  return request(`/memories/search?${sp.toString()}`);
+  const results = await request<SearchResult[]>(`/memories/search?${sp.toString()}`);
+  return results.map((r) => r.memory);
 }
 
 export async function getVersions(memoryId: string): Promise<Version[]> {

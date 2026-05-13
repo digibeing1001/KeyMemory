@@ -4,7 +4,7 @@ import type { Layer, Memory } from '@keymemory/shared';
 
 interface MarkdownEditorProps {
   memory?: Memory | null;
-  onSave: (data: { title: string; content: string; layer: Layer; project?: string }) => void;
+  onSave: (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => void;
   onCancel: () => void;
   loading?: boolean;
 }
@@ -14,6 +14,9 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
   const [content, setContent] = useState('');
   const [layer, setLayer] = useState<Layer>('flash');
   const [project, setProject] = useState('');
+  const [tagsInput, setTagsInput] = useState('');
+  const [source, setSource] = useState('');
+  const [metadataInput, setMetadataInput] = useState('');
 
   useEffect(() => {
     if (memory) {
@@ -21,22 +24,41 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
       setContent(memory.content);
       setLayer(memory.layer);
       setProject(memory.project || '');
+      setTagsInput(memory.tags?.join(', ') || '');
+      setSource(memory.source || '');
+      setMetadataInput(memory.metadata ? JSON.stringify(memory.metadata, null, 2) : '');
     } else {
       setTitle('');
       setContent('');
       setLayer('flash');
       setProject('');
+      setTagsInput('');
+      setSource('');
+      setMetadataInput('');
     }
   }, [memory?.id]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !content.trim()) return;
+    const tags = tagsInput.trim() ? tagsInput.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
+    let metadata: Record<string, unknown> | undefined;
+    if (metadataInput.trim()) {
+      try {
+        const parsed = JSON.parse(metadataInput);
+        if (typeof parsed === 'object' && parsed !== null) {
+          metadata = parsed;
+        }
+      } catch {}
+    }
     onSave({
       title: title.trim(),
       content: content.trim(),
       layer,
       project: project.trim() || undefined,
+      tags,
+      source: source.trim() || undefined,
+      metadata,
     });
   };
 
@@ -44,7 +66,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
     <form onSubmit={handleSubmit} className="flex h-full flex-col">
       <div className="space-y-3 p-4">
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>标题</label>
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>标题</label>
           <input
             type="text"
             value={title}
@@ -72,7 +94,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
           </div>
 
           <div className="flex-1">
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>项目</label>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>项目</label>
             <input
               type="text"
               value={project}
@@ -83,15 +105,53 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
             />
           </div>
         </div>
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>标签</label>
+            <input
+              type="text"
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              placeholder="逗号分隔..."
+              className="w-full rounded-md border px-3 py-1.5 text-sm transition-colors focus:outline-none"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+
+          <div className="flex-1">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>来源</label>
+            <input
+              type="text"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder="可选..."
+              className="w-full rounded-md border px-3 py-1.5 text-sm transition-colors focus:outline-none"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>元数据 (JSON)</label>
+          <input
+            type="text"
+            value={metadataInput}
+            onChange={(e) => setMetadataInput(e.target.value)}
+            placeholder='{"key": "value"}'
+            className="w-full rounded-md border px-3 py-1.5 font-mono text-sm transition-colors focus:outline-none"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+          />
+        </div>
       </div>
 
       <div className="flex-1 px-4">
-        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>内容</label>
+        <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>内容</label>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="支持 Markdown 格式..."
-          className="h-[calc(100%-24px)] w-full resize-none rounded-md border px-3 py-2 font-mono text-xs leading-relaxed transition-colors focus:outline-none"
+          className="h-[calc(100%-24px)] w-full resize-none rounded-md border px-3 py-2 font-mono text-sm leading-relaxed transition-colors focus:outline-none"
           style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
         />
       </div>
@@ -108,7 +168,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
         <button
           type="submit"
           disabled={!title.trim() || !content.trim() || loading}
-          className="flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-90 disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-40"
           style={{ background: 'var(--accent)' }}
         >
           {loading && (

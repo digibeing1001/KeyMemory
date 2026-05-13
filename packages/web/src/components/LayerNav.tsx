@@ -71,7 +71,7 @@ export default function LayerNav({ activeLayer, onSelectLayer, layerStats }: Lay
       })}
 
       <div className="mt-auto px-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-        <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+        <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
           KeyMemory v0.1
         </span>
       </div>

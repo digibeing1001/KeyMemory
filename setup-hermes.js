@@ -1,33 +1,47 @@
 #!/usr/bin/env node
-/**
- * KeyMemory Hermes 配置生成器
- * 自动生成 Claude Desktop 配置
- */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execSync } = require('child_process');
 
 console.log('🔧 KeyMemory Hermes 配置生成器');
 console.log('============================');
 
-// 获取配置路径
-const configPath = path.join(os.homedir(), 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
 const projectPath = process.cwd();
-const mcpServerPath = path.join(projectPath, 'packages', 'server', 'mcp-server.js');
+const modelDir = path.join(projectPath, 'packages', 'server', 'models');
+const modelFile = path.join(modelDir, 'all-MiniLM-L6-v2.onnx');
+const tokenizerFile = path.join(modelDir, 'tokenizer.json');
+
+const modelReady = fs.existsSync(modelFile) && fs.existsSync(tokenizerFile);
+if (!modelReady) {
+  console.log('\n📥 检测到嵌入模型未内置，正在下载...');
+  try {
+    execSync('node ' + path.join(projectPath, 'scripts', 'download-model.js'), {
+      cwd: projectPath,
+      stdio: 'inherit',
+    });
+  } catch (e) {
+    console.log('\n⚠️  模型下载失败，程序将在首次启动时自动下载。');
+    console.log('   你也可以稍后手动运行: pnpm download-model');
+  }
+} else {
+  console.log('\n✅ 嵌入模型已内置');
+}
+
+const configPath = path.join(os.homedir(), 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
+const mcpServerPath = path.join(projectPath, 'packages', 'server', 'dist', 'mcp-server.js');
 
 console.log(`\n📂 项目路径: ${projectPath}`);
 console.log(`📂 MCP 服务: ${mcpServerPath}`);
 console.log(`📂 目标配置: ${configPath}`);
 
-// 检查 MCP 服务文件
 if (!fs.existsSync(mcpServerPath)) {
   console.log('\n❌ 错误：找不到 mcp-server.js');
   console.log('   请先运行: pnpm build');
   process.exit(1);
 }
 
-// 读取现有配置或创建新的
 let config = {};
 if (fs.existsSync(configPath)) {
   try {
@@ -38,19 +52,15 @@ if (fs.existsSync(configPath)) {
   }
 }
 
-// 确保 mcpServers 存在
 if (!config.mcpServers) {
   config.mcpServers = {};
 }
 
-// 添加或更新 KeyMemory 配置
 config.mcpServers.keymemory = {
   command: 'node',
-  args: ['packages/server/mcp-server.js'],
-  cwd: projectPath.replace(/\\/g, '\\\\')
+  args: [mcpServerPath],
 };
 
-// 保存配置
 const configDir = path.dirname(configPath);
 if (!fs.existsSync(configDir)) {
   fs.mkdirSync(configDir, { recursive: true });

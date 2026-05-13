@@ -45,6 +45,7 @@ export function registerRoutes(app: FastifyInstance): void {
       return { error: 'title, content, and layer are required' };
     }
     const mem = createMemory(input);
+    ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
     reply.code(201);
     return mem;
   });
@@ -77,6 +78,9 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!mem) {
       reply.code(404);
       return { error: 'Memory not found' };
+    }
+    if (input.title !== undefined || input.content !== undefined) {
+      ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined, true).catch(() => {});
     }
     return mem;
   });

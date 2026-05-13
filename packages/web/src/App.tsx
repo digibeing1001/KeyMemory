@@ -27,7 +27,7 @@ function AppInner() {
   );
 
   const handleSave = useCallback(
-    async (data: { title: string; content: string; layer: Layer; project?: string }) => {
+    async (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
       try {
         await store.save(data);
         toast(store.selectedMemory ? '记忆已更新' : '记忆已创建', 'success');

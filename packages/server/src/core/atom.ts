@@ -24,12 +24,15 @@ export function createMemory(input: CreateMemoryInput): Memory {
     createdAt: now,
     updatedAt: now,
     tags: input.tags,
+    metadata: input.metadata,
+    source: input.source,
+    sourceId: input.sourceId,
   };
 
   return db.transaction(() => {
     db.prepare(`
-      INSERT INTO memories (id, title, content, layer, project, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at)
-      VALUES (@id, @title, @content, @layer, @project, @agentSpace, @ownerAgentId, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt)
+      INSERT INTO memories (id, title, content, layer, project, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
+      VALUES (@id, @title, @content, @layer, @project, @agentSpace, @ownerAgentId, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @metadata, @source, @sourceId)
     `).run({
       id: mem.id,
       title: mem.title,
@@ -44,6 +47,10 @@ export function createMemory(input: CreateMemoryInput): Memory {
       decayFactor: mem.decayFactor,
       createdAt: mem.createdAt,
       updatedAt: mem.updatedAt,
+      tags: mem.tags ? JSON.stringify(mem.tags) : null,
+      metadata: mem.metadata ? JSON.stringify(mem.metadata) : null,
+      source: mem.source ?? null,
+      sourceId: mem.sourceId ?? null,
     });
 
     db.prepare(`
@@ -52,7 +59,7 @@ export function createMemory(input: CreateMemoryInput): Memory {
     `).run({
       id: mem.id,
       title: mem.title,
-      content: mem.content,
+      content: `${mem.content}${mem.tags && mem.tags.length > 0 ? ' ' + mem.tags.join(' ') : ''}`,
       project: mem.project ?? '',
     });
 
@@ -143,6 +150,14 @@ export function updateMemory(id: string, input: UpdateMemoryInput): Memory | nul
     updates.push('confidence = @confidence');
     params.confidence = input.confidence;
   }
+  if (input.tags !== undefined) {
+    updates.push('tags = @tags');
+    params.tags = JSON.stringify(input.tags);
+  }
+  if (input.metadata !== undefined) {
+    updates.push('metadata = @metadata');
+    params.metadata = JSON.stringify(input.metadata);
+  }
 
   if (updates.length === 0) return existing;
 
@@ -161,7 +176,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput): Memory | nul
       `).run({
         id,
         title: updated.title,
-        content: updated.content,
+        content: `${updated.content}${updated.tags && updated.tags.length > 0 ? ' ' + updated.tags.join(' ') : ''}`,
         project: updated.project ?? '',
       });
     }

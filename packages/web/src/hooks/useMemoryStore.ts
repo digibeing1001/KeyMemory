@@ -23,7 +23,7 @@ interface UseMemoryStoreReturn {
   selectMemory: (id: string) => void;
   createNew: () => void;
   cancelCreate: () => void;
-  save: (data: { title: string; content: string; layer: Layer; project?: string }) => Promise<void>;
+  save: (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => Promise<void>;
   deleteMemory: (id: string) => Promise<void>;
   archiveMemory: (id: string) => Promise<void>;
   moveLayer: (id: string, layer: Layer) => Promise<void>;
@@ -119,7 +119,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     setIsCreating(false);
   }, []);
 
-  const save = useCallback(async (data: { title: string; content: string; layer: Layer; project?: string }) => {
+  const save = useCallback(async (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
     setLoading(true);
     try {
       if (selectedMemory) {

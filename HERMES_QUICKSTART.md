@@ -47,9 +47,8 @@ node start-hermes.js
     "keymemory": {
       "command": "node",
       "args": [
-        "packages/server/mcp-server.js"
+        "packages/server/dist/mcp-server.js"
       ],
-      "cwd": "c:\\Users\\你的用户名\\Desktop\\KeyMemory"
     }
   }
 }

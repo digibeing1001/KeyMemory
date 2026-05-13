@@ -45,7 +45,11 @@ function runMigrations(db: Database.Database): void {
       status TEXT DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      decay_factor REAL DEFAULT 1.0
+      decay_factor REAL DEFAULT 1.0,
+      tags TEXT,
+      metadata TEXT,
+      source TEXT,
+      source_id TEXT
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -143,6 +147,23 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_versions_memory_id ON versions(memory_id);
     CREATE INDEX IF NOT EXISTS idx_evolution_tasks_status ON evolution_tasks(status);
   `);
+
+  const alterStatements = [
+    'ALTER TABLE memories ADD COLUMN agent_space TEXT DEFAULT \'global\'',
+    'ALTER TABLE memories ADD COLUMN owner_agent_id TEXT',
+    'ALTER TABLE memories ADD COLUMN confidence REAL DEFAULT 1.0',
+    'ALTER TABLE memories ADD COLUMN last_hit_at TEXT',
+    'ALTER TABLE memories ADD COLUMN decay_factor REAL DEFAULT 1.0',
+    'ALTER TABLE memories ADD COLUMN tags TEXT',
+    'ALTER TABLE memories ADD COLUMN metadata TEXT',
+    'ALTER TABLE memories ADD COLUMN source TEXT',
+    'ALTER TABLE memories ADD COLUMN source_id TEXT',
+  ];
+  for (const stmt of alterStatements) {
+    try {
+      db.exec(stmt);
+    } catch {}
+  }
 }
 
 export function getDatabase(): Database.Database {

@@ -23,6 +23,9 @@ export interface Memory {
   updatedAt: string;
   entities?: Entity[];
   tags?: string[];
+  source?: string;
+  sourceId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Entity {
@@ -97,6 +100,9 @@ export interface CreateMemoryInput {
   agentSpace?: string;
   ownerAgentId?: string;
   tags?: string[];
+  source?: string;
+  sourceId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateMemoryInput {
@@ -106,6 +112,8 @@ export interface UpdateMemoryInput {
   project?: string;
   confidence?: number;
   tags?: string[];
+  source?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SearchQuery {

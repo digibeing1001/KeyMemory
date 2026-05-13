@@ -56,6 +56,14 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   const projects = extractProjects(content);
   const project = projects[0] || currentProject;
 
+  const entities = extractEntities(content);
+  const metadata: Record<string, unknown> = {
+    context: `auto-remember via ${agentId || 'unknown'}`,
+    importance: layer === 'long' ? 'high' : layer === 'short' ? 'medium' : 'low',
+  };
+  if (entities.length > 0) metadata.entities = entities;
+  if (currentProject) metadata.project = currentProject;
+
   const mem = createMemory({
     title,
     content: content.trim(),
@@ -63,13 +71,15 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     project,
     agentSpace: isolationMode === 'isolated' && agentId ? `agent:${agentId}` : 'global',
     ownerAgentId: agentId,
+    metadata,
+    source: source || 'auto-remember',
   });
 
   const entityResult = processContent(mem.id, content);
 
   try {
     const { ensureEmbedding } = await import('./query.js');
-    await ensureEmbedding(mem.id, title, content.trim());
+    await ensureEmbedding(mem.id, title, content.trim(), mem.tags, mem.metadata as Record<string, unknown> | undefined);
   } catch {}
 
   return {

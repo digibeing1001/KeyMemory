@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { LAYERS, LAYER_CONFIG } from '@keymemory/shared';
 import type { Memory, Layer } from '@keymemory/shared';
 import MarkdownEditor from '../components/MarkdownEditor';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 interface EditorProps {
   memory: Memory | null;
   isCreating: boolean;
   loading?: boolean;
-  onSave: (data: { title: string; content: string; layer: Layer; project?: string }) => void;
+  onSave: (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => void;
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onMoveLayer: (id: string, layer: Layer) => void;
@@ -43,6 +44,7 @@ export default function Editor({
   onCancelCreate,
 }: EditorProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [metadataExpanded, setMetadataExpanded] = useState(false);
 
   useEffect(() => {
     setIsEditing(false);
@@ -136,7 +138,7 @@ export default function Editor({
       <div className="flex-1 overflow-y-auto p-4">
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           <span
-            className="rounded px-2 py-0.5 text-[10px] font-semibold"
+            className="rounded px-2 py-0.5 text-xs font-semibold"
             style={{ background: `${layerColor}15`, color: layerColor }}
           >
             {config.label}
@@ -157,9 +159,68 @@ export default function Editor({
           <div>访问 {memory.hitCount} 次</div>
         </div>
 
-        <pre className="whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed" style={{ background: 'var(--bg-sidebar)', color: 'var(--text-secondary)' }}>
-          {memory.content}
-        </pre>
+        <MarkdownRenderer content={memory.content} />
+
+        {memory.tags && memory.tags.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1">
+            {memory.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                style={{ background: 'rgba(139,92,246,0.1)', color: 'var(--layer-project)' }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {memory.source && (
+          <div className="mt-2">
+            <span
+              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium"
+              style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--layer-long)' }}
+            >
+              <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              {memory.source}
+            </span>
+          </div>
+        )}
+
+        {memory.metadata && Object.keys(memory.metadata).length > 0 && (
+          <div className="mt-3">
+            <button
+              onClick={() => setMetadataExpanded(!metadataExpanded)}
+              className="flex items-center gap-1 text-[10px] font-medium transition-colors"
+              style={{ color: 'var(--text-tertiary)' }}
+            >
+              <svg
+                className="h-2.5 w-2.5 transition-transform"
+                style={{ transform: metadataExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+              元数据 ({Object.keys(memory.metadata).length})
+            </button>
+            {metadataExpanded && (
+              <div
+                className="mt-1.5 rounded-lg p-2.5 text-[11px] leading-relaxed"
+                style={{ background: 'var(--bg-sidebar)', color: 'var(--text-secondary)' }}
+              >
+                {Object.entries(memory.metadata).map(([k, v]) => (
+                  <div key={k} className="flex gap-2 py-0.5">
+                    <span className="font-medium" style={{ color: 'var(--text-tertiary)' }}>{k}</span>
+                    <span>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>移动到层级</p>
@@ -168,7 +229,7 @@ export default function Editor({
               <button
                 key={l}
                 onClick={() => onMoveLayer(memory.id, l)}
-                className="rounded px-2 py-1 text-[10px] font-medium transition-colors hover:opacity-80"
+                className="rounded px-2 py-1 text-xs font-medium transition-colors hover:opacity-80"
                 style={{ background: `${LAYER_COLORS[l]}12`, color: LAYER_COLORS[l] }}
               >
                 → {LAYER_CONFIG[l].label}
