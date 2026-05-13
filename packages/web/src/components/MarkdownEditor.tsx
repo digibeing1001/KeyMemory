@@ -66,7 +66,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
     <form onSubmit={handleSubmit} className="flex h-full flex-col">
       <div className="space-y-3 p-4">
         <div>
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>标题</label>
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>标题</label>
           <input
             type="text"
             value={title}
@@ -80,7 +80,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
 
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>层级</label>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>层级</label>
             <select
               value={layer}
               onChange={(e) => setLayer(e.target.value as Layer)}
@@ -94,7 +94,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
           </div>
 
           <div className="flex-1">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>项目</label>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>项目</label>
             <input
               type="text"
               value={project}
@@ -108,7 +108,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
 
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>标签</label>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>标签</label>
             <input
               type="text"
               value={tagsInput}
@@ -120,7 +120,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
           </div>
 
           <div className="flex-1">
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>来源</label>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>来源</label>
             <input
               type="text"
               value={source}
@@ -133,7 +133,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
         </div>
 
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>元数据 (JSON)</label>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>元数据 (JSON)</label>
           <input
             type="text"
             value={metadataInput}
@@ -146,7 +146,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
       </div>
 
       <div className="flex-1 px-4">
-        <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>内容</label>
+        <label className="mb-1 block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>内容</label>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
