@@ -10,6 +10,7 @@ const PROJECT_DIR = path.resolve(__dirname, '..');
 const SERVER_ENTRY = path.join(PROJECT_DIR, 'packages/server/dist/index.js');
 const WEB_DIST = path.join(PROJECT_DIR, 'packages/web/dist');
 const SHARED_DIST = path.join(PROJECT_DIR, 'packages/shared/dist');
+const DATA_DIR_NAME = '.keymemory';
 
 function isWSL() {
   if (process.platform !== 'linux') return false;
@@ -106,7 +107,11 @@ if (USE_NODE_EXE) {
 const spawnOpts = {
   cwd: nodeCwd,
   stdio: 'inherit',
-  env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
+  env: {
+    ...process.env,
+    KEYMEMORY_PRESET: 'hermes',
+    ...(USE_NODE_EXE ? { KEYMEMORY_DATA_DIR: toWindowsPath(path.join(os.homedir(), DATA_DIR_NAME)) } : {}),
+  },
   shell: useShell,
 };
 

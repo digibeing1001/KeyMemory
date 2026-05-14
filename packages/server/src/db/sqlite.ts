@@ -8,7 +8,7 @@ import { DATA_DIR_NAME, DB_NAME } from '@keymemory/shared';
 let db: Database.Database | null = null;
 
 export function getDataDir(): string {
-  const dir = path.join(os.homedir(), DATA_DIR_NAME);
+  const dir = process.env.KEYMEMORY_DATA_DIR || path.join(os.homedir(), DATA_DIR_NAME);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
