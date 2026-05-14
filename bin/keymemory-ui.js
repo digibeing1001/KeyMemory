@@ -69,17 +69,19 @@ if (needsBuild) {
   console.log('');
   console.log('  \x1b[2m[2/3] 编译原生模块...\x1b[0m');
   try {
-    execSync('pnpm rebuild better-sqlite3', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('cd packages/server && pnpm rebuild better-sqlite3', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
-    console.log('  \x1b[33m⚠ 原生模块编译失败，将尝试继续...\x1b[0m');
+    console.log('  \x1b[33m⚠ 原生模块编译失败\x1b[0m');
+    console.log('  \x1b[2m请确保已安装编译工具: sudo apt install -y build-essential python3\x1b[0m');
+    process.exit(1);
   }
 
   console.log('');
   console.log('  \x1b[2m[3/3] 构建项目...\x1b[0m');
   try {
-    execSync('npx tsc -p packages/shared/tsconfig.json', { cwd: PROJECT_DIR, stdio: 'inherit' });
-    execSync('npx tsc -p packages/server/tsconfig.json', { cwd: PROJECT_DIR, stdio: 'inherit' });
-    execSync('npx vite build packages/web', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('cd packages/shared && pnpm exec tsc', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('cd packages/server && pnpm exec tsc', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('cd packages/web && pnpm exec vite build', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
     if (!fs.existsSync(SERVER_ENTRY)) {
       console.log('');
