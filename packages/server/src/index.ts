@@ -31,22 +31,31 @@ async function main() {
   registerMCPRoutes(app);
 
   const webDistDir = path.resolve(__dirname, '../../web/dist');
-  if (fs.existsSync(webDistDir)) {
+  const webDistExists = fs.existsSync(webDistDir) && fs.existsSync(path.join(webDistDir, 'index.html'));
+
+  if (webDistExists) {
     await app.register(fastifyStatic, {
       root: webDistDir,
       prefix: '/',
-      wildcard: false,
+      wildcard: true,
+      decorateReply: false,
     });
 
     app.setNotFoundHandler((request, reply) => {
       if (!request.url.startsWith('/api')) {
-        reply.type('text/html').send(fs.readFileSync(path.join(webDistDir, 'index.html')));
+        const indexPath = path.join(webDistDir, 'index.html');
+        reply.type('text/html; charset=utf-8').send(fs.readFileSync(indexPath));
       } else {
         reply.code(404).send({ error: 'Not found' });
       }
     });
 
     console.log(`Web UI served from ${webDistDir}`);
+  } else {
+    console.log('Web UI not found (build packages/web first for Web UI support)');
+    app.setNotFoundHandler((request, reply) => {
+      reply.code(404).send({ error: 'Not found' });
+    });
   }
 
   try {
