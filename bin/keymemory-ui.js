@@ -10,8 +10,6 @@ const PROJECT_DIR = path.resolve(__dirname, '..');
 const SERVER_ENTRY = path.join(PROJECT_DIR, 'packages/server/dist/index.js');
 const WEB_DIST = path.join(PROJECT_DIR, 'packages/web/dist');
 const SHARED_DIST = path.join(PROJECT_DIR, 'packages/shared/dist');
-const DATA_DIR_NAME = '.keymemory';
-const DB_NAME = 'data.db';
 
 function isWSL() {
   if (process.platform !== 'linux') return false;
@@ -23,58 +21,30 @@ function isWSL() {
   }
 }
 
-function isOnWindowsFS() {
-  return PROJECT_DIR.startsWith('/mnt/');
-}
-
-function toWindowsPath(unixPath) {
-  if (unixPath.startsWith('/mnt/')) {
-    return unixPath.replace(/^\/mnt\/([a-z])/, (_, letter) => letter.toUpperCase() + ':').replace(/\//g, '\\');
-  }
-  const distro = process.env.WSL_DISTRO_NAME || 'Ubuntu';
-  return '\\\\wsl$\\' + distro + unixPath.replace(/\//g, '\\');
-}
-
-function syncDatabase() {
-  const linuxDbPath = path.join(os.homedir(), DATA_DIR_NAME, DB_NAME);
-  const winDataDir = path.join('/mnt/c/Users', process.env.USER || os.homedir().split('/').pop(), DATA_DIR_NAME);
-  const winDbPath = path.join(winDataDir, DB_NAME);
-
-  if (!fs.existsSync(linuxDbPath)) return;
-
-  if (!fs.existsSync(winDbPath)) {
-    if (!fs.existsSync(winDataDir)) {
-      fs.mkdirSync(winDataDir, { recursive: true });
-    }
-    fs.copyFileSync(linuxDbPath, winDbPath);
-    console.log('  \x1b[32m✓ 已从 Linux 同步数据库到 Windows\x1b[0m');
-    console.log('');
-    return;
-  }
-
-  try {
-    const linuxStat = fs.statSync(linuxDbPath);
-    const winStat = fs.statSync(winDbPath);
-    if (linuxStat.mtimeMs > winStat.mtimeMs) {
-      fs.copyFileSync(linuxDbPath, winDbPath);
-      console.log('  \x1b[32m✓ 已同步更新的数据库到 Windows\x1b[0m');
-      console.log('');
-    }
-  } catch {}
-}
-
 const WSL = isWSL();
-const ON_WIN_FS = isOnWindowsFS();
-const USE_NODE_EXE = WSL && ON_WIN_FS;
+const ON_WIN_FS = PROJECT_DIR.startsWith('/mnt/');
 
 console.log('');
 console.log('  \x1b[1m\x1b[36mKeyMemory\x1b[0m Web UI');
 console.log('  \x1b[2m─────────────────────\x1b[0m');
 console.log('');
 
-if (USE_NODE_EXE) {
-  console.log('  \x1b[2mℹ WSL 环境检测，将使用 Windows Node.js 运行服务\x1b[0m');
+if (WSL && ON_WIN_FS) {
+  const linuxDir = path.join(os.homedir(), 'KeyMemory');
+  console.log('  \x1b[33m⚠ 项目位于 Windows 文件系统 (/mnt/c/)，WSL 下无法直接运行\x1b[0m');
   console.log('');
+  console.log('  \x1b[2m原因: Windows 编译的原生模块(better-sqlite3)无法在 Linux 加载\x1b[0m');
+  console.log('');
+  console.log('  \x1b[1m推荐方案:\x1b[0m 在 Linux 文件系统上克隆项目');
+  console.log('');
+  console.log('    \x1b[36mgit clone https://github.com/digibeing1001/KeyMemory.git ' + linuxDir + '\x1b[0m');
+  console.log('    \x1b[36mcd ' + linuxDir + '\x1b[0m');
+  console.log('    \x1b[36mpnpm install && pnpm build\x1b[0m');
+  console.log('    \x1b[36mkeymemory-ui\x1b[0m');
+  console.log('');
+  console.log('  \x1b[2m或在 Windows PowerShell 中运行 keymemory-ui\x1b[0m');
+  console.log('');
+  process.exit(1);
 }
 
 const needsBuild = !fs.existsSync(SERVER_ENTRY) || !fs.existsSync(WEB_DIST) || !fs.existsSync(SHARED_DIST);
@@ -117,34 +87,13 @@ if (!fs.existsSync(WEB_DIST)) {
   console.log('');
 }
 
-if (USE_NODE_EXE) {
-  syncDatabase();
-}
-
 const PORT = 3210;
 
-let nodeCmd, nodeArgs, nodeCwd, useShell;
-
-if (USE_NODE_EXE) {
-  nodeCmd = 'cmd.exe';
-  nodeArgs = ['/c', 'node', toWindowsPath(SERVER_ENTRY)];
-  nodeCwd = PROJECT_DIR;
-  useShell = false;
-} else {
-  nodeCmd = 'node';
-  nodeArgs = [SERVER_ENTRY];
-  nodeCwd = PROJECT_DIR;
-  useShell = false;
-}
-
-const spawnOpts = {
-  cwd: nodeCwd,
+const serverProc = spawn('node', [SERVER_ENTRY], {
+  cwd: PROJECT_DIR,
   stdio: 'inherit',
   env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
-  shell: useShell,
-};
-
-const serverProc = spawn(nodeCmd, nodeArgs, spawnOpts);
+});
 
 console.log('  \x1b[2m⏳ 启动服务...\x1b[0m');
 
