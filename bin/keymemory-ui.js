@@ -57,10 +57,16 @@ if (needsBuild) {
   try {
     execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
-    console.log('');
-    console.log('  \x1b[31m❌ 依赖安装失败，请检查 pnpm 是否已安装\x1b[0m');
-    console.log('  \x1b[2m安装 pnpm: npm install -g pnpm\x1b[0m');
-    process.exit(1);
+    const nodeModulesExists = fs.existsSync(path.join(PROJECT_DIR, 'node_modules'));
+    if (nodeModulesExists) {
+      console.log('');
+      console.log('  \x1b[33m⚠ 部分依赖安装脚本失败（不影响核心功能）\x1b[0m');
+    } else {
+      console.log('');
+      console.log('  \x1b[31m❌ 依赖安装失败，请检查 pnpm 是否已安装\x1b[0m');
+      console.log('  \x1b[2m安装 pnpm: npm install -g pnpm\x1b[0m');
+      process.exit(1);
+    }
   }
 
   console.log('');
