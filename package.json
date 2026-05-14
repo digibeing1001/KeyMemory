@@ -12,7 +12,7 @@
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
-    "setup": "node --experimental-vm-modules packages/server/dist/setup.js",
+    "setup": "node bin/install.js",
     "update": "node update-keymemory.js",
     "download-model": "node scripts/download-model.js",
     "install:local": "pnpm build && pnpm --filter keymemory-mcp link",
