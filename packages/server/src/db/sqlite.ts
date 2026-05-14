@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 import { DATA_DIR_NAME, DB_NAME } from '@keymemory/shared';
 
 let db: Database.Database | null = null;
@@ -164,6 +165,76 @@ function runMigrations(db: Database.Database): void {
       db.exec(stmt);
     } catch {}
   }
+
+  ensureWelcomeMemory(db);
+}
+
+function ensureWelcomeMemory(db: Database.Database): void {
+  const WELCOME_SOURCE_ID = 'keymemory-welcome';
+  const existing = db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active'").get(WELCOME_SOURCE_ID);
+  if (existing) return;
+
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  const title = '欢迎使用 KeyMemory';
+  const content = `## 关于 KeyMemory
+
+KeyMemory 是一个五层记忆系统，帮助 AI Agent 拥有持久化的记忆能力。
+
+### 五层记忆模型
+
+| 层级 | 名称 | 用途 |
+|------|------|------|
+| 闪念 | flash | 灵感、想法、临时笔记 |
+| 短期 | short | 近期任务、待办事项 |
+| 长期 | long | 知识、经验、学习笔记 |
+| 项目 | project | 项目相关的会议、决策、进展 |
+| 人事物 | entity | 人物、组织、关键对象 |
+
+### 核心功能
+
+- **记忆存储**：支持五个层级，每条记忆自动提取标签
+- **语义搜索**：基于内容相似度搜索相关记忆
+- **星云图**：可视化记忆之间的关联网络
+- **标签云**：直观展示记忆内容的分布
+- **时间线**：按时间追溯记忆的创建与更新
+- **MCP 接口**：AI Agent 通过标准协议读写记忆
+
+### 使用方式
+
+1. 在侧边栏切换层级筛选记忆
+2. 点击记忆卡片查看详情
+3. 使用搜索框进行语义搜索
+4. 切换到星云图查看记忆关联
+5. 切换到标签云浏览内容分布
+
+> 这是一条系统介绍记忆，安装后自动创建。`;
+  const tags = JSON.stringify(['KeyMemory', '介绍', '使用指南']);
+
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO memories (id, title, content, layer, agent_space, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, source, source_id)
+      VALUES (@id, @title, @content, @layer, @agentSpace, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @source, @sourceId)
+    `).run({
+      id, title, content,
+      layer: 'long',
+      agentSpace: 'global',
+      confidence: 1.0,
+      hitCount: 0,
+      status: 'active',
+      decayFactor: 1.0,
+      createdAt: now,
+      updatedAt: now,
+      tags,
+      source: 'system',
+      sourceId: WELCOME_SOURCE_ID,
+    });
+
+    db.prepare(`
+      INSERT INTO memories_fts (rowid, title, content, project)
+      VALUES ((SELECT rowid FROM memories WHERE id = @id), @title, @content, @project)
+    `).run({ id, title, content, project: null });
+  })();
 }
 
 export function getDatabase(): Database.Database {

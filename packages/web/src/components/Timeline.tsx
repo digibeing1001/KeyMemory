@@ -102,43 +102,44 @@ export default function Timeline({ memories }: TimelineProps) {
 
   if (events.length === 0) {
     return (
-      <div className="flex items-center justify-center py-12" style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex items-center justify-center py-12" style={{ color: 'var(--text-tertiary)' }}>
         <p className="text-sm">暂无时间线事件</p>
       </div>
     );
   }
 
   return (
-    <div className="relative pl-6">
+    <div className="relative pl-7">
       <div
-        className="absolute left-[7px] top-2 bottom-2"
-        style={{ width: 1.5, background: 'var(--border)' }}
+        className="absolute left-[8px] top-2 bottom-2"
+        style={{ width: 1.5, background: 'var(--border)', borderRadius: 1 }}
       />
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         {events.map((event) => {
           const cfg = LAYER_CONFIG[event.layer];
           const IconComponent = EVENT_ICONS[event.type];
           return (
-            <div key={event.id} className="timeline-item relative">
+            <div key={event.id} className="relative">
               <div
-                className="absolute top-2.5 rounded-full"
+                className="absolute top-3 rounded-full"
                 style={{
-                  width: 8,
-                  height: 8,
+                  width: 9,
+                  height: 9,
                   background: cfg.color,
-                  boxShadow: `0 0 0 2px var(--bg-card)`,
-                  left: -22,
+                  boxShadow: `0 0 0 2.5px var(--bg-card)`,
+                  left: -25,
                 }}
               />
               <div
-                className="rounded-lg px-3 py-2"
                 style={{
                   background: 'var(--bg-card)',
-                  borderRadius: 'var(--radius-sm)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border)',
+                  padding: '10px 12px',
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <IconComponent size={12} style={{ color: cfg.color, flexShrink: 0 }} />
+                  <IconComponent size={13} style={{ color: cfg.color, flexShrink: 0 }} />
                   <span
                     className="truncate"
                     style={{
@@ -146,17 +147,20 @@ export default function Timeline({ memories }: TimelineProps) {
                       color: 'var(--text-primary)',
                       lineHeight: '18px',
                       maxWidth: '100%',
+                      fontWeight: 500,
+                      letterSpacing: '-0.01em',
                     }}
                   >
                     {event.title}
                   </span>
                   <span
-                    className="shrink-0 rounded px-1.5 py-0.5"
+                    className="shrink-0 rounded px-2 py-0.5"
                     style={{
-                      fontSize: 10,
+                      fontSize: 11,
                       color: cfg.color,
-                      background: `${cfg.color}18`,
-                      lineHeight: '14px',
+                      background: `${cfg.color}14`,
+                      lineHeight: '16px',
+                      fontWeight: 500,
                     }}
                   >
                     {cfg.label}
@@ -172,22 +176,24 @@ export default function Timeline({ memories }: TimelineProps) {
                     {timeAgo(event.timestamp)}
                   </span>
                 </div>
-                <div className="mt-0.5 flex items-center gap-1.5">
+                <div className="mt-1 flex items-center gap-2">
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 11,
                       color: 'var(--text-tertiary)',
+                      lineHeight: '16px',
                     }}
                   >
                     {EVENT_LABELS[event.type]}
                   </span>
                   {event.detail && (
                     <>
-                      <span style={{ color: 'var(--text-tertiary)', fontSize: 10 }}>·</span>
+                      <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>·</span>
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 11,
                           color: 'var(--text-tertiary)',
+                          lineHeight: '16px',
                         }}
                       >
                         {event.detail}

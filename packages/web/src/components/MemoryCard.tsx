@@ -46,25 +46,25 @@ export default function MemoryCard({ memory, onClick, score, matchType }: Memory
 
         <div className="result-meta">
           {memory.tags && memory.tags.length > 0 && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
               <Tag size={12} />
               {memory.tags.slice(0, 3).map((tag) => (
                 <span
                   key={tag}
                   style={{
-                    fontSize: 11,
-                    padding: '1px 6px',
+                    fontSize: 12,
+                    padding: '2px 8px',
                     borderRadius: 'var(--radius-xs)',
                     background: 'var(--bg-muted)',
                     color: 'var(--text-secondary)',
-                    lineHeight: '16px',
+                    lineHeight: '18px',
                   }}
                 >
                   {tag}
                 </span>
               ))}
               {memory.tags.length > 3 && (
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                   +{memory.tags.length - 3}
                 </span>
               )}
@@ -72,16 +72,16 @@ export default function MemoryCard({ memory, onClick, score, matchType }: Memory
           )}
 
           {memory.source && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
               <Source size={12} />
               <span
                 style={{
-                  fontSize: 11,
-                  padding: '1px 6px',
+                  fontSize: 12,
+                  padding: '2px 8px',
                   borderRadius: 'var(--radius-xs)',
                   background: 'var(--bg-muted)',
                   color: 'var(--text-secondary)',
-                  lineHeight: '16px',
+                  lineHeight: '18px',
                 }}
               >
                 {memory.source}
@@ -89,7 +89,7 @@ export default function MemoryCard({ memory, onClick, score, matchType }: Memory
             </span>
           )}
 
-          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
             {new Date(memory.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
           </span>
         </div>

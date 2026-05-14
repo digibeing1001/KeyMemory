@@ -17,11 +17,11 @@ interface EditorProps {
 }
 
 const LAYER_COLORS: Record<Layer, string> = {
-  flash: 'var(--layer-flash)',
-  short: 'var(--layer-short)',
-  long: 'var(--layer-long)',
-  project: 'var(--layer-project)',
-  entity: 'var(--layer-entity)',
+  flash: '#FF9F0A',
+  short: '#007AFF',
+  long: '#34C759',
+  project: '#AF52DE',
+  entity: '#FF2D55',
 };
 
 function formatDate(dateStr: string): string {
@@ -53,9 +53,9 @@ export default function Editor({
 
   if (isCreating) {
     return (
-      <div className="flex h-full flex-col" style={{ background: 'var(--bg-card)' }}>
-        <div className="border-b px-4 py-2.5" style={{ borderColor: 'var(--border)' }}>
-          <h2 className="font-serif text-sm" style={{ color: 'var(--text-primary)' }}>新建记忆</h2>
+      <div className="flex h-full flex-col" style={{ background: 'transparent' }}>
+        <div className="px-6 py-4" style={{ borderBottom: '0.5px solid var(--border)' }}>
+          <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>新建记忆</h2>
         </div>
         <MarkdownEditor onSave={onSave} onCancel={onCancelCreate} loading={loading} />
       </div>
@@ -68,9 +68,9 @@ export default function Editor({
 
   if (isEditing) {
     return (
-      <div className="flex h-full flex-col" style={{ background: 'var(--bg-card)' }}>
-        <div className="border-b px-4 py-2.5" style={{ borderColor: 'var(--border)' }}>
-          <h2 className="font-serif text-sm" style={{ color: 'var(--text-primary)' }}>编辑记忆</h2>
+      <div className="flex h-full flex-col" style={{ background: 'transparent' }}>
+        <div className="px-6 py-4" style={{ borderBottom: '0.5px solid var(--border)' }}>
+          <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>编辑记忆</h2>
         </div>
         <MarkdownEditor
           memory={memory}
@@ -89,139 +89,187 @@ export default function Editor({
   const layerColor = LAYER_COLORS[memory.layer];
 
   return (
-    <div className="flex h-full flex-col" style={{ background: 'var(--bg-card)' }}>
-      <div className="border-b px-4 py-2.5" style={{ borderColor: 'var(--border)' }}>
-        <div className="flex items-center justify-between">
-          <h2 className="font-serif text-sm line-clamp-1" style={{ color: 'var(--text-primary)' }}>{memory.title}</h2>
-          <div className="flex items-center gap-0.5">
+    <div className="flex h-full flex-col" style={{ background: 'transparent' }}>
+      <div
+        className="shrink-0"
+        style={{
+          padding: '20px 32px 16px',
+          borderBottom: '0.5px solid var(--border)',
+        }}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2
+            className="line-clamp-2"
+            style={{
+              fontSize: 20,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              letterSpacing: '-0.03em',
+              lineHeight: 1.3,
+              flex: 1,
+              marginRight: 16,
+            }}
+          >
+            {memory.title}
+          </h2>
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setIsEditing(true)}
-              className="rounded p-1"
-              style={{ color: 'var(--text-tertiary)', transition: 'color var(--transition-fast)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-              title="编辑"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              style={{ color: 'var(--text-secondary)', background: 'var(--bg-muted)', transition: 'all var(--transition-fast)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-light)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-muted)'; }}
             >
-              <Edit size={14} />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Edit size={13} /> 编辑</span>
             </button>
             <button
               onClick={() => onArchive(memory.id)}
-              className="rounded p-1"
-              style={{ color: 'var(--text-tertiary)', transition: 'color var(--transition-fast)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-              title="归档"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              style={{ color: 'var(--text-secondary)', background: 'var(--bg-muted)', transition: 'all var(--transition-fast)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--warning)'; e.currentTarget.style.background = 'rgba(255,159,10,0.08)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-muted)'; }}
             >
-              <Archive size={14} />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Archive size={13} /> 归档</span>
             </button>
             <button
               onClick={() => onDelete(memory.id)}
-              className="rounded p-1"
-              style={{ color: 'var(--text-tertiary)', transition: 'color var(--transition-fast)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-              title="删除"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              style={{ color: 'var(--text-secondary)', background: 'var(--bg-muted)', transition: 'all var(--transition-fast)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.background = 'var(--danger-light)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'var(--bg-muted)'; }}
             >
-              <Trash size={14} />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Trash size={13} /> 删除</span>
             </button>
           </div>
         </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           <span
-            className="rounded px-2 py-0.5 text-xs font-semibold"
-            style={{ background: `${layerColor}15`, color: layerColor }}
+            className="rounded-md px-3 py-1 text-xs font-semibold"
+            style={{ background: `${layerColor}14`, color: layerColor }}
           >
             {config.label}
           </span>
           {memory.project && (
-            <span className="rounded px-2 py-0.5 text-[10px] font-semibold" style={{ background: 'rgba(139,92,246,0.1)', color: 'var(--layer-project)' }}>
+            <span className="rounded-md px-3 py-1 text-xs font-semibold" style={{ background: 'rgba(175,82,222,0.08)', color: 'var(--layer-project)' }}>
               {memory.project}
             </span>
           )}
-          <span className="rounded px-2 py-0.5 text-[10px]" style={{ background: 'var(--bg-muted)', color: 'var(--text-tertiary)' }}>
-            {Math.round(memory.confidence * 100)}%
+          <span className="rounded-md px-2.5 py-1 text-xs font-medium" style={{ background: 'var(--bg-muted)', color: 'var(--text-tertiary)' }}>
+            置信度 {Math.round(memory.confidence * 100)}%
           </span>
-        </div>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>·</span>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>创建 {formatDate(memory.createdAt)}</span>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>·</span>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>访问 {memory.hitCount} 次</span>
 
-        <div className="mb-3 text-[10px] leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
-          <div>创建 {formatDate(memory.createdAt)}</div>
-          <div>更新 {formatDate(memory.updatedAt)}</div>
-          <div>访问 {memory.hitCount} 次</div>
-        </div>
-
-        <MarkdownRenderer content={memory.content} />
-
-        {memory.tags && memory.tags.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-1">
-            <Tag size={11} style={{ color: 'var(--text-tertiary)' }} />
-            {memory.tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                style={{ background: 'var(--bg-muted)', color: 'var(--text-secondary)' }}
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {memory.source && (
-          <div className="mt-2">
-            <span
-              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium"
-              style={{ background: 'rgba(5,150,105,0.08)', color: 'var(--layer-long)' }}
-            >
-              <Source size={10} />
-              {memory.source}
-            </span>
-          </div>
-        )}
-
-        {memory.metadata && Object.keys(memory.metadata).length > 0 && (
-          <div className="mt-3">
-            <button
-              onClick={() => setMetadataExpanded(!metadataExpanded)}
-              className="flex items-center gap-1 text-[10px] font-medium"
-              style={{ color: 'var(--text-tertiary)' }}
-            >
-              <ChevronRight size={10} style={{ transform: metadataExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform var(--transition-fast)' }} />
-              元数据 ({Object.keys(memory.metadata).length})
-            </button>
-            {metadataExpanded && (
-              <div
-                className="mt-1.5 rounded-lg p-2.5 text-[11px] leading-relaxed"
-                style={{ background: 'var(--bg-muted)', color: 'var(--text-secondary)' }}
-              >
-                {Object.entries(memory.metadata).map(([k, v]) => (
-                  <div key={k} className="flex gap-2 py-0.5">
-                    <span className="font-medium" style={{ color: 'var(--text-tertiary)' }}>{k}</span>
-                    <span>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
-                  </div>
+          {memory.tags && memory.tags.length > 0 && (
+            <>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>·</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Tag size={11} style={{ color: 'var(--text-tertiary)' }} />
+                {memory.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full px-2.5 py-0.5 text-xs font-medium"
+                    style={{ background: 'var(--bg-muted)', color: 'var(--text-secondary)' }}
+                  >
+                    {tag}
+                  </span>
                 ))}
-              </div>
-            )}
-          </div>
-        )}
+              </span>
+            </>
+          )}
 
-        <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>移动到层级</p>
-          <div className="flex flex-wrap gap-1">
-            {LAYERS.filter((l) => l !== memory.layer).map((l) => (
+          {memory.source && (
+            <>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>·</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Source size={11} style={{ color: 'var(--text-tertiary)' }} />
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{memory.source}</span>
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto" style={{ padding: '32px 32px 40px' }}>
+        <div style={{ maxWidth: 800, margin: '0 auto' }}>
+          <MarkdownRenderer content={memory.content} />
+
+          {memory.metadata && Object.keys(memory.metadata).length > 0 && (
+            <div className="mt-8 pt-6" style={{ borderTop: '0.5px solid var(--border)' }}>
               <button
-                key={l}
-                onClick={() => onMoveLayer(memory.id, l)}
-                className="rounded px-2 py-1 text-xs font-medium"
-                style={{ background: `${LAYER_COLORS[l]}12`, color: LAYER_COLORS[l], transition: 'opacity var(--transition-fast)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.75'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                onClick={() => setMetadataExpanded(!metadataExpanded)}
+                className="flex items-center gap-1.5 text-xs font-medium mb-2"
+                style={{ color: 'var(--text-tertiary)' }}
               >
-                {LAYER_CONFIG[l].label}
+                <ChevronRight size={12} style={{ transform: metadataExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform var(--transition-fast)' }} />
+                元数据 ({Object.keys(memory.metadata).length})
               </button>
-            ))}
+              {metadataExpanded && (
+                <div
+                  className="rounded-xl p-4 text-xs leading-relaxed"
+                  style={{ background: 'var(--bg-muted)', color: 'var(--text-secondary)' }}
+                >
+                  {Object.entries(memory.metadata).map(([k, v]) => (
+                    <div key={k} className="flex gap-3 py-1">
+                      <span className="font-medium" style={{ color: 'var(--text-tertiary)', minWidth: 80 }}>{k}</span>
+                      <span>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-8 pt-6" style={{ borderTop: '0.5px solid var(--border)' }}>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)', letterSpacing: '0.06em' }}>移动到层级</p>
+            <div className="flex flex-wrap gap-2">
+              {LAYERS.filter((l) => l !== memory.layer).map((l) => {
+                const c = LAYER_COLORS[l];
+                return (
+                  <button
+                    key={l}
+                    onClick={() => onMoveLayer(memory.id, l)}
+                    className="rounded-lg px-4 py-2 text-sm font-medium"
+                    style={{
+                      background: `${c}0D`,
+                      color: c,
+                      border: `1.5px solid ${c}1A`,
+                      transition: 'all 200ms cubic-bezier(0.25, 0.1, 0.25, 1)',
+                      cursor: 'pointer',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = `${c}26`;
+                      e.currentTarget.style.borderColor = `${c}66`;
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = `0 6px 16px ${c}40`;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = `${c}0D`;
+                      e.currentTarget.style.borderColor = `${c}1A`;
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                    onMouseDown={(e) => {
+                      e.currentTarget.style.transform = 'translateY(1px)';
+                      e.currentTarget.style.background = `${c}40`;
+                      e.currentTarget.style.borderColor = c;
+                      e.currentTarget.style.boxShadow = `0 0 0 3px ${c}26, 0 2px 8px ${c}33`;
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.background = `${c}26`;
+                      e.currentTarget.style.borderColor = `${c}66`;
+                      e.currentTarget.style.boxShadow = `0 6px 16px ${c}40`;
+                    }}
+                  >
+                    {LAYER_CONFIG[l].label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

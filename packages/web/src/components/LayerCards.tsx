@@ -1,11 +1,10 @@
-import type { FC, CSSProperties } from 'react';
 import type { Layer } from '@keymemory/shared';
 import { LAYER_CONFIG, LAYERS } from '@keymemory/shared';
 import { Flash, Clock, Anchor, Folder, User } from './Icons';
 
 interface IconProps {
   className?: string;
-  style?: CSSProperties;
+  style?: React.CSSProperties;
   size?: number;
 }
 
@@ -23,7 +22,7 @@ const LAYER_COLORS: Record<Layer, string> = {
   entity: 'var(--layer-entity)',
 };
 
-const LAYER_ICONS: Record<Layer, FC<IconProps>> = {
+const LAYER_ICONS: Record<Layer, React.FC<IconProps>> = {
   flash: Flash,
   short: Clock,
   long: Anchor,
@@ -45,30 +44,52 @@ export default function LayerCards({ layerStats, activeLayer, onSelectLayer }: L
           <button
             key={layer}
             onClick={() => onSelectLayer(isActive ? null : layer)}
-            className="layer-card"
             style={{
               flex: 1,
-              height: 56,
+              height: 48,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '0 12px',
+              padding: '0 14px',
               border: 'none',
               cursor: 'pointer',
-              transition: 'all 0.15s ease',
+              transition: 'all var(--transition-fast)',
               background: isActive ? 'var(--accent-light)' : 'transparent',
-              borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+              borderRadius: 'var(--radius-md)',
               color: 'var(--text-primary)',
+              position: 'relative',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Icon size={18} style={{ color }} />
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>
+            {isActive && (
+              <div style={{
+                position: 'absolute',
+                bottom: 0,
+                left: '20%',
+                right: '20%',
+                height: 2.5,
+                background: 'var(--accent)',
+                borderRadius: '1px',
+              }} />
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon size={17} style={{ color: isActive ? 'var(--accent)' : color }} />
+              <span style={{
+                fontSize: 13,
+                fontWeight: isActive ? 600 : 500,
+                color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                letterSpacing: '-0.01em',
+              }}>
                 {config.label}
               </span>
             </div>
-            <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
-              {stats.count}
+            <span style={{
+              fontSize: 17,
+              fontWeight: 600,
+              color: isActive ? 'var(--accent)' : 'var(--text-primary)',
+              fontVariantNumeric: 'tabular-nums',
+              letterSpacing: '-0.02em',
+            }}>
+              {stats.active}
             </span>
           </button>
         );

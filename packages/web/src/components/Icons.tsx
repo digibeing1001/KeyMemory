@@ -106,3 +106,11 @@ export const Source: FC<IconProps> = (p) => (
 export const Lightbulb: FC<IconProps> = (p) => (
   <I {...p}><path d="M10 2a5.5 5.5 0 00-3 10.08V14a1 1 0 001 1h4a1 1 0 001-1v-1.92A5.5 5.5 0 0010 2z" /><path d="M7.5 17h5M8 19h4" /></I>
 );
+
+export const Globe: FC<IconProps> = (p) => (
+  <I {...p}><circle cx="10" cy="10" r="8" /><path d="M2 10h16M10 2c-3 3-3 13 0 16M10 2c3 3 3 13 0 16" /></I>
+);
+
+export const ArrowLeft: FC<IconProps> = (p) => (
+  <I {...p}><path d="M12.5 4l-6 6 6 6" /></I>
+);

@@ -3,9 +3,11 @@ import type { Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport,
 const BASE = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const hasBody = options?.body != null;
+  const headers: Record<string, string> = hasBody ? { 'Content-Type': 'application/json' } : {};
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: { ...headers, ...(options?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -15,7 +17,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export async function getHealth(): Promise<HealthReport & { status: string; timestamp: string }> {
-  return request('/health');
+  return request('/health/report');
 }
 
 export async function listMemories(params?: {
@@ -83,4 +85,55 @@ export async function forgetMemory(id: string, method: 'archive' | 'decay' | 'de
     body: JSON.stringify({ method }),
   });
   return res.json();
+}
+
+export interface GraphNode {
+  id: string;
+  title: string;
+  layer: string;
+  tags?: string[];
+  project?: string;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  weight: number;
+  label?: string;
+}
+
+export interface MemoryGraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export async function getMemoryConnections(): Promise<MemoryGraphData> {
+  return request('/graph/memory-connections');
+}
+
+export interface TagItem {
+  name: string;
+  count: number;
+  layers?: Record<string, number>;
+}
+
+export interface TagCloudData {
+  tags: TagItem[];
+  projects: Array<{ name: string; count: number }>;
+  totalMemories: number;
+}
+
+export async function getTagCloud(): Promise<TagCloudData> {
+  return request('/graph/tag-cloud');
+}
+
+export interface AgentInfo {
+  agentId: string;
+  agentSpace: string;
+  memoryCount: number;
+}
+
+export async function getAgents(): Promise<AgentInfo[]> {
+  return request('/agents');
 }

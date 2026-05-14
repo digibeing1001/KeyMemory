@@ -299,4 +299,148 @@ export function registerRoutes(app: FastifyInstance): void {
       versions,
     };
   });
+
+  app.get('/api/graph/memory-connections', async () => {
+    const db = getDatabase();
+
+    const rows = db.prepare(`
+      SELECT id, title, layer, tags, project FROM memories WHERE status = 'active'
+    `).all() as { id: string; title: string; layer: string; tags: string | null; project: string | null }[];
+
+    const entityRows = db.prepare(`
+      SELECT me.memory_id, me.entity_id, e.name as entity_name
+      FROM memory_entities me
+      JOIN entities e ON e.id = me.entity_id
+      JOIN memories m ON m.id = me.memory_id AND m.status = 'active'
+    `).all() as { memory_id: string; entity_id: string; entity_name: string }[];
+
+    const nodes = rows.map(r => ({
+      id: r.id,
+      title: r.title,
+      layer: r.layer,
+      tags: r.tags ? JSON.parse(r.tags) : [],
+      project: r.project,
+    }));
+
+    const memoryMap = new Map<string, typeof nodes[0]>();
+    for (const n of nodes) {
+      memoryMap.set(n.id, n);
+    }
+
+    const tagToMemories = new Map<string, string[]>();
+    for (const r of rows) {
+      const tags: string[] = r.tags ? JSON.parse(r.tags) : [];
+      for (const tag of tags) {
+        if (!tagToMemories.has(tag)) tagToMemories.set(tag, []);
+        tagToMemories.get(tag)!.push(r.id);
+      }
+    }
+
+    const projectToMemories = new Map<string, string[]>();
+    for (const r of rows) {
+      if (r.project) {
+        if (!projectToMemories.has(r.project)) projectToMemories.set(r.project, []);
+        projectToMemories.get(r.project)!.push(r.id);
+      }
+    }
+
+    const entityToMemories = new Map<string, { name: string; memoryIds: string[] }>();
+    for (const er of entityRows) {
+      if (!entityToMemories.has(er.entity_id)) {
+        entityToMemories.set(er.entity_id, { name: er.entity_name, memoryIds: [] });
+      }
+      entityToMemories.get(er.entity_id)!.memoryIds.push(er.memory_id);
+    }
+
+    type EdgeKey = string;
+    const edgeMap = new Map<EdgeKey, { source: string; target: string; type: string; weight: number; labels: string[] }>();
+
+    const addEdge = (source: string, target: string, type: string, label: string) => {
+      const [a, b] = source < target ? [source, target] : [target, source];
+      const key = `${a}::${b}::${type}`;
+      const existing = edgeMap.get(key);
+      if (existing) {
+        existing.weight += 1;
+        existing.labels.push(label);
+      } else {
+        edgeMap.set(key, { source: a, target: b, type, weight: 1, labels: [label] });
+      }
+    };
+
+    for (const [tag, memIds] of tagToMemories) {
+      for (let i = 0; i < memIds.length; i++) {
+        for (let j = i + 1; j < memIds.length; j++) {
+          addEdge(memIds[i], memIds[j], 'shared_tag', tag);
+        }
+      }
+    }
+
+    for (const [project, memIds] of projectToMemories) {
+      for (let i = 0; i < memIds.length; i++) {
+        for (let j = i + 1; j < memIds.length; j++) {
+          addEdge(memIds[i], memIds[j], 'shared_project', project);
+        }
+      }
+    }
+
+    for (const [, info] of entityToMemories) {
+      const memIds = info.memoryIds;
+      for (let i = 0; i < memIds.length; i++) {
+        for (let j = i + 1; j < memIds.length; j++) {
+          addEdge(memIds[i], memIds[j], 'shared_entity', info.name);
+        }
+      }
+    }
+
+    const edges = Array.from(edgeMap.values()).map(e => ({
+      source: e.source,
+      target: e.target,
+      type: e.type,
+      weight: e.weight,
+      label: e.labels.join(', '),
+    }));
+
+    return { nodes, edges };
+  });
+
+  app.get('/api/graph/tag-cloud', async () => {
+    const db = getDatabase();
+
+    const rows = db.prepare(`
+      SELECT tags, layer, project FROM memories WHERE status = 'active'
+    `).all() as { tags: string | null; layer: string; project: string | null }[];
+
+    const totalMemories = rows.length;
+
+    const tagData = new Map<string, { count: number; layers: Record<string, number> }>();
+    for (const r of rows) {
+      const tags: string[] = r.tags ? JSON.parse(r.tags) : [];
+      for (const tag of tags) {
+        const existing = tagData.get(tag);
+        if (existing) {
+          existing.count += 1;
+          existing.layers[r.layer] = (existing.layers[r.layer] || 0) + 1;
+        } else {
+          tagData.set(tag, { count: 1, layers: { [r.layer]: 1 } });
+        }
+      }
+    }
+
+    const tags = Array.from(tagData.entries())
+      .map(([name, data]) => ({ name, count: data.count, layers: data.layers }))
+      .sort((a, b) => b.count - a.count);
+
+    const projectData = new Map<string, number>();
+    for (const r of rows) {
+      if (r.project) {
+        projectData.set(r.project, (projectData.get(r.project) || 0) + 1);
+      }
+    }
+
+    const projects = Array.from(projectData.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return { tags, projects, totalMemories };
+  });
 }
