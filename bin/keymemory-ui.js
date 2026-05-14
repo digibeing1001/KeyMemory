@@ -11,6 +11,7 @@ const SERVER_ENTRY = path.join(PROJECT_DIR, 'packages/server/dist/index.js');
 const WEB_DIST = path.join(PROJECT_DIR, 'packages/web/dist');
 const SHARED_DIST = path.join(PROJECT_DIR, 'packages/shared/dist');
 const DATA_DIR_NAME = '.keymemory';
+const DB_NAME = 'data.db';
 
 function isWSL() {
   if (process.platform !== 'linux') return false;
@@ -32,6 +33,34 @@ function toWindowsPath(unixPath) {
   }
   const distro = process.env.WSL_DISTRO_NAME || 'Ubuntu';
   return '\\\\wsl$\\' + distro + unixPath.replace(/\//g, '\\');
+}
+
+function syncDatabase() {
+  const linuxDbPath = path.join(os.homedir(), DATA_DIR_NAME, DB_NAME);
+  const winDataDir = path.join('/mnt/c/Users', process.env.USER || os.homedir().split('/').pop(), DATA_DIR_NAME);
+  const winDbPath = path.join(winDataDir, DB_NAME);
+
+  if (!fs.existsSync(linuxDbPath)) return;
+
+  if (!fs.existsSync(winDbPath)) {
+    if (!fs.existsSync(winDataDir)) {
+      fs.mkdirSync(winDataDir, { recursive: true });
+    }
+    fs.copyFileSync(linuxDbPath, winDbPath);
+    console.log('  \x1b[32m✓ 已从 Linux 同步数据库到 Windows\x1b[0m');
+    console.log('');
+    return;
+  }
+
+  try {
+    const linuxStat = fs.statSync(linuxDbPath);
+    const winStat = fs.statSync(winDbPath);
+    if (linuxStat.mtimeMs > winStat.mtimeMs) {
+      fs.copyFileSync(linuxDbPath, winDbPath);
+      console.log('  \x1b[32m✓ 已同步更新的数据库到 Windows\x1b[0m');
+      console.log('');
+    }
+  } catch {}
 }
 
 const WSL = isWSL();
@@ -56,11 +85,7 @@ if (needsBuild) {
 
   console.log('  \x1b[2m[1/2] 安装依赖...\x1b[0m');
   try {
-    if (USE_NODE_EXE) {
-      execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
-    } else {
-      execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
-    }
+    execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
     console.log('');
     console.log('  \x1b[31m❌ 依赖安装失败，请检查 pnpm 是否已安装\x1b[0m');
@@ -92,6 +117,10 @@ if (!fs.existsSync(WEB_DIST)) {
   console.log('');
 }
 
+if (USE_NODE_EXE) {
+  syncDatabase();
+}
+
 const PORT = 3210;
 
 let nodeCmd, nodeArgs, nodeCwd, useShell;
@@ -111,11 +140,7 @@ if (USE_NODE_EXE) {
 const spawnOpts = {
   cwd: nodeCwd,
   stdio: 'inherit',
-  env: {
-    ...process.env,
-    KEYMEMORY_PRESET: 'hermes',
-    ...(USE_NODE_EXE ? { KEYMEMORY_DATA_DIR: toWindowsPath(path.join(os.homedir(), DATA_DIR_NAME)) } : {}),
-  },
+  env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
   shell: useShell,
 };
 
