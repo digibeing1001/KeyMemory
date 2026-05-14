@@ -13,7 +13,7 @@
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
     "setup": "node --experimental-vm-modules packages/server/dist/setup.js",
-    "update": "node update-hermes.js",
+    "update": "node update-keymemory.js",
     "download-model": "node scripts/download-model.js",
     "install:local": "pnpm build && pnpm --filter keymemory-mcp link",
     "install-memory": "node install-default-memory.js",

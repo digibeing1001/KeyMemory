@@ -162,10 +162,10 @@ node install-default-memory.js --all
 
 ```bash
 # Windows
-update-hermes.bat
+update-keymemory.bat
 
 # 或手动运行
-node update-hermes.js
+node update-keymemory.js
 ```
 
 ### 环境变量
@@ -282,14 +282,13 @@ KeyMemory/
 │           ├── components/    # UI 组件
 │           ├── views/         # 页面视图
 │           ├── hooks/         # 自定义 Hook
-│           └── lib/           # API 客户端
-├── scripts/
-│   └── download-model.js   # 模型下载脚本（含镜像支持）
-├── setup-hermes.js         # Hermes 一键配置
-├── start-ui.js             # Web UI 一键启动
-├── update-hermes.js        # 增量更新
-├── install-default-memory.js  # 设为默认记忆系统
-└── pnpm-workspace.yaml
+│   ├── scripts/
+│   │   └── download-model.js   # 模型下载脚本（含镜像支持）
+│   ├── setup-hermes.js         # Hermes 一键配置
+│   ├── start-ui.js             # Web UI 一键启动
+│   ├── update-keymemory.js     # 增量更新
+│   ├── install-default-memory.js  # 设为默认记忆系统
+│   └── pnpm-workspace.yaml
 ```
 
 ## 技术栈

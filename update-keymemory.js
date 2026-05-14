@@ -80,7 +80,7 @@ if (statusOutput) {
     console.log('   选项：');
     console.log('     1. 手动提交或还原修改后重新运行');
     console.log('     2. 使用 --stash 参数自动暂存修改');
-    console.log('        例: node update-hermes.js --stash');
+    console.log('        例: node update-keymemory.js --stash');
     console.log('\n⚠️  跳过更新。请处理本地修改后重试。');
     process.exit(1);
   }
@@ -126,8 +126,7 @@ if (pullResult === null) {
   console.error('   请手动解决：');
   console.error('     1. git pull origin ' + currentBranch);
   console.error('     2. 解决冲突后 git commit');
-  console.error('     3. 重新运行 node update-hermes.js');
-  process.exit(1);
+  console.error('     3. 重新运行 node update-keymemory.js');
 }
 console.log('✅ 更新合并成功');
 
