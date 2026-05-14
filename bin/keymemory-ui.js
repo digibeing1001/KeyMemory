@@ -53,15 +53,12 @@ if (needsBuild) {
   console.log('  \x1b[33m🔨 首次启动，安装依赖并构建项目...\x1b[0m');
   console.log('');
 
-  console.log('  \x1b[2m[1/2] 安装依赖...\x1b[0m');
+  console.log('  \x1b[2m[1/3] 安装依赖...\x1b[0m');
   try {
-    execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('pnpm install --ignore-scripts', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
     const nodeModulesExists = fs.existsSync(path.join(PROJECT_DIR, 'node_modules'));
-    if (nodeModulesExists) {
-      console.log('');
-      console.log('  \x1b[33m⚠ 部分依赖安装脚本失败（不影响核心功能）\x1b[0m');
-    } else {
+    if (!nodeModulesExists) {
       console.log('');
       console.log('  \x1b[31m❌ 依赖安装失败，请检查 pnpm 是否已安装\x1b[0m');
       console.log('  \x1b[2m安装 pnpm: npm install -g pnpm\x1b[0m');
@@ -70,13 +67,26 @@ if (needsBuild) {
   }
 
   console.log('');
-  console.log('  \x1b[2m[2/2] 构建项目...\x1b[0m');
+  console.log('  \x1b[2m[2/3] 编译原生模块...\x1b[0m');
   try {
-    execSync('pnpm build', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('pnpm rebuild better-sqlite3', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
-    console.log('');
-    console.log('  \x1b[31m❌ 构建失败\x1b[0m');
-    process.exit(1);
+    console.log('  \x1b[33m⚠ 原生模块编译失败，将尝试继续...\x1b[0m');
+  }
+
+  console.log('');
+  console.log('  \x1b[2m[3/3] 构建项目...\x1b[0m');
+  try {
+    execSync('npx tsc -p packages/shared/tsconfig.json', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('npx tsc -p packages/server/tsconfig.json', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    execSync('npx vite build packages/web', { cwd: PROJECT_DIR, stdio: 'inherit' });
+  } catch {
+    if (!fs.existsSync(SERVER_ENTRY)) {
+      console.log('');
+      console.log('  \x1b[31m❌ 构建失败\x1b[0m');
+      process.exit(1);
+    }
+    console.log('  \x1b[33m⚠ 部分构建失败，将尝试启动已有构建产物...\x1b[0m');
   }
   console.log('');
 }
