@@ -12,7 +12,8 @@
   "main": "./dist/index.js",
   "bin": {
     "keymemory-mcp": "./dist/mcp-server.js",
-    "keymemory-setup": "./dist/setup.js"
+    "keymemory-setup": "./dist/setup.js",
+    "keymemory-ui": "../../bin/keymemory-ui.js"
   },
   "files": [
     "dist",
