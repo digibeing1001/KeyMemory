@@ -102,7 +102,7 @@ if (!fs.existsSync(WEB_DIST)) {
 
 const PORT = 3210;
 
-let nodeCmd, nodeArgs, nodeCwd;
+let nodeCmd, nodeArgs, nodeCwd, useShell;
 
 if (USE_NODE_EXE) {
   const nodeExePath = findNodeExe();
@@ -114,22 +114,21 @@ if (USE_NODE_EXE) {
 
   nodeCmd = nodeExePath;
   nodeArgs = [toWindowsPath(SERVER_ENTRY)];
-  nodeCwd = toWindowsPath(PROJECT_DIR);
+  nodeCwd = PROJECT_DIR;
+  useShell = true;
 } else {
   nodeCmd = 'node';
   nodeArgs = [SERVER_ENTRY];
   nodeCwd = PROJECT_DIR;
+  useShell = false;
 }
 
 const spawnOpts = {
   cwd: nodeCwd,
   stdio: 'inherit',
   env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
+  shell: useShell,
 };
-
-if (USE_NODE_EXE) {
-  spawnOpts.shell = true;
-}
 
 const serverProc = spawn(nodeCmd, nodeArgs, spawnOpts);
 
