@@ -10,7 +10,51 @@ const PROJECT_DIR = path.resolve(__dirname, '..');
 const SERVER_ENTRY = path.join(PROJECT_DIR, 'packages/server/dist/index.js');
 const WEB_DIST = path.join(PROJECT_DIR, 'packages/web/dist');
 const SHARED_DIST = path.join(PROJECT_DIR, 'packages/shared/dist');
-const IS_WSL = !!process.env.WSL_DISTRO_NAME || fs.existsSync('/proc/version') && fs.readFileSync('/proc/version', 'utf-8').includes('microsoft');
+
+function isWSL() {
+  if (process.platform !== 'linux') return false;
+  if (process.env.WSL_DISTRO_NAME) return true;
+  try {
+    return fs.readFileSync('/proc/version', 'utf-8').toLowerCase().includes('microsoft');
+  } catch {
+    return false;
+  }
+}
+
+function nativeModulesNeedRebuild() {
+  const sqlitePaths = [
+    path.join(PROJECT_DIR, 'node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'),
+  ];
+  for (const p of sqlitePaths) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      const fd = fs.openSync(p, 'r');
+      const buf = Buffer.alloc(4);
+      fs.readSync(fd, buf, 0, 4, 0);
+      fs.closeSync(fd);
+      if (buf[0] === 0x4d && buf[1] === 0x5a) return true;
+    } catch {}
+  }
+
+  const pnpmDir = path.join(PROJECT_DIR, 'node_modules/.pnpm');
+  if (fs.existsSync(pnpmDir)) {
+    try {
+      const entries = fs.readdirSync(pnpmDir).filter(e => e.startsWith('better-sqlite3@'));
+      for (const entry of entries) {
+        const nodeFile = path.join(pnpmDir, entry, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node');
+        if (!fs.existsSync(nodeFile)) continue;
+        const fd = fs.openSync(nodeFile, 'r');
+        const buf = Buffer.alloc(4);
+        fs.readSync(fd, buf, 0, 4, 0);
+        fs.closeSync(fd);
+        if (buf[0] === 0x4d && buf[1] === 0x5a) return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
+const WSL = isWSL();
 
 console.log('');
 console.log('  \x1b[1m\x1b[36mKeyMemory\x1b[0m Web UI');
@@ -23,7 +67,7 @@ if (needsBuild) {
   console.log('  \x1b[33m🔨 首次启动，安装依赖并构建项目...\x1b[0m');
   console.log('');
 
-  console.log('  \x1b[2m[1/2] 安装依赖...\x1b[0m');
+  console.log('  \x1b[2m[1/3] 安装依赖...\x1b[0m');
   try {
     execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
@@ -33,8 +77,18 @@ if (needsBuild) {
     process.exit(1);
   }
 
+  if (WSL) {
+    console.log('');
+    console.log('  \x1b[2m[2/3] 重新编译原生模块 (WSL)...\x1b[0m');
+    try {
+      execSync('pnpm rebuild better-sqlite3', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    } catch {
+      console.log('  \x1b[33m⚠ 原生模块重编译失败，尝试继续...\x1b[0m');
+    }
+  }
+
   console.log('');
-  console.log('  \x1b[2m[2/2] 构建项目...\x1b[0m');
+  console.log('  \x1b[2m[3/3] 构建项目...\x1b[0m');
   try {
     execSync('pnpm build', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
@@ -43,6 +97,20 @@ if (needsBuild) {
     process.exit(1);
   }
   console.log('');
+} else if (WSL && nativeModulesNeedRebuild()) {
+  console.log('  \x1b[33m🔧 检测到 WSL 环境，原生模块需要重新编译...\x1b[0m');
+  console.log('');
+  try {
+    execSync('pnpm rebuild better-sqlite3', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    console.log('');
+    console.log('  \x1b[32m✓ 原生模块已重新编译\x1b[0m');
+    console.log('');
+  } catch {
+    console.log('');
+    console.log('  \x1b[31m❌ 原生模块重编译失败\x1b[0m');
+    console.log('  \x1b[2m请确保已安装编译工具: sudo apt install build-essential python3\x1b[0m');
+    process.exit(1);
+  }
 }
 
 if (!fs.existsSync(SERVER_ENTRY)) {
