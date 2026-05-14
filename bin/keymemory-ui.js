@@ -29,18 +29,17 @@ function toWindowsPath(unixPath) {
   return unixPath.replace(/^\/mnt\/([a-z])/, (_, letter) => letter.toUpperCase() + ':').replace(/\//g, '\\');
 }
 
-function canUseNodeExe() {
+function findNodeExe() {
   try {
-    execSync('which node.exe 2>/dev/null', { encoding: 'utf-8' });
-    return true;
-  } catch {
-    try {
-      execSync('node.exe --version', { encoding: 'utf-8', stdio: 'pipe' });
-      return true;
-    } catch {
-      return false;
-    }
+    const result = execSync('which node.exe 2>/dev/null', { encoding: 'utf-8' }).trim();
+    if (result) return result;
+  } catch {}
+  const winPaths = (process.env.PATH || '').split(':');
+  for (const p of winPaths) {
+    const candidate = path.join(p, 'node.exe');
+    if (fs.existsSync(candidate)) return candidate;
   }
+  return null;
 }
 
 const WSL = isWSL();
@@ -106,13 +105,14 @@ const PORT = 3210;
 let nodeCmd, nodeArgs, nodeCwd;
 
 if (USE_NODE_EXE) {
-  if (!canUseNodeExe()) {
+  const nodeExePath = findNodeExe();
+  if (!nodeExePath) {
     console.log('  \x1b[31m❌ WSL 环境下需要 node.exe，但未找到\x1b[0m');
     console.log('  \x1b[2m请确保 Windows 上已安装 Node.js，或在 Windows PowerShell 中运行 keymemory-ui\x1b[0m');
     process.exit(1);
   }
 
-  nodeCmd = 'node.exe';
+  nodeCmd = nodeExePath;
   nodeArgs = [toWindowsPath(SERVER_ENTRY)];
   nodeCwd = toWindowsPath(PROJECT_DIR);
 } else {
@@ -121,11 +121,17 @@ if (USE_NODE_EXE) {
   nodeCwd = PROJECT_DIR;
 }
 
-const serverProc = spawn(nodeCmd, nodeArgs, {
+const spawnOpts = {
   cwd: nodeCwd,
   stdio: 'inherit',
   env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
-});
+};
+
+if (USE_NODE_EXE) {
+  spawnOpts.shell = true;
+}
+
+const serverProc = spawn(nodeCmd, nodeArgs, spawnOpts);
 
 console.log('  \x1b[2m⏳ 启动服务...\x1b[0m');
 
