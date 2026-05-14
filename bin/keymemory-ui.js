@@ -21,45 +21,41 @@ function isWSL() {
   }
 }
 
-function nativeModulesNeedRebuild() {
-  const sqlitePaths = [
-    path.join(PROJECT_DIR, 'node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'),
-  ];
-  for (const p of sqlitePaths) {
-    if (!fs.existsSync(p)) continue;
-    try {
-      const fd = fs.openSync(p, 'r');
-      const buf = Buffer.alloc(4);
-      fs.readSync(fd, buf, 0, 4, 0);
-      fs.closeSync(fd);
-      if (buf[0] === 0x4d && buf[1] === 0x5a) return true;
-    } catch {}
-  }
+function isOnWindowsFS() {
+  return PROJECT_DIR.startsWith('/mnt/');
+}
 
-  const pnpmDir = path.join(PROJECT_DIR, 'node_modules/.pnpm');
-  if (fs.existsSync(pnpmDir)) {
+function toWindowsPath(unixPath) {
+  return unixPath.replace(/^\/mnt\/([a-z])/, (_, letter) => letter.toUpperCase() + ':').replace(/\//g, '\\');
+}
+
+function canUseNodeExe() {
+  try {
+    execSync('which node.exe 2>/dev/null', { encoding: 'utf-8' });
+    return true;
+  } catch {
     try {
-      const entries = fs.readdirSync(pnpmDir).filter(e => e.startsWith('better-sqlite3@'));
-      for (const entry of entries) {
-        const nodeFile = path.join(pnpmDir, entry, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node');
-        if (!fs.existsSync(nodeFile)) continue;
-        const fd = fs.openSync(nodeFile, 'r');
-        const buf = Buffer.alloc(4);
-        fs.readSync(fd, buf, 0, 4, 0);
-        fs.closeSync(fd);
-        if (buf[0] === 0x4d && buf[1] === 0x5a) return true;
-      }
-    } catch {}
+      execSync('node.exe --version', { encoding: 'utf-8', stdio: 'pipe' });
+      return true;
+    } catch {
+      return false;
+    }
   }
-  return false;
 }
 
 const WSL = isWSL();
+const ON_WIN_FS = isOnWindowsFS();
+const USE_NODE_EXE = WSL && ON_WIN_FS;
 
 console.log('');
 console.log('  \x1b[1m\x1b[36mKeyMemory\x1b[0m Web UI');
 console.log('  \x1b[2m─────────────────────\x1b[0m');
 console.log('');
+
+if (USE_NODE_EXE) {
+  console.log('  \x1b[2mℹ WSL 环境检测，将使用 Windows Node.js 运行服务\x1b[0m');
+  console.log('');
+}
 
 const needsBuild = !fs.existsSync(SERVER_ENTRY) || !fs.existsSync(WEB_DIST) || !fs.existsSync(SHARED_DIST);
 
@@ -67,9 +63,13 @@ if (needsBuild) {
   console.log('  \x1b[33m🔨 首次启动，安装依赖并构建项目...\x1b[0m');
   console.log('');
 
-  console.log('  \x1b[2m[1/3] 安装依赖...\x1b[0m');
+  console.log('  \x1b[2m[1/2] 安装依赖...\x1b[0m');
   try {
-    execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    if (USE_NODE_EXE) {
+      execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    } else {
+      execSync('pnpm install', { cwd: PROJECT_DIR, stdio: 'inherit' });
+    }
   } catch {
     console.log('');
     console.log('  \x1b[31m❌ 依赖安装失败，请检查 pnpm 是否已安装\x1b[0m');
@@ -77,18 +77,8 @@ if (needsBuild) {
     process.exit(1);
   }
 
-  if (WSL) {
-    console.log('');
-    console.log('  \x1b[2m[2/3] 重新编译原生模块 (WSL)...\x1b[0m');
-    try {
-      execSync('pnpm rebuild better-sqlite3', { cwd: PROJECT_DIR, stdio: 'inherit' });
-    } catch {
-      console.log('  \x1b[33m⚠ 原生模块重编译失败，尝试继续...\x1b[0m');
-    }
-  }
-
   console.log('');
-  console.log('  \x1b[2m[3/3] 构建项目...\x1b[0m');
+  console.log('  \x1b[2m[2/2] 构建项目...\x1b[0m');
   try {
     execSync('pnpm build', { cwd: PROJECT_DIR, stdio: 'inherit' });
   } catch {
@@ -97,20 +87,6 @@ if (needsBuild) {
     process.exit(1);
   }
   console.log('');
-} else if (WSL && nativeModulesNeedRebuild()) {
-  console.log('  \x1b[33m🔧 检测到 WSL 环境，原生模块需要重新编译...\x1b[0m');
-  console.log('');
-  try {
-    execSync('pnpm rebuild better-sqlite3', { cwd: PROJECT_DIR, stdio: 'inherit' });
-    console.log('');
-    console.log('  \x1b[32m✓ 原生模块已重新编译\x1b[0m');
-    console.log('');
-  } catch {
-    console.log('');
-    console.log('  \x1b[31m❌ 原生模块重编译失败\x1b[0m');
-    console.log('  \x1b[2m请确保已安装编译工具: sudo apt install build-essential python3\x1b[0m');
-    process.exit(1);
-  }
 }
 
 if (!fs.existsSync(SERVER_ENTRY)) {
@@ -127,8 +103,26 @@ if (!fs.existsSync(WEB_DIST)) {
 
 const PORT = 3210;
 
-const serverProc = spawn('node', [SERVER_ENTRY], {
-  cwd: PROJECT_DIR,
+let nodeCmd, nodeArgs, nodeCwd;
+
+if (USE_NODE_EXE) {
+  if (!canUseNodeExe()) {
+    console.log('  \x1b[31m❌ WSL 环境下需要 node.exe，但未找到\x1b[0m');
+    console.log('  \x1b[2m请确保 Windows 上已安装 Node.js，或在 Windows PowerShell 中运行 keymemory-ui\x1b[0m');
+    process.exit(1);
+  }
+
+  nodeCmd = 'node.exe';
+  nodeArgs = [toWindowsPath(SERVER_ENTRY)];
+  nodeCwd = toWindowsPath(PROJECT_DIR);
+} else {
+  nodeCmd = 'node';
+  nodeArgs = [SERVER_ENTRY];
+  nodeCwd = PROJECT_DIR;
+}
+
+const serverProc = spawn(nodeCmd, nodeArgs, {
+  cwd: nodeCwd,
   stdio: 'inherit',
   env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
 });
