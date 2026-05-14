@@ -27,7 +27,11 @@ function isOnWindowsFS() {
 }
 
 function toWindowsPath(unixPath) {
-  return unixPath.replace(/^\/mnt\/([a-z])/, (_, letter) => letter.toUpperCase() + ':').replace(/\//g, '\\');
+  if (unixPath.startsWith('/mnt/')) {
+    return unixPath.replace(/^\/mnt\/([a-z])/, (_, letter) => letter.toUpperCase() + ':').replace(/\//g, '\\');
+  }
+  const distro = process.env.WSL_DISTRO_NAME || 'Ubuntu';
+  return '\\\\wsl$\\' + distro + unixPath.replace(/\//g, '\\');
 }
 
 const WSL = isWSL();
