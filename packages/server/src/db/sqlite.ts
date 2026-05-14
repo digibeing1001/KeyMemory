@@ -15,11 +15,17 @@ export function getDataDir(): string {
   return dir;
 }
 
+export function getDbPath(): string {
+  if (process.env.KEYMEMORY_DB_PATH) {
+    return process.env.KEYMEMORY_DB_PATH;
+  }
+  return path.join(getDataDir(), DB_NAME);
+}
+
 export function initDatabase(): Database.Database {
   if (db) return db;
 
-  const dataDir = getDataDir();
-  const dbPath = path.join(dataDir, DB_NAME);
+  const dbPath = getDbPath();
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
