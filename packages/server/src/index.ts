@@ -1,6 +1,5 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import fastifyStatic from '@fastify/static';
 import { registerRoutes } from './api/rest.js';
 import { registerMCPRoutes } from './api/mcp.js';
 import { initDatabase } from './db/sqlite.js';
@@ -13,6 +12,24 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.webp': 'image/webp',
+};
 
 async function main() {
   initDatabase();
@@ -34,20 +51,30 @@ async function main() {
   const webDistExists = fs.existsSync(webDistDir) && fs.existsSync(path.join(webDistDir, 'index.html'));
 
   if (webDistExists) {
-    await app.register(fastifyStatic, {
-      root: webDistDir,
-      prefix: '/',
-      wildcard: true,
-      decorateReply: false,
-    });
-
     app.setNotFoundHandler((request, reply) => {
-      if (!request.url.startsWith('/api')) {
-        const indexPath = path.join(webDistDir, 'index.html');
-        reply.type('text/html; charset=utf-8').send(fs.readFileSync(indexPath));
-      } else {
+      const urlPath = request.url.split('?')[0];
+
+      if (urlPath.startsWith('/api')) {
         reply.code(404).send({ error: 'Not found' });
+        return;
       }
+
+      const filePath = path.join(webDistDir, urlPath === '/' ? 'index.html' : urlPath);
+      const safePath = path.normalize(filePath);
+
+      if (!safePath.startsWith(webDistDir)) {
+        reply.code(403).send('Forbidden');
+        return;
+      }
+
+      if (fs.existsSync(safePath) && fs.statSync(safePath).isFile()) {
+        const ext = path.extname(safePath);
+        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+        reply.type(contentType).send(fs.readFileSync(safePath));
+        return;
+      }
+
+      reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDistDir, 'index.html')));
     });
 
     console.log(`Web UI served from ${webDistDir}`);

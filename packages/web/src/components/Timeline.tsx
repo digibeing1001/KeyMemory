@@ -14,6 +14,7 @@ interface TimelineEvent {
 
 interface TimelineProps {
   memories: Memory[];
+  onMemoryClick?: (id: string) => void;
 }
 
 function timeAgo(dateStr: string): string {
@@ -97,7 +98,7 @@ function deriveEvents(memories: Memory[]): TimelineEvent[] {
   return events.slice(0, 15);
 }
 
-export default function Timeline({ memories }: TimelineProps) {
+export default function Timeline({ memories, onMemoryClick }: TimelineProps) {
   const events = deriveEvents(memories);
 
   if (events.length === 0) {
@@ -131,11 +132,48 @@ export default function Timeline({ memories }: TimelineProps) {
                 }}
               />
               <div
+                onClick={() => onMemoryClick?.(event.id.replace(/-(create|access|decay|import)$/, ''))}
+                tabIndex={onMemoryClick ? 0 : undefined}
+                role={onMemoryClick ? 'button' : undefined}
+                aria-label={`${event.title} - ${EVENT_LABELS[event.type]}`}
+                onKeyDown={(e) => {
+                  if (onMemoryClick && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    onMemoryClick(event.id.replace(/-(create|access|decay|import)$/, ''));
+                  }
+                }}
                 style={{
                   background: 'var(--bg-card)',
                   borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--border)',
                   padding: '10px 12px',
+                  cursor: onMemoryClick ? 'pointer' : 'default',
+                  transition: 'all var(--transition-fast)',
+                  outline: 'none',
+                }}
+                onMouseEnter={(e) => {
+                  if (onMemoryClick) {
+                    e.currentTarget.style.background = 'var(--bg-hover)';
+                    e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)';
+                    e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (onMemoryClick) {
+                    e.currentTarget.style.background = 'var(--bg-card)';
+                    e.currentTarget.style.borderColor = 'var(--border)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }
+                }}
+                onFocus={(e) => {
+                  if (onMemoryClick) {
+                    e.currentTarget.style.boxShadow = '0 0 0 2px rgba(0,122,255,0.2)';
+                  }
+                }}
+                onBlur={(e) => {
+                  if (onMemoryClick) {
+                    e.currentTarget.style.boxShadow = 'none';
+                  }
                 }}
               >
                 <div className="flex items-center gap-2">

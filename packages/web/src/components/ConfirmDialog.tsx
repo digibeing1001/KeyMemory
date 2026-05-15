@@ -24,13 +24,33 @@ export default function ConfirmDialog({
   const confirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (open) confirmRef.current?.focus();
-  }, [open]);
+    if (!open) return;
+    confirmRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        onConfirm();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, onCancel, onConfirm]);
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center animate-fade-in">
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-message"
+    >
       <div
         className="fixed inset-0"
         style={{ background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
@@ -47,8 +67,8 @@ export default function ConfirmDialog({
           animation: 'scale-in 0.2s cubic-bezier(0.25, 0.1, 0.25, 1)',
         }}
       >
-        <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{title}</h3>
-        <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{message}</p>
+        <h3 id="confirm-title" style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{title}</h3>
+        <p id="confirm-message" className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{message}</p>
         <div className="mt-5 flex justify-end gap-2">
           <button
             onClick={onCancel}

@@ -13,6 +13,7 @@ import { routeMemory, createAgentContext } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
 import { getDatabase } from '../db/sqlite.js';
 import { autoRemember } from '../core/auto.js';
+import { extractTags } from '../core/auto.js';
 import type { CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
 
 export function registerRoutes(app: FastifyInstance): void {
@@ -44,6 +45,10 @@ export function registerRoutes(app: FastifyInstance): void {
       reply.code(400);
       return { error: 'title, content, and layer are required' };
     }
+    // 如果未提供标签，自动生成
+    if (!input.tags || input.tags.length === 0) {
+      input.tags = extractTags(input.content);
+    }
     const mem = createMemory(input);
     ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
     reply.code(201);
@@ -74,6 +79,10 @@ export function registerRoutes(app: FastifyInstance): void {
   app.put('/api/memories/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const input = request.body as UpdateMemoryInput;
+    // 如果内容更新且未提供标签，重新生成
+    if (input.content !== undefined && (!input.tags || input.tags.length === 0)) {
+      input.tags = extractTags(input.content);
+    }
     const mem = updateMemory(id, input);
     if (!mem) {
       reply.code(404);

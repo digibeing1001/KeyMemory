@@ -10,6 +10,16 @@ interface InlineMatch {
   render: () => ReactNode;
 }
 
+function sanitizeUrl(url: string): string | undefined {
+  try {
+    const parsed = new URL(url, 'http://localhost');
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    return url;
+  } catch {
+    return undefined;
+  }
+}
+
 function findFirstInlineMatch(remaining: string, key: number): InlineMatch | null {
   const codeMatch = remaining.match(/^(.*?)`([^`]+)`/);
   const boldMatch = remaining.match(/^(.*?)\*\*(.+?)\*\*/);
@@ -28,7 +38,15 @@ function findFirstInlineMatch(remaining: string, key: number): InlineMatch | nul
     candidates.push({ idx: italicMatch[1].length, len: italicMatch[0].length, render: () => <em key={key}>{italicMatch[2]}</em> });
   }
   if (linkMatch && linkMatch[1] !== undefined) {
-    candidates.push({ idx: linkMatch[1].length, len: linkMatch[0].length, render: () => <a key={key} href={linkMatch[3]} target="_blank" rel="noopener noreferrer">{linkMatch[2]}</a> });
+    candidates.push({
+      idx: linkMatch[1].length,
+      len: linkMatch[0].length,
+      render: () => {
+        const safeUrl = sanitizeUrl(linkMatch[3]);
+        if (!safeUrl) return <span key={key} style={{ color: 'var(--text-secondary)' }}>{linkMatch[2]}</span>;
+        return <a key={key} href={safeUrl} target="_blank" rel="noopener noreferrer">{linkMatch[2]}</a>;
+      },
+    });
   }
 
   if (candidates.length === 0) return null;

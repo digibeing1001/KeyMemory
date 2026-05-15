@@ -17,6 +17,15 @@ export default function MemoryCard({ memory, onClick, score, matchType }: Memory
       className="memory-result"
       data-layer={memory.layer}
       onClick={() => onClick(memory)}
+      tabIndex={0}
+      role="button"
+      aria-label={memory.title}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(memory);
+        }
+      }}
     >
       <div className="color-bar" />
 

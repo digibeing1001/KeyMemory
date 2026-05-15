@@ -207,17 +207,18 @@ export function deleteMemory(id: string, permanent = false): boolean {
   const existing = getMemory(id);
   if (!existing) return false;
 
-  if (permanent) {
-    db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
-    db.prepare(`DELETE FROM versions WHERE memory_id = ?`).run(id);
-    db.prepare(`DELETE FROM memory_entities WHERE memory_id = ?`).run(id);
-    db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
-    db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
-  } else {
-    db.prepare(`UPDATE memories SET status = 'deleted', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
-  }
-
-  return true;
+  return db.transaction(() => {
+    if (permanent) {
+      db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
+      db.prepare(`DELETE FROM versions WHERE memory_id = ?`).run(id);
+      db.prepare(`DELETE FROM memory_entities WHERE memory_id = ?`).run(id);
+      db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
+      db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
+    } else {
+      db.prepare(`UPDATE memories SET status = 'deleted', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
+    }
+    return true;
+  })();
 }
 
 export function recordHit(id: string): void {

@@ -4,8 +4,9 @@ import { createMemory, getMemory, listMemories, deleteMemory } from './core/atom
 import { searchHybrid, ensureEmbedding } from './core/query.js';
 import { initDatabase } from './db/sqlite.js';
 import { initEmbedding } from './embed/onnx.js';
-import { autoRemember } from './core/auto.js';
+import { autoRemember, extractTags } from './core/auto.js';
 import { getLayerStats } from './core/layer.js';
+import type { Layer } from '@keymemory/shared';
 import { runDailyInspection } from './core/evolution.js';
 import { applyDecay } from './core/forgetting.js';
 
@@ -184,12 +185,13 @@ async function handleRequest(request: any) {
 
       switch (toolName) {
         case 'memory_create': {
+          const tags = args.tags ?? extractTags(args.content);
           const mem = createMemory({
             title: args.title,
             content: args.content,
             layer: args.layer,
             project: args.project,
-            tags: args.tags,
+            tags,
             metadata: args.metadata,
             source: args.source,
           });
@@ -359,12 +361,14 @@ async function handleRequest(request: any) {
             }
 
             const layer = item.layer || (autoLayer ? inferLayer(title, content, item.metadata) : 'short');
+            const validLayers: Layer[] = ['flash', 'short', 'long', 'project', 'entity'];
+            const safeLayer = validLayers.includes(layer as Layer) ? (layer as Layer) : 'short';
             layerCounts[layer] = (layerCounts[layer] || 0) + 1;
 
             const mem = createMemory({
               title: title.trim(),
               content: content.trim(),
-              layer: layer as any,
+              layer: safeLayer,
               project: item.project,
               tags: item.tags,
               metadata: item.metadata,

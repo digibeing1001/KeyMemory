@@ -8,4 +8,5 @@ echo.
 
 node start-ui.js
 
+echo.
 pause

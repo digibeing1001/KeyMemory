@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Layer, Memory } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import * as api from '../lib/api';
+import { useToast } from '../components/Toast';
 
 interface LayerStatValue {
   count: number;
@@ -48,15 +49,39 @@ export function useMemoryStore(): UseMemoryStoreReturn {
   const [activeProject, setActiveProjectState] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const mountedRef = useRef(true);
+  const loadingCountRef = useRef(0);
+  const { toast } = useToast();
+
+  const updateLoading = useCallback((delta: number) => {
+    loadingCountRef.current = Math.max(0, loadingCountRef.current + delta);
+    if (mountedRef.current) setLoading(loadingCountRef.current > 0);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
-  const selectedMemory = selectedId ? memories.find((m) => m.id === selectedId) ?? null : null;
+  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedMemory(null);
+      return;
+    }
+    const found = memories.find((m) => m.id === selectedId);
+    if (found) {
+      setSelectedMemory(found);
+    } else {
+      // 如果当前列表中没有该记忆（如搜索结果来自其他层级），单独获取
+      api.getMemory(selectedId)
+        .then((m) => { if (mountedRef.current) setSelectedMemory(m); })
+        .catch(() => { if (mountedRef.current) setSelectedMemory(null); });
+    }
+  }, [selectedId, memories]);
 
   const fetchMemories = useCallback(async () => {
+    updateLoading(1);
     try {
       const list = await api.listMemories({
         layer: selectedLayer ?? undefined,
@@ -64,17 +89,25 @@ export function useMemoryStore(): UseMemoryStoreReturn {
         status: 'active',
       });
       if (mountedRef.current) setMemories(list);
-    } catch {
+    } catch (err) {
+      toast('加载记忆失败: ' + ((err as Error).message || '请检查网络'), 'error');
       if (mountedRef.current) setMemories([]);
+    } finally {
+      updateLoading(-1);
     }
-  }, [selectedLayer, activeProject]);
+  }, [selectedLayer, activeProject, toast, updateLoading]);
 
   const fetchStats = useCallback(async () => {
+    updateLoading(1);
     try {
       const stats = await api.getLayerStats();
       if (mountedRef.current) setLayerStats(stats);
-    } catch {}
-  }, []);
+    } catch (err) {
+      toast('统计加载失败: ' + ((err as Error).message || '未知错误'), 'error');
+    } finally {
+      updateLoading(-1);
+    }
+  }, [toast, updateLoading]);
 
   const checkHealth = useCallback(async () => {
     try {
@@ -121,7 +154,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
   }, []);
 
   const save = useCallback(async (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
-    setLoading(true);
+    updateLoading(1);
     try {
       if (selectedMemory) {
         const updated = await api.updateMemory(selectedMemory.id, data);
@@ -134,57 +167,58 @@ export function useMemoryStore(): UseMemoryStoreReturn {
       setIsCreating(false);
       fetchStats();
     } finally {
-      if (mountedRef.current) setLoading(false);
+      updateLoading(-1);
     }
-  }, [selectedMemory, fetchStats]);
+  }, [selectedMemory, fetchStats, updateLoading]);
 
   const deleteMemory = useCallback(async (id: string) => {
-    setLoading(true);
+    updateLoading(1);
     try {
       await api.deleteMemory(id);
       setMemories((prev) => prev.filter((m) => m.id !== id));
       if (selectedId === id) setSelectedId(null);
       fetchStats();
     } finally {
-      if (mountedRef.current) setLoading(false);
+      updateLoading(-1);
     }
-  }, [selectedId, fetchStats]);
+  }, [selectedId, fetchStats, updateLoading]);
 
   const archiveMemory = useCallback(async (id: string) => {
-    setLoading(true);
+    updateLoading(1);
     try {
       await api.forgetMemory(id, 'archive');
       setMemories((prev) => prev.filter((m) => m.id !== id));
       if (selectedId === id) setSelectedId(null);
       fetchStats();
     } finally {
-      if (mountedRef.current) setLoading(false);
+      updateLoading(-1);
     }
-  }, [selectedId, fetchStats]);
+  }, [selectedId, fetchStats, updateLoading]);
 
   const moveLayer = useCallback(async (id: string, layer: Layer) => {
-    setLoading(true);
+    updateLoading(1);
     try {
       const updated = await api.moveLayer(id, layer);
       setMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
       fetchStats();
     } finally {
-      if (mountedRef.current) setLoading(false);
+      updateLoading(-1);
     }
-  }, [fetchStats]);
+  }, [fetchStats, updateLoading]);
 
   const search = useCallback(async (query: string) => {
     setSearchQuery(query);
-    setLoading(true);
+    updateLoading(1);
     try {
       const results = await api.searchMemories(query, selectedLayer ?? undefined);
       if (mountedRef.current) setMemories(results);
-    } catch {
+    } catch (err) {
+      toast('搜索失败: ' + ((err as Error).message || '请检查网络'), 'error');
       if (mountedRef.current) setMemories([]);
     } finally {
-      if (mountedRef.current) setLoading(false);
+      updateLoading(-1);
     }
-  }, [selectedLayer]);
+  }, [selectedLayer, toast, updateLoading]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery(null);

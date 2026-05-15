@@ -409,7 +409,7 @@ function AppInner() {
               </div>
 
               <div
-                className="w-[300px] shrink-0 overflow-y-auto px-6 py-6"
+                className="w-[380px] shrink-0 overflow-y-auto px-6 py-6"
                 style={{
                   background: 'rgba(255,255,255,0.5)',
                   backdropFilter: 'blur(20px)',
@@ -423,7 +423,7 @@ function AppInner() {
                 >
                   时间线
                 </h3>
-                <Timeline memories={store.memories} />
+                <Timeline memories={store.memories} onMemoryClick={(id) => store.selectMemory(id)} />
               </div>
             </>
           )}

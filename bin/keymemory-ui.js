@@ -107,7 +107,63 @@ if (!fs.existsSync(WEB_DIST)) {
 
 const PORT = 3210;
 
-const serverProc = spawn('node', [SERVER_ENTRY], {
+function getWSLIP() {
+  try {
+    const output = execSync('hostname -I', { encoding: 'utf-8' }).trim();
+    const firstIp = output.split(/\s+/)[0];
+    if (firstIp && firstIp !== '127.0.0.1') return firstIp;
+  } catch {}
+  try {
+    const lines = fs.readFileSync('/proc/net/fib_trie', 'utf-8').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(/\b(172\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/);
+      if (match && match[1] !== '172.0.0.0') return match[1];
+    }
+  } catch {}
+  return null;
+}
+
+function checkWindowsPortConflict() {
+  if (!WSL) return null;
+  try {
+    const netstat = execSync('/mnt/c/Windows/System32/cmd.exe /c "netstat.exe -ano | findstr :' + PORT + '"', {
+      encoding: 'utf-8',
+      timeout: 3000,
+      cwd: '/mnt/c/Windows',
+    });
+    const lines = netstat.trim().split('\n').filter(l => l.includes('LISTENING') && l.includes(':' + PORT));
+    if (lines.length > 0) {
+      const pids = [...new Set(lines.map(l => l.trim().split(/\s+/).pop()))];
+      return pids;
+    }
+  } catch {}
+  return null;
+}
+
+function resolveNodeBinary() {
+  const hermesNode = path.join(os.homedir(), '.hermes', 'node', 'bin', 'node');
+  if (fs.existsSync(hermesNode)) {
+    try {
+      execSync('"' + hermesNode + '" --version', { encoding: 'utf-8', timeout: 3000 });
+      return hermesNode;
+    } catch {}
+  }
+  return process.execPath;
+}
+
+const windowsConflictPids = checkWindowsPortConflict();
+const wslIp = WSL ? getWSLIP() : null;
+const NODE_BIN = resolveNodeBinary();
+
+if (WSL && windowsConflictPids) {
+  console.log('');
+  console.log('  \x1b[33m⚠ 检测到 Windows 进程占用了 ' + PORT + ' 端口\x1b[0m');
+  console.log('  \x1b[2mPID: ' + windowsConflictPids.join(', ') + '\x1b[0m');
+  console.log('  \x1b[2m原因: Windows 上的进程会拦截 localhost 请求，导致 WSL2 服务无法通过 127.0.0.1 访问\x1b[0m');
+  console.log('');
+}
+
+const serverProc = spawn(NODE_BIN, [SERVER_ENTRY], {
   cwd: PROJECT_DIR,
   stdio: 'inherit',
   env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
@@ -126,8 +182,19 @@ const checkInterval = setInterval(() => {
       console.log('');
       if (fs.existsSync(WEB_DIST)) {
         console.log('  \x1b[1mWeb UI:\x1b[0m    http://127.0.0.1:' + PORT);
+        if (WSL && wslIp) {
+          console.log('            http://' + wslIp + ':' + PORT + ' \x1b[2m(WSL2 直连)\x1b[0m');
+        }
       }
       console.log('  \x1b[1mAPI:\x1b[0m       http://127.0.0.1:' + PORT + '/api/health/report');
+      if (WSL && wslIp) {
+        console.log('            http://' + wslIp + ':' + PORT + '/api/health/report \x1b[2m(WSL2 直连)\x1b[0m');
+      }
+      if (WSL && windowsConflictPids) {
+        console.log('');
+        console.log('  \x1b[33m⚠ Windows 进程占用了 ' + PORT + ' 端口，localhost 可能无法访问\x1b[0m');
+        console.log('  \x1b[33m  请使用 WSL2 IP 访问: http://' + wslIp + ':' + PORT + '\x1b[0m');
+      }
       console.log('');
       console.log('  \x1b[2m按 Ctrl+C 停止服务\x1b[0m');
       console.log('');
