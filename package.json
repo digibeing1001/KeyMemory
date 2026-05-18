@@ -8,6 +8,8 @@
     "dev": "pnpm -r --parallel run dev",
     "dev:server": "pnpm --filter @keymemory/server run dev",
     "dev:web": "pnpm --filter @keymemory/web run dev",
+    "dev:cli": "pnpm --filter keymemory-mcp run dev:cli",
+    "cli": "pnpm --filter keymemory-mcp run cli",
     "start:mcp": "pnpm --filter keymemory-mcp run start:mcp",
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
