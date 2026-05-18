@@ -8,6 +8,7 @@ import { autoRemember, extractTags } from './core/auto.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from './core/evolution.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay } from './core/forgetting.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation, formatConsolidationReport } from './core/consolidation.js';
+import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, formatDreamReport } from './core/dreaming.js';
 import { getHealthReport } from './core/health.js';
 import { listEntities, getEntityGraph, extractEntities } from './graph/entity.js';
 import { initEmbedding } from './embed/onnx.js';
@@ -656,6 +657,56 @@ program
 
     const plan = planConsolidation();
     printAndExit(plan, format);
+  });
+
+program
+  .command('dream')
+  .description('Run a dream cycle (Light → REM → Deep memory consolidation)')
+  .option('--run', 'run a full dream cycle')
+  .option('--list', 'list recent dream reports')
+  .option('--show <reportId>', 'show dream report details')
+  .option('--signals <reportId>', 'show dream signals for a report')
+  .action((opts) => {
+    const format: OutputFormat = program.opts().format || 'json';
+
+    if (opts.run) {
+      const report = runDreamCycle();
+      if (format !== 'json') {
+        process.stdout.write(formatDreamReport(report) + '\n');
+        closeDatabase();
+        process.exit(0);
+      }
+      printAndExit(report, format);
+    }
+
+    if (opts.list) {
+      const reports = listDreamReports();
+      printAndExit(reports, format);
+    }
+
+    if (opts.show) {
+      const report = getDreamReport(opts.show);
+      if (!report) printError(`Report not found: ${opts.show}`);
+      if (format !== 'json') {
+        process.stdout.write(formatDreamReport(report!) + '\n');
+        closeDatabase();
+        process.exit(0);
+      }
+      printAndExit(report, format);
+    }
+
+    if (opts.signals) {
+      const signals = getDreamSignalsForReport(opts.signals);
+      printAndExit(signals, format);
+    }
+
+    const report = runDreamCycle();
+    if (format !== 'json') {
+      process.stdout.write(formatDreamReport(report) + '\n');
+      closeDatabase();
+      process.exit(0);
+    }
+    printAndExit(report, format);
   });
 
 program.parse();

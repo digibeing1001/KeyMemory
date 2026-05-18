@@ -10,6 +10,7 @@ import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDeca
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
 import { getHealthReport, injectContext } from '../core/health.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
+import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport } from '../core/dreaming.js';
 import { routeMemory, createAgentContext } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
 import { getDatabase } from '../db/sqlite.js';
@@ -619,5 +620,27 @@ export function registerRoutes(app: FastifyInstance): void {
   app.get('/api/consolidation/plans/:planId/snapshots', async (request) => {
     const { planId } = request.params as { planId: string };
     return getConsolidationSnapshots(planId);
+  });
+
+  app.post('/api/dream/run', async () => {
+    return runDreamCycle();
+  });
+
+  app.get('/api/dream/reports', async (request) => {
+    const query = request.query as Record<string, string>;
+    const limit = query.limit ? parseInt(query.limit, 10) : 20;
+    return listDreamReports(limit);
+  });
+
+  app.get('/api/dream/reports/:reportId', async (request) => {
+    const { reportId } = request.params as { reportId: string };
+    const report = getDreamReport(reportId);
+    if (!report) return { error: 'Report not found' };
+    return report;
+  });
+
+  app.get('/api/dream/reports/:reportId/signals', async (request) => {
+    const { reportId } = request.params as { reportId: string };
+    return getDreamSignalsForReport(reportId);
   });
 }

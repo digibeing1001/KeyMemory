@@ -48,6 +48,30 @@ export const CONSOLIDATION_CONFIG = {
   maxActionsPerPlan: 50,
 } as const;
 
+export const DREAM_SIGNAL_WEIGHTS = {
+  relevance: 0.30,
+  frequency: 0.24,
+  queryDiversity: 0.15,
+  recency: 0.15,
+  consolidation: 0.10,
+  conceptualRichness: 0.06,
+} as const;
+
+export const DREAM_THRESHOLDS = {
+  minScore: 0.8,
+  minRecallCount: 3,
+  minUniqueQueries: 3,
+  lightJaccardThreshold: 0.9,
+  lookbackDays: 7,
+  recencyHalfLifeDays: 30,
+} as const;
+
+export const DREAM_CONFIG = {
+  defaultCron: '0 3 * * *',
+  minIntervalHours: 4,
+  minSessionsBeforeDream: 3,
+} as const;
+
 export const DEFAULT_PORT = 3210;
 export const DEFAULT_HOST = '0.0.0.0';
 export const DATA_DIR_NAME = '.keymemory';

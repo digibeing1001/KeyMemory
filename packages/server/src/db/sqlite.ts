@@ -172,6 +172,35 @@ function runMigrations(db: Database.Database): void {
       captured_at TEXT NOT NULL,
       FOREIGN KEY (plan_id) REFERENCES consolidation_plans(id)
     );
+
+    CREATE TABLE IF NOT EXISTS dream_reports (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'running',
+      total_candidates INTEGER DEFAULT 0,
+      promoted INTEGER DEFAULT 0,
+      archived INTEGER DEFAULT 0,
+      merged INTEGER DEFAULT 0,
+      sessions TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS dream_signals (
+      id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL,
+      memory_id TEXT NOT NULL,
+      relevance REAL DEFAULT 0,
+      frequency REAL DEFAULT 0,
+      query_diversity REAL DEFAULT 0,
+      recency REAL DEFAULT 0,
+      consolidation REAL DEFAULT 0,
+      conceptual_richness REAL DEFAULT 0,
+      total_score REAL DEFAULT 0,
+      phase TEXT NOT NULL,
+      promoted INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (report_id) REFERENCES dream_reports(id)
+    );
   `);
 
   db.exec(`
@@ -184,6 +213,9 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_consolidation_snapshots_plan ON consolidation_snapshots(plan_id);
     CREATE INDEX IF NOT EXISTS idx_consolidation_snapshots_memory ON consolidation_snapshots(memory_id);
     CREATE INDEX IF NOT EXISTS idx_consolidation_plans_status ON consolidation_plans(status);
+    CREATE INDEX IF NOT EXISTS idx_dream_reports_status ON dream_reports(status);
+    CREATE INDEX IF NOT EXISTS idx_dream_signals_report ON dream_signals(report_id);
+    CREATE INDEX IF NOT EXISTS idx_dream_signals_memory ON dream_signals(memory_id);
   `);
 
   const alterStatements = [

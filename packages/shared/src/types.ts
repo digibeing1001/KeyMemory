@@ -175,6 +175,53 @@ export interface ConsolidationSummary {
   memoriesAfter: number;
 }
 
+export type DreamPhase = 'light' | 'rem' | 'deep';
+
+export interface DreamCandidate {
+  memoryId: string;
+  title: string;
+  content: string;
+  layer: Layer;
+  tags: string[];
+  hitCount: number;
+  uniqueQueryCount: number;
+  daysSinceCreation: number;
+  score: number;
+  signals: DreamSignals;
+}
+
+export interface DreamSignals {
+  relevance: number;
+  frequency: number;
+  queryDiversity: number;
+  recency: number;
+  consolidation: number;
+  conceptualRichness: number;
+}
+
+export interface DreamSession {
+  id: string;
+  phase: DreamPhase;
+  candidatesProcessed: number;
+  candidatesPromoted: number;
+  signals: Record<string, number>;
+  startedAt: string;
+  completedAt?: string;
+  summary?: string;
+}
+
+export interface DreamReport {
+  id: string;
+  sessions: DreamSession[];
+  totalCandidates: number;
+  promoted: number;
+  archived: number;
+  merged: number;
+  status: 'running' | 'completed' | 'failed';
+  createdAt: string;
+  completedAt?: string;
+}
+
 export interface AutoRememberResult {
   recorded: boolean;
   reason: string;
