@@ -4,17 +4,8 @@ import { getMemory, updateMemory, recordHit } from './atom.js';
 import { getDatabase } from '../db/sqlite.js';
 
 export function canMoveToLayer(from: Layer, to: Layer): boolean {
-  const order: Layer[] = ['flash', 'short', 'long', 'project', 'entity'];
-  const fromIdx = order.indexOf(from);
-  const toIdx = order.indexOf(to);
-
-  if (toIdx <= fromIdx) return true;
-
-  if (from === 'flash' && to === 'short') return true;
-  if (from === 'short' && to === 'long') return true;
-  if (from === 'flash' && to === 'long') return true;
-
-  return false;
+  const validLayers: Layer[] = ['flash', 'short', 'long', 'project', 'entity'];
+  return validLayers.includes(from) && validLayers.includes(to);
 }
 
 export function moveLayer(memoryId: string, targetLayer: Layer, reason?: string): boolean {
@@ -22,7 +13,7 @@ export function moveLayer(memoryId: string, targetLayer: Layer, reason?: string)
   if (!mem) return false;
   if (!canMoveToLayer(mem.layer, targetLayer)) return false;
 
-  const result = updateMemory(memoryId, { layer: targetLayer });
+  const result = updateMemory(memoryId, { layer: targetLayer }, reason);
   return result !== null;
 }
 
@@ -61,44 +52,6 @@ export function checkShortToLongPromotions(): string[] {
   `).all({ hitThreshold }) as { id: string }[];
 
   return candidates.map(c => c.id);
-}
-
-export function applyDecay(): { flashDecayed: number; shortDecayed: number } {
-  const db = getDatabase();
-
-  const flashConfig = LAYER_CONFIG.flash;
-  const flashResult = db.prepare(`
-    UPDATE memories
-    SET decay_factor = decay_factor * @rate,
-        updated_at = @now
-    WHERE layer = 'flash'
-      AND status = 'active'
-      AND last_hit_at IS NOT NULL
-      AND last_hit_at <= datetime('now', ? || ' days')
-      AND decay_factor > 0.01
-  `).run({ rate: flashConfig.decayRate, now: new Date().toISOString() }, `-${flashConfig.decayDays}`);
-
-  const shortConfig = LAYER_CONFIG.short;
-  const shortResult = db.prepare(`
-    UPDATE memories
-    SET decay_factor = decay_factor * @rate,
-        updated_at = @now
-    WHERE layer = 'short'
-      AND status = 'active'
-      AND last_hit_at IS NOT NULL
-      AND last_hit_at <= datetime('now', ? || ' days')
-      AND decay_factor > 0.01
-  `).run({ rate: shortConfig.decayRate, now: new Date().toISOString() }, `-${shortConfig.decayDays}`);
-
-  db.prepare(`
-    UPDATE memories SET status = 'decayed', updated_at = @now
-    WHERE decay_factor <= 0.01 AND status = 'active'
-  `).run({ now: new Date().toISOString() });
-
-  return {
-    flashDecayed: flashResult.changes,
-    shortDecayed: shortResult.changes,
-  };
 }
 
 export function getLayerStats(): Record<Layer, { count: number; active: number }> {

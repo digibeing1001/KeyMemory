@@ -122,7 +122,7 @@ export function listMemories(options?: { layer?: Layer; project?: string; status
   return rows.map(rowToMemory);
 }
 
-export function updateMemory(id: string, input: UpdateMemoryInput): Memory | null {
+export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?: string): Memory | null {
   const db = getDatabase();
   const existing = getMemory(id);
   if (!existing) return null;
@@ -194,7 +194,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput): Memory | nul
       title: updated.title,
       content: updated.content,
       changeType: input.layer !== undefined ? 'layer_move' : 'update',
-      changeReason: null,
+      changeReason: changeReason ?? null,
       createdAt: new Date().toISOString(),
     });
 
@@ -224,7 +224,18 @@ export function deleteMemory(id: string, permanent = false): boolean {
 export function recordHit(id: string): void {
   const db = getDatabase();
   const now = new Date().toISOString();
+  
+  const row = db.prepare('SELECT decay_factor FROM memories WHERE id = ?').get(id) as { decay_factor: number } | undefined;
+  if (!row) return;
+  
+  const newDecayFactor = Math.min(1.0, row.decay_factor * 1.2);
+  
   db.prepare(`
-    UPDATE memories SET hit_count = hit_count + 1, last_hit_at = @now, updated_at = @now WHERE id = @id
-  `).run({ id, now });
+    UPDATE memories 
+    SET hit_count = hit_count + 1, 
+        last_hit_at = @now, 
+        updated_at = @now,
+        decay_factor = @decayFactor
+    WHERE id = @id
+  `).run({ id, now, decayFactor: newDecayFactor });
 }

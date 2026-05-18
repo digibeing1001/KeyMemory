@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { stdin, stdout, stderr } from 'process';
-import { createMemory, getMemory, listMemories, deleteMemory } from './core/atom.js';
+import { createMemory, getMemory, listMemories, deleteMemory, updateMemory } from './core/atom.js';
 import { searchHybrid, ensureEmbedding } from './core/query.js';
 import { initDatabase } from './db/sqlite.js';
 import { initEmbedding } from './embed/onnx.js';
@@ -130,6 +130,24 @@ async function handleRequest(request: any) {
             inputSchema: {
               type: 'object',
               properties: { id: { type: 'string', description: '要删除的记忆 ID' } },
+              required: ['id'],
+            },
+          },
+          {
+            name: 'memory_update',
+            description: '更新一条已有的记忆。可修改标题、内容、层级、项目、标签、元数据等。',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: '要更新的记忆 ID' },
+                title: { type: 'string', description: '新的标题（可选）' },
+                content: { type: 'string', description: '新的内容（可选）' },
+                layer: { type: 'string', enum: ['flash', 'short', 'long', 'project', 'entity'], description: '新的层级（可选）' },
+                project: { type: 'string', description: '新的关联项目（可选）' },
+                tags: { type: 'array', items: { type: 'string' }, description: '新的标签列表（可选）' },
+                metadata: { type: 'object', description: '新的元数据（可选）' },
+                change_reason: { type: 'string', description: '变更原因（可选，建议层级移动时填写）' },
+              },
               required: ['id'],
             },
           },
@@ -297,6 +315,32 @@ async function handleRequest(request: any) {
           const ok = deleteMemory(args.id);
           return {
             content: [{ type: 'text', text: ok ? '记忆已删除' : '未找到该记忆' }],
+          };
+        }
+
+        case 'memory_update': {
+          const { id, change_reason, ...updateData } = args;
+          const mem = updateMemory(id, updateData, change_reason);
+          if (!mem) {
+            return {
+              content: [{ type: 'text', text: `未找到记忆: ${id}` }],
+              isError: true,
+            };
+          }
+          
+          if (updateData.title !== undefined || updateData.content !== undefined) {
+            ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata).catch((err) => {
+              stderr.write(`[KeyMemory] Warning: Failed to create embedding for memory ${mem.id}: ${(err as Error).message}\n`);
+            });
+          }
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `记忆已更新\n\nID: ${mem.id}\n标题: ${mem.title}\n层级: ${mem.layer}`,
+              },
+            ],
           };
         }
 
