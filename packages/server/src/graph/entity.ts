@@ -2,85 +2,190 @@ import { v4 as uuid } from 'uuid';
 import type { Entity, EntityType, Relation } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 
+interface ExtractedEntity {
+  name: string;
+  type: EntityType;
+  confidence: number;
+}
+
 const ENTITY_PATTERNS = [
-  { regex: /@([\p{L}\p{N}_]+)/gu, type: 'person' as EntityType },
-  { regex: /#([\p{L}\p{N}_]+)/gu, type: 'concept' as EntityType },
+  { regex: /@([\p{L}\p{N}_]+)/gu, type: 'person' as EntityType, confidence: 0.95 },
+  { regex: /#([\p{L}\p{N}_]+)/gu, type: 'concept' as EntityType, confidence: 0.9 },
 ];
 
 const PROJECT_PATTERN = /\[\[([^\]]+)\]\]/g;
 
-export function extractEntities(content: string): { name: string; type: EntityType }[] {
-  const entities: { name: string; type: EntityType }[] = [];
-  const seen = new Set<string>();
+const ORG_SUFFIXES = ['公司', '集团', '有限公司', '有限责任公司', '股份公司', '工作室', '实验室', '研究所', '研究院', '协会', '联盟', '基金会', '银行', '医院', '大学', '学院', '学校'];
+const ORG_SUFFIX_REGEX = new RegExp(`([\\u4e00-\\u9fa5]{2,8}(?:${ORG_SUFFIXES.join('|')}))`, 'g');
+
+const ORG_PREFIXES = ['我们', '我的', '他们', '她的', '他的', '小', '大', '那个', '这个', '某', '一些', '几个', '所有', '整个', '自己', '对方', '其他', '任何', '每个', '各种', '各类'];
+const ORG_FALSE_POSITIVES = ['小团队', '大团队', '我们团队', '他们团队', '你们团队', '自己团队', '小部门', '大部门', '我们部门', '某个部门', '整个团队', '整个部门', '小组织', '大组织', '个人开发者', '个人开发者或小团队', '来自个人开发者'];
+
+const KNOWN_ORGS = ['腾讯', '阿里', '阿里巴巴', '字节跳动', '字节', '百度', '京东', '美团', '华为', '小米', '微软', '谷歌', '苹果', '亚马逊', 'Meta', 'OpenAI', 'Google', 'Microsoft', 'Apple', 'Amazon', 'Tesla', 'Nvidia', 'Intel', 'Samsung'];
+const KNOWN_ORG_REGEX = new RegExp(`(${KNOWN_ORGS.join('|')})`, 'g');
+
+const PERSON_TITLES = ['老师', '同学', '先生', '女士', '经理', '总监', '老板', '工程师', '设计师', '教授', '博士', '主任', '院长', '校长', 'CEO', 'CTO', 'CFO', 'COO', 'VP'];
+const PERSON_VERBS = ['说', '觉得', '认为', '表示', '提到', '告诉', '建议', '推荐', '提醒', '指出', '强调', '发现', '提出', '解释', '确认', '否认', '同意', '反对'];
+
+const PERSON_FALSE_POSITIVES = ['问题', '事情', '东西', '地方', '方面', '时候', '方法', '原因', '结果', '情况', '部分', '内容', '关系', '条件', '特点', '功能', '系统', '项目', '产品', '用户', '数据', '信息', '技术', '代码', '文件', '版本', '模块', '组件', '接口', '服务', '平台', '框架', '工具', '资源', '环境', '配置', '设置', '操作', '过程', '步骤', '方案', '策略', '规则', '模式', '结构', '类型', '状态', '属性', '参数', '变量', '对象', '实例', '元素', '节点', '标签', '分类', '目录', '路径', '链接', '页面', '视图', '模型', '视图', '控制', '逻辑', '算法', '流程', '事件', '请求', '响应', '错误', '异常', '警告', '通知', '消息', '记录', '日志', '报告', '统计', '分析', '测试', '调试', '部署', '发布', '更新', '升级', '迁移', '重构', '优化', '修复', '合并', '删除', '创建', '添加', '修改', '查询', '搜索', '过滤', '排序', '分组', '计算', '转换', '处理', '生成', '解析', '验证', '授权', '认证', '加密', '解密', '压缩', '解压', '编码', '解码', '序列化', '反序列化'];
+
+const LOCATION_PATTERNS = [
+  { regex: /([\u4e00-\u9fa5]{2,6}(?:省|市|区|县|镇|乡|村|街|路|巷|弄|号|楼|层|室))/g, confidence: 0.85 },
+  { regex: /((?:北京|上海|广州|深圳|杭州|成都|武汉|南京|西安|重庆|苏州|天津|长沙|郑州|东莞|青岛|沈阳|宁波|昆明|厦门|福州|无锡|合肥|大连|珠海|佛山|济南|哈尔滨|长春|太原|贵阳|南宁|南昌|石家庄|兰州|海口|三亚|香港|澳门|台北))/g, confidence: 0.9 },
+];
+
+const TIME_PATTERNS = [
+  { regex: /(\d{4}年\d{1,2}月\d{1,2}日)/g, confidence: 0.95 },
+  { regex: /(\d{4}年\d{1,2}月)/g, confidence: 0.9 },
+  { regex: /(\d{4}-\d{2}-\d{2})/g, confidence: 0.95 },
+  { regex: /((?:今天|昨天|前天|明天|后天|上周|下周|本周|上个月|下个月|今年|去年|前年|明年))/g, confidence: 0.8 },
+  { regex: /((?:Q[1-4]|第[一二三四]季度)(?:\s*\d{4})?)/g, confidence: 0.85 },
+];
+
+const EVENT_PATTERNS = [
+  { regex: /([\u4e00-\u9fa5]{2,8}(?:会议|大会|峰会|论坛|展览|展会|活动|发布会|研讨会|培训|讲座|沙龙|比赛|竞赛|面试|评审|复盘|回顾|规划|冲刺|迭代|版本发布|上线|发布))/g, confidence: 0.7 },
+];
+
+const TECH_TERMS = [
+  'React', 'Vue', 'Angular', 'Svelte', 'Next.js', 'Nuxt', 'Gatsby', 'Vite', 'Webpack', 'Tailwind', 'Sass', 'Less',
+  'Node.js', 'Python', 'JavaScript', 'TypeScript', 'Go', 'Rust', 'Java', 'Kotlin', 'Swift', 'C\\+\\+', 'C#', 'Ruby', 'PHP', 'Dart', 'Lua', 'R', 'Scala', 'Elixir', 'Haskell',
+  'PostgreSQL', 'MySQL', 'SQLite', 'MongoDB', 'Redis', 'Elasticsearch', 'Cassandra', 'CockroachDB', 'TiDB', 'ClickHouse',
+  'Docker', 'Kubernetes', 'Terraform', 'AWS', 'Azure', 'GCP', 'GitHub', 'GitLab', 'Jenkins', 'CircleCI',
+  'GraphQL', 'REST', 'gRPC', 'WebSocket', 'MQTT',
+  'Linux', 'macOS', 'Windows', 'iOS', 'Android',
+  'Nginx', 'Apache', 'Caddy',
+  'Git', 'SVN', 'Mercurial',
+  'Bun', 'Deno', 'pnpm', 'yarn', 'npm',
+  'Electron', 'Tauri', 'Flutter', 'React Native', 'Unity', 'Unreal',
+  'Claude', 'GPT', 'LLM', 'RAG', 'Fine-tuning', 'Embedding', 'Transformer',
+  'SQLite', 'Supabase', 'Firebase', 'Prisma', 'Drizzle',
+];
+const TECH_REGEX = new RegExp(`(${TECH_TERMS.join('|')})`, 'g');
+
+function isFalsePositive(match: string, type: EntityType, context: string): boolean {
+  if (type === 'organization') {
+    for (const fp of ORG_FALSE_POSITIVES) {
+      if (match === fp || match.includes(fp)) return true;
+    }
+    for (const prefix of ORG_PREFIXES) {
+      if (match.startsWith(prefix) && !KNOWN_ORGS.some(org => match.includes(org))) {
+        const suffix = match.slice(prefix.length);
+        if (ORG_SUFFIXES.some(s => suffix === s)) return true;
+      }
+    }
+  }
+
+  if (type === 'person') {
+    for (const fp of PERSON_FALSE_POSITIVES) {
+      if (match === fp) return true;
+    }
+  }
+
+  if (type === 'event') {
+    const eventFalsePositives = ['没有会议', '无会议', '取消会议', '不参加会议', '避免活动', '停止活动'];
+    for (const fp of eventFalsePositives) {
+      if (context.includes(fp)) return true;
+    }
+  }
+
+  return false;
+}
+
+function getContext(content: string, index: number, windowSize: number = 20): string {
+  const start = Math.max(0, index - windowSize);
+  const end = Math.min(content.length, index + windowSize);
+  return content.slice(start, end);
+}
+
+export function extractEntities(content: string): ExtractedEntity[] {
+  const entities: ExtractedEntity[] = [];
+  const seen = new Map<string, number>();
+
+  function addEntity(name: string, type: EntityType, confidence: number, index: number = 0): void {
+    const key = `${type}:${name}`;
+    const existingConf = seen.get(key);
+    if (existingConf !== undefined && existingConf >= confidence) return;
+
+    if (isFalsePositive(name, type, getContext(content, index))) return;
+
+    seen.set(key, confidence);
+    const existingIdx = entities.findIndex(e => e.name === name && e.type === type);
+    if (existingIdx >= 0) {
+      entities[existingIdx].confidence = Math.max(entities[existingIdx].confidence, confidence);
+    } else {
+      entities.push({ name, type, confidence });
+    }
+  }
 
   for (const pattern of ENTITY_PATTERNS) {
     let match;
     while ((match = pattern.regex.exec(content)) !== null) {
-      const name = match[1];
-      const key = `${pattern.type}:${name}`;
-      if (!seen.has(key) && name.length >= 1) {
-        seen.add(key);
-        entities.push({ name, type: pattern.type });
-      }
+      addEntity(match[1], pattern.type, pattern.confidence, match.index);
     }
   }
 
-  const chinesePersonPattern = /(?:名叫|名字是|是[\s]*[\u4e00-\u9fa5]{2,4}(?:老师|同学|先生|女士|经理|总监|老板|工程师|设计师))|(?:^|[^a-zA-Z\u4e00-\u9fa5])([\u4e00-\u9fa5]{2,3})(?:说|觉得|认为|表示|提到|告诉)/gu;
   let match;
-  while ((match = chinesePersonPattern.exec(content)) !== null) {
-    const name = match[1] || match[2];
-    if (name && name.length >= 2 && name.length <= 4) {
-      const key = `person:${name}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        entities.push({ name, type: 'person' });
-      }
+  const personWithTitleRegex = new RegExp(`([\\u4e00-\\u9fa5]{2,4})(?:${PERSON_TITLES.join('|')})`, 'g');
+  while ((match = personWithTitleRegex.exec(content)) !== null) {
+    const name = match[1];
+    if (!PERSON_FALSE_POSITIVES.includes(name) && name.length >= 2 && name.length <= 4) {
+      addEntity(name, 'person', 0.85, match.index);
     }
   }
 
-  const orgPatterns = [
-    /([\u4e00-\u9fa5]{2,10}(?:公司|集团|工作室|实验室|团队|部门|机构|组织|协会|联盟))/g,
-    /((?:腾讯|阿里|字节|百度|京东|美团|华为|小米|微软|谷歌|苹果|亚马逊))/g,
-  ];
-  for (const orgPattern of orgPatterns) {
-    while ((match = orgPattern.exec(content)) !== null) {
-      const name = match[1];
-      const key = `organization:${name}`;
-      if (!seen.has(key) && name.length >= 2) {
-        seen.add(key);
-        entities.push({ name, type: 'organization' });
-      }
+  const personWithVerbRegex = new RegExp(`(?:^|[^a-zA-Z\\u4e00-\\u9fa5])([\\u4e00-\\u9fa5]{2,3})(?:${PERSON_VERBS.join('|')})`, 'g');
+  while ((match = personWithVerbRegex.exec(content)) !== null) {
+    const name = match[1];
+    if (!PERSON_FALSE_POSITIVES.includes(name) && name.length >= 2 && name.length <= 3) {
+      addEntity(name, 'person', 0.6, match.index);
     }
+  }
+
+  while ((match = KNOWN_ORG_REGEX.exec(content)) !== null) {
+    addEntity(match[1], 'organization', 0.95, match.index);
+  }
+
+  while ((match = ORG_SUFFIX_REGEX.exec(content)) !== null) {
+    const name = match[1];
+    addEntity(name, 'organization', 0.8, match.index);
+  }
+
+  for (const locPattern of LOCATION_PATTERNS) {
+    while ((match = locPattern.regex.exec(content)) !== null) {
+      addEntity(match[1], 'location', locPattern.confidence, match.index);
+    }
+  }
+
+  for (const timePattern of TIME_PATTERNS) {
+    while ((match = timePattern.regex.exec(content)) !== null) {
+      addEntity(match[1], 'time', timePattern.confidence, match.index);
+    }
+  }
+
+  for (const evtPattern of EVENT_PATTERNS) {
+    while ((match = evtPattern.regex.exec(content)) !== null) {
+      addEntity(match[1], 'event', evtPattern.confidence, match.index);
+    }
+  }
+
+  while ((match = TECH_REGEX.exec(content)) !== null) {
+    addEntity(match[1], 'tool', 0.9, match.index);
   }
 
   const emailPattern = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
   while ((match = emailPattern.exec(content)) !== null) {
-    const email = match[0].toLowerCase();
-    const key = `tool:${email}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      entities.push({ name: email, type: 'tool' });
-    }
+    addEntity(match[0].toLowerCase(), 'tool', 0.95, match.index);
   }
 
-  const techPatterns = [
-    /(React|Vue|Angular|Svelte|Next\.js|Nuxt|Gatsby|Vite|Webpack|Tailwind)/g,
-    /(Node\.js|Python|JavaScript|TypeScript|Go|Rust|Java|Kotlin|Swift)/g,
-    /(PostgreSQL|MySQL|SQLite|MongoDB|Redis|Elasticsearch)/g,
-    /(Docker|Kubernetes|Terraform|AWS|Azure|GCP|GitHub|GitLab)/g,
-  ];
-  for (const techPattern of techPatterns) {
-    while ((match = techPattern.exec(content)) !== null) {
-      const name = match[1];
-      const key = `tool:${name}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        entities.push({ name, type: 'tool' });
-      }
-    }
+  const urlPattern = /https?:\/\/[\w\-._~:/?#\[\]@!$&'()*+,;=%]+/g;
+  while ((match = urlPattern.exec(content)) !== null) {
+    try {
+      const hostname = new URL(match[0]).hostname;
+      addEntity(hostname, 'tool', 0.7, match.index);
+    } catch {}
   }
 
-  return entities;
+  return entities.filter(e => e.confidence >= 0.5);
 }
 
 export function extractProjects(content: string): string[] {

@@ -1,6 +1,6 @@
 export type Layer = 'flash' | 'short' | 'long' | 'project' | 'entity';
 export type MemoryStatus = 'active' | 'archived' | 'decayed' | 'deleted';
-export type EntityType = 'person' | 'tool' | 'concept' | 'organization';
+export type EntityType = 'person' | 'tool' | 'concept' | 'organization' | 'location' | 'event' | 'time' | 'project';
 export type ChangeType = 'create' | 'update' | 'layer_move' | 'merge' | 'restore';
 export type EvolutionTaskType = 'merge' | 'archive' | 'solidify' | 'conflict' | 'orphan';
 export type IsolationMode = 'isolated' | 'shared' | 'hybrid' | 'project';
