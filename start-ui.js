@@ -3,11 +3,33 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const isBackground = process.argv.includes('--background') || process.argv.includes('-b');
 
 console.log('🌐 KeyMemory Web UI 一键启动');
 console.log('============================');
+
+function isWSL() {
+  if (process.platform !== 'linux') return false;
+  if (process.env.WSL_DISTRO_NAME) return true;
+  try {
+    return fs.readFileSync('/proc/version', 'utf-8').toLowerCase().includes('microsoft');
+  } catch {
+    return false;
+  }
+}
+
+const WSL = isWSL();
+const WSL_DATA_DIR = WSL ? path.join(os.homedir(), '.keymemory-wsl') : null;
+
+if (WSL) {
+  console.log('');
+  console.log('🔍 检测到 WSL 环境');
+  console.log('   数据目录: ' + WSL_DATA_DIR);
+  console.log('   这会与 Windows 桌面版本的数据目录隔离');
+  console.log('');
+}
 
 try {
   const packageJson = require('./package.json');
@@ -34,10 +56,19 @@ if (!hasBuild) {
 function startServices() {
   console.log('');
 
+  const baseEnv = {
+    ...process.env,
+    KEYMEMORY_PRESET: 'hermes',
+  };
+
+  if (WSL && WSL_DATA_DIR) {
+    baseEnv.KEYMEMORY_DATA_DIR = WSL_DATA_DIR;
+  }
+
   const spawnOptions = {
     cwd: __dirname,
     stdio: isBackground ? 'ignore' : 'inherit',
-    env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
+    env: baseEnv,
     detached: isBackground,
     windowsHide: isBackground,
   };
@@ -56,6 +87,7 @@ function startServices() {
       stdio: isBackground ? 'ignore' : 'inherit',
       detached: isBackground,
       windowsHide: isBackground,
+      env: baseEnv,
     };
 
     const webProcess = spawn('pnpm', ['dev:web'], webSpawnOptions);

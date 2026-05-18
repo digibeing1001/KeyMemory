@@ -7,9 +7,31 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 console.log('🚀 KeyMemory Hermes 一键启动');
 console.log('============================');
+
+function isWSL() {
+  if (process.platform !== 'linux') return false;
+  if (process.env.WSL_DISTRO_NAME) return true;
+  try {
+    return fs.readFileSync('/proc/version', 'utf-8').toLowerCase().includes('microsoft');
+  } catch {
+    return false;
+  }
+}
+
+const WSL = isWSL();
+const WSL_DATA_DIR = WSL ? path.join(os.homedir(), '.keymemory-wsl') : null;
+
+if (WSL) {
+  console.log('');
+  console.log('🔍 检测到 WSL 环境');
+  console.log('   数据目录: ' + WSL_DATA_DIR);
+  console.log('   这会与 Windows 桌面版本的数据目录隔离');
+  console.log('');
+}
 
 // 检查是否已安装依赖
 try {
@@ -45,19 +67,33 @@ function startServices() {
   console.log('💡 按 Ctrl+C 停止');
   console.log('');
 
-  // 启动 MCP 服务器
+  const env = {
+    ...process.env,
+    KEYMEMORY_PRESET: 'hermes',
+  };
+
+  if (WSL && WSL_DATA_DIR) {
+    env.KEYMEMORY_DATA_DIR = WSL_DATA_DIR;
+  }
+
   const mcpProcess = spawn('pnpm', ['start:mcp'], {
     cwd: __dirname,
     stdio: 'inherit',
-    env: { ...process.env, KEYMEMORY_PRESET: 'hermes' }
+    env,
   });
 
-  // 启动 Web UI（可选）
   console.log('⏳ 等待 2 秒后启动 Web UI...');
   setTimeout(() => {
+    const webEnv = {
+      ...process.env,
+    };
+    if (WSL && WSL_DATA_DIR) {
+      webEnv.KEYMEMORY_DATA_DIR = WSL_DATA_DIR;
+    }
     const webProcess = spawn('pnpm', ['dev:web'], {
       cwd: __dirname,
-      stdio: 'inherit'
+      stdio: 'inherit',
+      env: webEnv,
     });
   }, 2000);
 }

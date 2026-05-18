@@ -4,7 +4,6 @@ const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const http = require('http');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const SERVER_ENTRY = path.join(PROJECT_DIR, 'packages/server/dist/index.js');
@@ -22,35 +21,24 @@ function isWSL() {
 }
 
 const WSL = isWSL();
-const ON_WIN_FS = PROJECT_DIR.startsWith('/mnt/');
-const IS_WINDOWS_NODE = process.platform === 'win32';
 
 console.log('');
-console.log('  \x1b[1m\x1b[36mKeyMemory\x1b[0m Web UI');
-console.log('  \x1b[2m─────────────────────\x1b[0m');
+console.log('  \x1b[1m\x1b[36mKeyMemory\x1b[0m Web UI (WSL 专用版)');
+console.log('  \x1b[2m────────────────────────────\x1b[0m');
 console.log('');
 
-if (WSL && ON_WIN_FS) {
-  console.log('  \x1b[33m⚠ 检测到 WSL + Windows 文件系统组合\x1b[0m');
-  console.log('');
-  console.log('  \x1b[2m问题: 项目位于 Windows 文件系统 (/mnt/c/)\x1b[0m');
-  console.log('  \x1b[2m这会导致 os.homedir() 指向 Windows 主目录\x1b[0m');
-  console.log('  \x1b[2m与桌面开发版本共用同一数据目录，造成数据混淆\x1b[0m');
-  console.log('');
+const WSL_DATA_DIR = path.join(os.homedir(), '.keymemory-wsl');
 
-  const linuxDir = path.join(os.homedir(), 'KeyMemory-wsl');
-  console.log('  \x1b[1m解决方案: 在 Linux 文件系统上克隆项目\x1b[0m');
+console.log('  \x1b[1m环境信息:\x1b[0m');
+console.log('    WSL: ' + (WSL ? '\x1b[32m是\x1b[0m' : '\x1b[33m否\x1b[0m'));
+console.log('    项目路径: ' + PROJECT_DIR);
+console.log('    数据目录: ' + WSL_DATA_DIR);
+console.log('');
+
+if (WSL) {
+  console.log('  \x1b[32m✓ 正在使用 WSL 专用数据目录\x1b[0m');
+  console.log('  \x1b[2m  这会与 Windows 桌面版本的数据目录完全隔离\x1b[0m');
   console.log('');
-  console.log('    \x1b[36mgit clone https://github.com/digibeing1001/KeyMemory.git ' + linuxDir + '\x1b[0m');
-  console.log('    \x1b[36mcd ' + linuxDir + '\x1b[0m');
-  console.log('    \x1b[36mpnpm install && pnpm build\x1b[0m');
-  console.log('    \x1b[36mkeymemory-ui\x1b[0m');
-  console.log('');
-  console.log('  \x1b[2m推荐方案:\x1b[0m 在 Linux 文件系统上克隆项目');
-  console.log('');
-  console.log('  \x1b[2m或使用便携版启动脚本(会自动设置正确的数据目录)\x1b[0m');
-  console.log('');
-  process.exit(1);
 }
 
 const needsBuild = !fs.existsSync(SERVER_ENTRY) || !fs.existsSync(WEB_DIST) || !fs.existsSync(SHARED_DIST);
@@ -146,44 +134,38 @@ function checkWindowsPortConflict() {
   return null;
 }
 
-function resolveNodeBinary() {
-  const hermesNode = path.join(os.homedir(), '.hermes', 'node', 'bin', 'node');
-  if (fs.existsSync(hermesNode)) {
-    try {
-      execSync('"' + hermesNode + '" --version', { encoding: 'utf-8', timeout: 3000 });
-      return hermesNode;
-    } catch {}
-  }
-  return process.execPath;
-}
-
 const windowsConflictPids = checkWindowsPortConflict();
 const wslIp = WSL ? getWSLIP() : null;
-const NODE_BIN = resolveNodeBinary();
 
 if (WSL && windowsConflictPids) {
-  console.log('');
   console.log('  \x1b[33m⚠ 检测到 Windows 进程占用了 ' + PORT + ' 端口\x1b[0m');
   console.log('  \x1b[2mPID: ' + windowsConflictPids.join(', ') + '\x1b[0m');
   console.log('  \x1b[2m原因: Windows 上的进程会拦截 localhost 请求，导致 WSL2 服务无法通过 127.0.0.1 访问\x1b[0m');
   console.log('');
 }
 
-const serverProc = spawn(NODE_BIN, [SERVER_ENTRY], {
+const env = {
+  ...process.env,
+  KEYMEMORY_PRESET: 'hermes',
+  KEYMEMORY_DATA_DIR: WSL_DATA_DIR,
+};
+
+const serverProc = spawn(process.execPath, [SERVER_ENTRY], {
   cwd: PROJECT_DIR,
   stdio: 'inherit',
-  env: { ...process.env, KEYMEMORY_PRESET: 'hermes' },
+  env,
 });
 
 console.log('  \x1b[2m⏳ 启动服务...\x1b[0m');
+console.log('');
 
 let started = false;
+const http = require('http');
 const checkInterval = setInterval(() => {
   const req = http.get(`http://127.0.0.1:${PORT}/api/health/report`, (res) => {
     if (res.statusCode === 200 && !started) {
       started = true;
       clearInterval(checkInterval);
-      console.log('');
       console.log('  \x1b[32m✓ 服务已启动\x1b[0m');
       console.log('');
       if (fs.existsSync(WEB_DIST)) {
@@ -213,7 +195,6 @@ const checkInterval = setInterval(() => {
 setTimeout(() => {
   if (!started) {
     clearInterval(checkInterval);
-    console.log('');
     console.log('  \x1b[33m⚠ 服务启动超时，请检查日志\x1b[0m');
     console.log('');
   }
