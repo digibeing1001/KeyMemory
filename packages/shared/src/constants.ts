@@ -40,6 +40,14 @@ export const SEARCH_CONFIG = {
   maxCacheEntries: 100,
 } as const;
 
+export const CONSOLIDATION_CONFIG = {
+  duplicateSimilarity: 0.85,
+  staleDays: 60,
+  flashMaxDays: 14,
+  solidifyMinHits: 8,
+  maxActionsPerPlan: 50,
+} as const;
+
 export const DEFAULT_PORT = 3210;
 export const DEFAULT_HOST = '0.0.0.0';
 export const DATA_DIR_NAME = '.keymemory';

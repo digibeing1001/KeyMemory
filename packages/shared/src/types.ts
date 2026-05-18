@@ -125,6 +125,56 @@ export interface SearchQuery {
   offset?: number;
 }
 
+export type ConsolidationActionType = 'merge' | 'deduplicate' | 'archive_stale' | 'archive_flash' | 'solidify';
+
+export interface ConsolidationAction {
+  id: string;
+  type: ConsolidationActionType;
+  sourceIds: string[];
+  targetId?: string;
+  description: string;
+  status: 'pending' | 'executed' | 'rolled_back' | 'skipped';
+}
+
+export interface ConsolidationSnapshot {
+  id: string;
+  planId: string;
+  memoryId: string;
+  title: string;
+  content: string;
+  layer: Layer;
+  status: MemoryStatus;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  project?: string;
+  agentSpace: string;
+  confidence: number;
+  decayFactor: number;
+  capturedAt: string;
+}
+
+export interface ConsolidationPlan {
+  id: string;
+  actions: ConsolidationAction[];
+  status: 'planned' | 'executing' | 'completed' | 'rolled_back' | 'partial_rollback';
+  snapshotCount: number;
+  createdAt: string;
+  executedAt?: string;
+  summary?: ConsolidationSummary;
+}
+
+export interface ConsolidationSummary {
+  totalActions: number;
+  merged: number;
+  deduplicated: number;
+  archivedStale: number;
+  archivedFlash: number;
+  solidified: number;
+  skipped: number;
+  memoriesBefore: number;
+  memoriesAfter: number;
+}
+
 export interface AutoRememberResult {
   recorded: boolean;
   reason: string;

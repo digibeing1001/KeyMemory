@@ -144,6 +144,34 @@ function runMigrations(db: Database.Database): void {
       enabled INTEGER DEFAULT 1,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS consolidation_plans (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'planned',
+      actions TEXT NOT NULL,
+      snapshot_count INTEGER DEFAULT 0,
+      summary TEXT,
+      created_at TEXT NOT NULL,
+      executed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS consolidation_snapshots (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL,
+      memory_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      layer TEXT NOT NULL,
+      status TEXT NOT NULL,
+      tags TEXT,
+      metadata TEXT,
+      project TEXT,
+      agent_space TEXT DEFAULT 'global',
+      confidence REAL DEFAULT 1.0,
+      decay_factor REAL DEFAULT 1.0,
+      captured_at TEXT NOT NULL,
+      FOREIGN KEY (plan_id) REFERENCES consolidation_plans(id)
+    );
   `);
 
   db.exec(`
@@ -153,6 +181,9 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
     CREATE INDEX IF NOT EXISTS idx_versions_memory_id ON versions(memory_id);
     CREATE INDEX IF NOT EXISTS idx_evolution_tasks_status ON evolution_tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_consolidation_snapshots_plan ON consolidation_snapshots(plan_id);
+    CREATE INDEX IF NOT EXISTS idx_consolidation_snapshots_memory ON consolidation_snapshots(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_consolidation_plans_status ON consolidation_plans(status);
   `);
 
   const alterStatements = [

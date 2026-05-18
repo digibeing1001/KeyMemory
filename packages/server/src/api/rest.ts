@@ -9,6 +9,7 @@ import { getVersions, diffVersions, rollbackToVersion } from '../core/provenance
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDecay } from '../core/forgetting.js';
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
 import { getHealthReport, injectContext } from '../core/health.js';
+import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
 import { routeMemory, createAgentContext } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
 import { getDatabase } from '../db/sqlite.js';
@@ -572,5 +573,51 @@ export function registerRoutes(app: FastifyInstance): void {
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
     }));
+  });
+
+  app.post('/api/consolidation/plan', async () => {
+    return planConsolidation();
+  });
+
+  app.post('/api/consolidation/execute', async (request) => {
+    const { planId } = request.body as { planId: string };
+    if (!planId) return { error: 'planId is required' };
+    try {
+      return executeConsolidation(planId);
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.post('/api/consolidation/auto', async () => {
+    return runAutoConsolidation();
+  });
+
+  app.post('/api/consolidation/rollback', async (request) => {
+    const { planId, actionIds } = request.body as { planId: string; actionIds?: string[] };
+    if (!planId) return { error: 'planId is required' };
+    try {
+      return rollbackConsolidation(planId, actionIds);
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.get('/api/consolidation/plans', async (request) => {
+    const query = request.query as Record<string, string>;
+    const limit = query.limit ? parseInt(query.limit, 10) : 20;
+    return listConsolidationPlans(limit);
+  });
+
+  app.get('/api/consolidation/plans/:planId', async (request) => {
+    const { planId } = request.params as { planId: string };
+    const plan = getConsolidationPlan(planId);
+    if (!plan) return { error: 'Plan not found' };
+    return plan;
+  });
+
+  app.get('/api/consolidation/plans/:planId/snapshots', async (request) => {
+    const { planId } = request.params as { planId: string };
+    return getConsolidationSnapshots(planId);
   });
 }

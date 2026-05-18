@@ -7,6 +7,7 @@ import { moveLayer, getLayerStats } from './core/layer.js';
 import { autoRemember, extractTags } from './core/auto.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from './core/evolution.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay } from './core/forgetting.js';
+import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation, formatConsolidationReport } from './core/consolidation.js';
 import { getHealthReport } from './core/health.js';
 import { listEntities, getEntityGraph, extractEntities } from './graph/entity.js';
 import { initEmbedding } from './embed/onnx.js';
@@ -582,6 +583,79 @@ program
 
     await app.listen({ port: parseInt(opts.port, 10), host: opts.host });
     console.log(`KeyMemory server running at http://${opts.host}:${opts.port}`);
+  });
+
+program
+  .command('consolidate')
+  .description('Plan, execute, or rollback memory consolidation')
+  .option('--plan', 'create a consolidation plan without executing')
+  .option('--execute <planId>', 'execute a consolidation plan')
+  .option('--auto', 'auto plan and execute consolidation')
+  .option('--rollback <planId>', 'rollback a consolidation plan')
+  .option('--action-ids <ids>', 'comma-separated action IDs for partial rollback')
+  .option('--list', 'list recent consolidation plans')
+  .option('--show <planId>', 'show consolidation plan details')
+  .option('--snapshots <planId>', 'show snapshots for a consolidation plan')
+  .action((opts) => {
+    const format: OutputFormat = program.opts().format || 'json';
+
+    if (opts.plan) {
+      const plan = planConsolidation();
+      printAndExit(plan, format);
+    }
+
+    if (opts.execute) {
+      try {
+        const result = executeConsolidation(opts.execute);
+        if (format !== 'json') {
+          process.stdout.write(formatConsolidationReport(result) + '\n');
+          closeDatabase();
+          process.exit(0);
+        }
+        printAndExit(result, format);
+      } catch (err) {
+        printError((err as Error).message);
+      }
+    }
+
+    if (opts.auto) {
+      const result = runAutoConsolidation();
+      if (format !== 'json') {
+        process.stdout.write(formatConsolidationReport(result) + '\n');
+        closeDatabase();
+        process.exit(0);
+      }
+      printAndExit(result, format);
+    }
+
+    if (opts.rollback) {
+      const actionIds = opts.actionIds ? opts.actionIds.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined;
+      try {
+        const result = rollbackConsolidation(opts.rollback, actionIds);
+        printAndExit(result, format);
+      } catch (err) {
+        printError((err as Error).message);
+      }
+    }
+
+    if (opts.list) {
+      const plans = listConsolidationPlans();
+      printAndExit(plans, format);
+    }
+
+    if (opts.show) {
+      const plan = getConsolidationPlan(opts.show);
+      if (!plan) printError(`Plan not found: ${opts.show}`);
+      printAndExit(plan, format);
+    }
+
+    if (opts.snapshots) {
+      const snapshots = getConsolidationSnapshots(opts.snapshots);
+      printAndExit(snapshots, format);
+    }
+
+    const plan = planConsolidation();
+    printAndExit(plan, format);
   });
 
 program.parse();
