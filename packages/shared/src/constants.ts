@@ -30,8 +30,14 @@ export const EVOLUTION_THRESHOLDS = {
 } as const;
 
 export const SEARCH_WEIGHTS = {
-  fulltext: 0.4,
-  semantic: 0.6,
+  fulltext: 0.5,
+  semantic: 0.5,
+} as const;
+
+export const SEARCH_CONFIG = {
+  rrfK: 60,
+  cacheTtlMinutes: 5,
+  maxCacheEntries: 100,
 } as const;
 
 export const DEFAULT_PORT = 3210;

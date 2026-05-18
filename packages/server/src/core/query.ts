@@ -1,5 +1,5 @@
 import type { SearchResult, Layer, MemoryStatus } from '@keymemory/shared';
-import { SEARCH_WEIGHTS } from '@keymemory/shared';
+import { SEARCH_WEIGHTS, SEARCH_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, EMBEDDING_DIM, initEmbedding, isEmbeddingAvailable } from '../embed/onnx.js';
 import { recordHit } from './atom.js';
@@ -34,7 +34,7 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
 export async function searchFulltext(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; limit?: number }): Promise<SearchResult[]> {
   const db = getDatabase();
   const conditions = ["m.status = 'active'"];
-  const params: Record<string, unknown> = { q: query, limit: options?.limit ?? 20 };
+  const params: Record<string, unknown> = { limit: options?.limit ?? 20 };
 
   if (options?.layer) {
     conditions.push('m.layer = @layer');
@@ -47,6 +47,21 @@ export async function searchFulltext(query: string, options?: { layer?: Layer; s
       params[`agentSpace${i}`] = space;
     });
   }
+
+  let matchQuery = query;
+  const hasWildcard = query.includes('*') || query.includes('?');
+  
+  if (hasWildcard) {
+    matchQuery = query
+      .replace(/([^\\])\*/g, '$1*')
+      .replace(/([^\\])\?/g, '$1?')
+      .replace(/\\\*/g, '*')
+      .replace(/\\\?/g, '?');
+  } else {
+    matchQuery = `"${query}" OR ${query}*`;
+  }
+  
+  params.q = matchQuery;
 
   try {
     const rows = db.prepare(`
@@ -127,6 +142,40 @@ export async function searchSemantic(query: string, options?: { layer?: Layer; s
   return scored.slice(0, options?.limit ?? 20);
 }
 
+export async function findDuplicateMemories(threshold: number = 0.9, limit: number = 20): Promise<{ memoryId1: string; memoryId2: string; similarity: number }[]> {
+  if (!isEmbeddingAvailable()) {
+    return [];
+  }
+
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT e1.memory_id as id1, e2.memory_id as id2, e1.embedding as emb1, e2.embedding as emb2
+    FROM embeddings e1
+    JOIN embeddings e2 ON e1.memory_id < e2.memory_id
+    WHERE e1.memory_id != e2.memory_id
+  `).all() as { id1: string; id2: string; emb1: Buffer; emb2: Buffer }[];
+
+  const duplicates: { memoryId1: string; memoryId2: string; similarity: number }[] = [];
+
+  for (const row of rows) {
+    const vec1 = bufferToEmbedding(row.emb1);
+    const vec2 = bufferToEmbedding(row.emb2);
+    const sim = cosineSimilarity(vec1, vec2);
+    
+    if (sim >= threshold) {
+      duplicates.push({
+        memoryId1: row.id1,
+        memoryId2: row.id2,
+        similarity: sim,
+      });
+    }
+  }
+
+  duplicates.sort((a, b) => b.similarity - a.similarity);
+
+  return duplicates.slice(0, limit);
+}
+
 export async function searchHybrid(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; limit?: number }): Promise<SearchResult[]> {
   const limit = options?.limit ?? 20;
 
@@ -150,7 +199,7 @@ export async function searchHybrid(query: string, options?: { layer?: Layer; sta
     }
   });
 
-  const k = 60;
+  const k = SEARCH_CONFIG.rrfK;
   const fused = Array.from(rrfMap.entries()).map(([id, data]) => {
     let score = 0;
     if (data.fulltextRank) score += SEARCH_WEIGHTS.fulltext / (k + data.fulltextRank);

@@ -219,6 +219,181 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
   })();
 }
 
+export function listVersions(memoryId: string): { id: string; version: number; title: string; changeType: string; changeReason: string | null; createdAt: string }[] {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT id, version, title, change_type, change_reason, created_at
+    FROM versions
+    WHERE memory_id = ?
+    ORDER BY version DESC
+  `).all(memoryId) as Record<string, unknown>[];
+
+  return rows.map(r => ({
+    id: r.id as string,
+    version: r.version as number,
+    title: r.title as string,
+    changeType: r.change_type as string,
+    changeReason: r.change_reason as string | null,
+    createdAt: r.created_at as string,
+  }));
+}
+
+export function getVersion(memoryId: string, version: number): { id: string; version: number; title: string; content: string; changeType: string; createdAt: string } | null {
+  const db = getDatabase();
+  const row = db.prepare(`
+    SELECT id, version, title, content, change_type, created_at
+    FROM versions
+    WHERE memory_id = ? AND version = ?
+  `).get(memoryId, version) as Record<string, unknown> | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id as string,
+    version: row.version as number,
+    title: row.title as string,
+    content: row.content as string,
+    changeType: row.change_type as string,
+    createdAt: row.created_at as string,
+  };
+}
+
+export function revertToVersion(memoryId: string, version: number, reason?: string): Memory | null {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  const versionData = getVersion(memoryId, version);
+  if (!versionData) return null;
+
+  const current = getMemory(memoryId);
+  if (!current) return null;
+
+  db.prepare(`
+    UPDATE memories
+    SET title = @title, content = @content, updated_at = @now
+    WHERE id = @id
+  `).run({
+    id: memoryId,
+    title: versionData.title,
+    content: versionData.content,
+    now,
+  });
+
+  db.prepare(`
+    INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
+    VALUES (@vid, @mid, @version, @title, @content, 'revert', @changeReason, @createdAt)
+  `).run({
+    vid: uuid(),
+    mid: memoryId,
+    version: current.hitCount + 1,
+    title: versionData.title,
+    content: versionData.content,
+    changeReason: reason ?? `Reverted to version ${version}`,
+    createdAt: now,
+  });
+
+  return getMemory(memoryId);
+}
+
+export function batchCreateMemories(inputs: CreateMemoryInput[]): { success: Memory[]; failed: { input: CreateMemoryInput; error: string }[] } {
+  const success: Memory[] = [];
+  const failed: { input: CreateMemoryInput; error: string }[] = [];
+
+  for (const input of inputs) {
+    try {
+      const mem = createMemory(input);
+      success.push(mem);
+    } catch (err) {
+      failed.push({ input, error: (err as Error).message });
+    }
+  }
+
+  return { success, failed };
+}
+
+export function batchUpdateMemories(updates: { id: string; input: UpdateMemoryInput }[]): { success: Memory[]; failed: { id: string; error: string }[] } {
+  const success: Memory[] = [];
+  const failed: { id: string; error: string }[] = [];
+
+  for (const update of updates) {
+    try {
+      const mem = updateMemory(update.id, update.input);
+      if (mem) {
+        success.push(mem);
+      } else {
+        failed.push({ id: update.id, error: 'Memory not found' });
+      }
+    } catch (err) {
+      failed.push({ id: update.id, error: (err as Error).message });
+    }
+  }
+
+  return { success, failed };
+}
+
+export function batchDeleteMemories(ids: string[], permanent = false): { success: string[]; failed: { id: string; error: string }[] } {
+  const success: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+
+  for (const id of ids) {
+    try {
+      const ok = deleteMemory(id, permanent);
+      if (ok) {
+        success.push(id);
+      } else {
+        failed.push({ id, error: 'Memory not found' });
+      }
+    } catch (err) {
+      failed.push({ id, error: (err as Error).message });
+    }
+  }
+
+  return { success, failed };
+}
+
+export function exportMemories(options?: { layer?: Layer; status?: MemoryStatus }): Memory[] {
+  return listMemories(options);
+}
+
+export function exportMemoriesAsJson(options?: { layer?: Layer; status?: MemoryStatus }): string {
+  const memories = listMemories(options);
+  return JSON.stringify(memories, null, 2);
+}
+
+export function importMemories(jsonString: string): { success: number; failed: number } {
+  let memories: Memory[];
+  try {
+    memories = JSON.parse(jsonString);
+  } catch {
+    return { success: 0, failed: 1 };
+  }
+
+  let success = 0;
+  let failed = 0;
+
+  for (const mem of memories) {
+    try {
+      createMemory({
+        title: mem.title,
+        content: mem.content,
+        layer: mem.layer,
+        project: mem.project,
+        tags: mem.tags,
+        metadata: mem.metadata,
+        source: mem.source,
+        sourceId: mem.sourceId,
+        agentSpace: mem.agentSpace,
+        ownerAgentId: mem.ownerAgentId,
+      });
+      success++;
+    } catch {
+      failed++;
+    }
+  }
+
+  return { success, failed };
+}
+
 export function deleteMemory(id: string, permanent = false): boolean {
   const db = getDatabase();
   const existing = getMemory(id);

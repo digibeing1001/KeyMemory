@@ -160,6 +160,44 @@ export function createRelation(sourceId: string, targetId: string, relationType:
   return { id, sourceId, targetId, relationType, strength, createdAt: now };
 }
 
+export function listEntities(type?: EntityType): Entity[] {
+  const db = getDatabase();
+  const query = type 
+    ? `SELECT * FROM entities WHERE type = ? ORDER BY name`
+    : `SELECT * FROM entities ORDER BY name`;
+  
+  const rows = db.prepare(query).all(type ?? []) as Record<string, unknown>[];
+  
+  return rows.map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    type: r.type as EntityType,
+    properties: r.properties ? JSON.parse(r.properties as string) : undefined,
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+  }));
+}
+
+export function getMemoryEntities(memoryId: string): Entity[] {
+  const db = getDatabase();
+  
+  const rows = db.prepare(`
+    SELECT e.* FROM entities e
+    JOIN memory_entities me ON e.id = me.entity_id
+    WHERE me.memory_id = ?
+    ORDER BY e.name
+  `).all(memoryId) as Record<string, unknown>[];
+  
+  return rows.map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    type: r.type as EntityType,
+    properties: r.properties ? JSON.parse(r.properties as string) : undefined,
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+  }));
+}
+
 export function getEntityGraph(entityId: string): { entity: Entity; relations: Relation[]; connectedEntities: Entity[] } {
   const db = getDatabase();
 
@@ -191,6 +229,15 @@ export function getEntityGraph(entityId: string): { entity: Entity; relations: R
     }
   }
 
+  const typedRelations = relations.map(r => ({
+    id: r.id as string,
+    sourceId: r.source_id as string,
+    targetId: r.target_id as string,
+    relationType: r.relation_type as string,
+    strength: r.strength as number,
+    createdAt: r.created_at as string,
+  }));
+
   return {
     entity: {
       id: entity.id as string,
@@ -210,12 +257,4 @@ export function getEntityGraph(entityId: string): { entity: Entity; relations: R
     })),
     connectedEntities,
   };
-}
-
-export function listEntities(type?: EntityType): Entity[] {
-  const db = getDatabase();
-  if (type) {
-    return db.prepare(`SELECT * FROM entities WHERE type = ? ORDER BY name`).all(type) as Entity[];
-  }
-  return db.prepare(`SELECT * FROM entities ORDER BY name`).all() as Entity[];
 }

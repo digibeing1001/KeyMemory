@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { createMemory, getMemory, listMemories, updateMemory, deleteMemory, recordHit } from '../core/atom.js';
+import { createMemory, getMemory, listMemories, updateMemory, deleteMemory, recordHit, listVersions, getVersion, revertToVersion, batchCreateMemories, batchUpdateMemories, batchDeleteMemories, exportMemoriesAsJson, importMemories } from '../core/atom.js';
 import { moveLayer, getLayerStats } from '../core/layer.js';
-import { searchHybrid, ensureEmbedding } from '../core/query.js';
+import { searchHybrid, ensureEmbedding, findDuplicateMemories } from '../core/query.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from '../core/evolution.js';
 import { processContent, listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
@@ -494,5 +494,83 @@ export function registerRoutes(app: FastifyInstance): void {
       .sort((a, b) => b.count - a.count);
 
     return { tags, projects, totalMemories };
+  });
+
+  app.get('/api/memories/:id/versions', async (request) => {
+    const { id } = request.params as { id: string };
+    return listVersions(id);
+  });
+
+  app.get('/api/memories/:id/versions/:version', async (request) => {
+    const { id, version } = request.params as { id: string; version: string };
+    const result = getVersion(id, parseInt(version));
+    if (!result) {
+      return { error: 'Version not found' };
+    }
+    return result;
+  });
+
+  app.post('/api/memories/:id/versions/:version/revert', async (request) => {
+    const { id, version } = request.params as { id: string; version: string };
+    const { reason } = request.body as { reason?: string };
+    const result = revertToVersion(id, parseInt(version), reason);
+    if (!result) {
+      return { error: 'Failed to revert' };
+    }
+    return result;
+  });
+
+  app.post('/api/memories/batch/create', async (request) => {
+    const inputs = request.body as CreateMemoryInput[];
+    return batchCreateMemories(inputs);
+  });
+
+  app.post('/api/memories/batch/update', async (request) => {
+    const updates = request.body as { id: string; input: UpdateMemoryInput }[];
+    return batchUpdateMemories(updates);
+  });
+
+  app.post('/api/memories/batch/delete', async (request) => {
+    const { ids, permanent } = request.body as { ids: string[]; permanent?: boolean };
+    return batchDeleteMemories(ids, permanent);
+  });
+
+  app.get('/api/memories/export', async (request) => {
+    const query = request.query as Record<string, string>;
+    const layer = query.layer as Layer | undefined;
+    const status = query.status as MemoryStatus | undefined;
+    return exportMemoriesAsJson({ layer, status });
+  });
+
+  app.post('/api/memories/import', async (request) => {
+    const { data } = request.body as { data: string };
+    return importMemories(data);
+  });
+
+  app.get('/api/memories/duplicates', async (request) => {
+    const query = request.query as Record<string, string>;
+    const threshold = parseFloat(query.threshold) || 0.9;
+    const limit = parseInt(query.limit) || 20;
+    return findDuplicateMemories(threshold, limit);
+  });
+
+  app.get('/api/memories/:id/entities', async (request) => {
+    const { id } = request.params as { id: string };
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT e.* FROM entities e
+      JOIN memory_entities me ON e.id = me.entity_id
+      WHERE me.memory_id = ?
+      ORDER BY e.name
+    `).all(id) as Record<string, unknown>[];
+    
+    return rows.map(r => ({
+      id: r.id as string,
+      name: r.name as string,
+      type: r.type as string,
+      properties: r.properties ? JSON.parse(r.properties as string) : undefined,
+      createdAt: r.created_at as string,
+      updatedAt: r.updated_at as string,
+    }));
   });
 }
