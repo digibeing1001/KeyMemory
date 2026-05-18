@@ -7,6 +7,7 @@ import { initEmbedding } from './embed/onnx.js';
 import { DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
 import { runDailyInspection } from './core/evolution.js';
 import { applyDecay } from './core/forgetting.js';
+import { startScheduler } from './core/scheduler.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -99,6 +100,8 @@ async function main() {
       applyDecay();
     } catch {}
   }, 86400000);
+
+  startScheduler();
 }
 
 main();

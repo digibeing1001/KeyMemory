@@ -11,6 +11,7 @@ import { compressProjectMemories, compressEntityMemories, listCompressibleProjec
 import { getHealthReport, injectContext } from '../core/health.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
 import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport } from '../core/dreaming.js';
+import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../core/scheduler.js';
 import { routeMemory, createAgentContext } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
 import { getDatabase } from '../db/sqlite.js';
@@ -642,5 +643,16 @@ export function registerRoutes(app: FastifyInstance): void {
   app.get('/api/dream/reports/:reportId/signals', async (request) => {
     const { reportId } = request.params as { reportId: string };
     return getDreamSignalsForReport(reportId);
+  });
+
+  app.get('/api/scheduler/config', async () => {
+    return getSchedulerConfig();
+  });
+
+  app.post('/api/scheduler/config', async (request) => {
+    const updates = request.body as Record<string, unknown>;
+    const result = updateSchedulerConfig(updates);
+    restartScheduler();
+    return result;
   });
 }

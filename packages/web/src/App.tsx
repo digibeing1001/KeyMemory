@@ -8,12 +8,13 @@ import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
 import NebulaGraph from './components/NebulaGraph';
 import TagCloud from './components/TagCloud';
+import DreamView from './components/DreamView';
 import Editor from './views/Editor';
 import ConfirmDialog from './components/ConfirmDialog';
 import { getHealth, getMemoryConnections, getTagCloud, getAgents } from './lib/api';
 import type { MemoryGraphData, TagCloudData, AgentInfo } from './lib/api';
 
-type ViewMode = 'memories' | 'nebula' | 'tags';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream';
 
 function AppInner() {
   const store = useMemoryStore();
@@ -449,6 +450,12 @@ function AppInner() {
                 onTagClick={handleTagClick}
                 loading={!tagCloudData}
               />
+            </div>
+          )}
+
+          {viewMode === 'dream' && (
+            <div className="flex-1 overflow-y-auto">
+              <DreamView />
             </div>
           )}
         </div>

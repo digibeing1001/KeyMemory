@@ -114,3 +114,15 @@ export const Globe: FC<IconProps> = (p) => (
 export const ArrowLeft: FC<IconProps> = (p) => (
   <I {...p}><path d="M12.5 4l-6 6 6 6" /></I>
 );
+
+export const Moon: FC<IconProps> = (p) => (
+  <I {...p}><path d="M17 12.5A7.5 7.5 0 019.5 3 7.5 7.5 0 1017 12.5z" /></I>
+);
+
+export const Play: FC<IconProps> = (p) => (
+  <I {...p}><path d="M5 3l12 7-12 7V3z" /></I>
+);
+
+export const Settings: FC<IconProps> = (p) => (
+  <I {...p}><circle cx="10" cy="10" r="3" /><path d="M10 1v2M10 17v2M3.5 5.5l1.4 1.4M15.1 17.1l1.4 1.4M1 10h2M17 10h2M3.5 14.5l1.4-1.4M15.1 2.9l1.4-1.4" /></I>
+);

@@ -137,3 +137,75 @@ export interface AgentInfo {
 export async function getAgents(): Promise<AgentInfo[]> {
   return request('/agents');
 }
+
+export interface DreamSession {
+  id: string;
+  phase: 'light' | 'rem' | 'deep';
+  candidatesProcessed: number;
+  candidatesPromoted: number;
+  signals: Record<string, number>;
+  startedAt: string;
+  completedAt?: string;
+  summary?: string;
+}
+
+export interface DreamReport {
+  id: string;
+  sessions: DreamSession[];
+  totalCandidates: number;
+  promoted: number;
+  archived: number;
+  merged: number;
+  status: 'running' | 'completed' | 'failed';
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface DreamSignalEntry {
+  memoryId: string;
+  title: string;
+  score: number;
+  promoted: boolean;
+  signals: {
+    relevance: number;
+    frequency: number;
+    queryDiversity: number;
+    recency: number;
+    consolidation: number;
+    conceptualRichness: number;
+  };
+}
+
+export interface SchedulerConfig {
+  dreamingEnabled: boolean;
+  dreamingCron: string;
+  consolidationEnabled: boolean;
+  consolidationCron: string;
+  lastDreamRun: string | null;
+  lastConsolidationRun: string | null;
+}
+
+export async function runDream(): Promise<DreamReport> {
+  return request('/dream/run', { method: 'POST' });
+}
+
+export async function listDreamReports(limit?: number): Promise<DreamReport[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  return request(`/dream/reports${qs}`);
+}
+
+export async function getDreamReport(reportId: string): Promise<DreamReport> {
+  return request(`/dream/reports/${reportId}`);
+}
+
+export async function getDreamSignals(reportId: string): Promise<DreamSignalEntry[]> {
+  return request(`/dream/reports/${reportId}/signals`);
+}
+
+export async function getSchedulerConfig(): Promise<SchedulerConfig> {
+  return request('/scheduler/config');
+}
+
+export async function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Promise<SchedulerConfig> {
+  return request('/scheduler/config', { method: 'POST', body: JSON.stringify(updates) });
+}

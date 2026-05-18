@@ -201,6 +201,12 @@ function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL,
       FOREIGN KEY (report_id) REFERENCES dream_reports(id)
     );
+
+    CREATE TABLE IF NOT EXISTS scheduler_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   db.exec(`
