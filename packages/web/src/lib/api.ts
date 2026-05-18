@@ -179,10 +179,7 @@ export interface DreamSignalEntry {
 export interface SchedulerConfig {
   dreamingEnabled: boolean;
   dreamingCron: string;
-  consolidationEnabled: boolean;
-  consolidationCron: string;
   lastDreamRun: string | null;
-  lastConsolidationRun: string | null;
 }
 
 export async function runDream(): Promise<DreamReport> {
@@ -200,6 +197,10 @@ export async function getDreamReport(reportId: string): Promise<DreamReport> {
 
 export async function getDreamSignals(reportId: string): Promise<DreamSignalEntry[]> {
   return request(`/dream/reports/${reportId}/signals`);
+}
+
+export async function rollbackDream(reportId: string): Promise<DreamReport> {
+  return request(`/dream/rollback/${reportId}`, { method: 'POST' });
 }
 
 export async function getSchedulerConfig(): Promise<SchedulerConfig> {

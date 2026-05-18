@@ -217,7 +217,7 @@ export interface DreamReport {
   promoted: number;
   archived: number;
   merged: number;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'rolled_back';
   createdAt: string;
   completedAt?: string;
 }

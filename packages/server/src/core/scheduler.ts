@@ -1,24 +1,17 @@
 import { getDatabase } from '../db/sqlite.js';
 import { runDreamCycle } from './dreaming.js';
-import { runAutoConsolidation } from './consolidation.js';
 import { DREAM_CONFIG } from '@keymemory/shared';
 
 export interface SchedulerConfig {
   dreamingEnabled: boolean;
   dreamingCron: string;
-  consolidationEnabled: boolean;
-  consolidationCron: string;
   lastDreamRun: string | null;
-  lastConsolidationRun: string | null;
 }
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   dreamingEnabled: true,
   dreamingCron: DREAM_CONFIG.defaultCron,
-  consolidationEnabled: true,
-  consolidationCron: '0 4 * * *',
   lastDreamRun: null,
-  lastConsolidationRun: null,
 };
 
 function parseCron(cron: string): { hour: number; minute: number } {
@@ -50,10 +43,7 @@ export function getSchedulerConfig(): SchedulerConfig {
     switch (row.key) {
       case 'dreamingEnabled': config.dreamingEnabled = row.value === 'true'; break;
       case 'dreamingCron': config.dreamingCron = row.value; break;
-      case 'consolidationEnabled': config.consolidationEnabled = row.value === 'true'; break;
-      case 'consolidationCron': config.consolidationCron = row.value; break;
-      case 'lastDreamRun': config.lastDreamRun = row.value; break;
-      case 'lastConsolidationRun': config.lastConsolidationRun = row.value; break;
+      case 'lastDreamRun': config.lastDreamRun = row.value || null; break;
     }
   }
   return config;
@@ -73,12 +63,9 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
   const entries: [string, string][] = [
     ['dreamingEnabled', String(merged.dreamingEnabled)],
     ['dreamingCron', merged.dreamingCron],
-    ['consolidationEnabled', String(merged.consolidationEnabled)],
-    ['consolidationCron', merged.consolidationCron],
   ];
 
   if (updates.lastDreamRun !== undefined) entries.push(['lastDreamRun', merged.lastDreamRun || '']);
-  if (updates.lastConsolidationRun !== undefined) entries.push(['lastConsolidationRun', merged.lastConsolidationRun || '']);
 
   const transaction = db.transaction(() => {
     for (const [key, value] of entries) {
@@ -91,7 +78,6 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
 }
 
 let dreamTimer: ReturnType<typeof setTimeout> | null = null;
-let consolidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleNextDream(): void {
   if (dreamTimer) clearTimeout(dreamTimer);
@@ -101,12 +87,12 @@ function scheduleNextDream(): void {
   const delay = msUntilNextRun(config.dreamingCron);
   console.log(`[Scheduler] Next dream cycle in ${Math.round(delay / 60000)} minutes`);
 
-  dreamTimer = setTimeout(async () => {
+  dreamTimer = setTimeout(() => {
     try {
       console.log('[Scheduler] Running scheduled dream cycle...');
       const report = runDreamCycle();
       updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
-      console.log(`[Scheduler] Dream cycle completed: ${report.promoted} memories promoted`);
+      console.log(`[Scheduler] Dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
     } catch (err) {
       console.error('[Scheduler] Dream cycle failed:', (err as Error).message);
     }
@@ -114,44 +100,19 @@ function scheduleNextDream(): void {
   }, delay);
 }
 
-function scheduleNextConsolidation(): void {
-  if (consolidationTimer) clearTimeout(consolidationTimer);
-  const config = getSchedulerConfig();
-  if (!config.consolidationEnabled) return;
-
-  const delay = msUntilNextRun(config.consolidationCron);
-  console.log(`[Scheduler] Next consolidation in ${Math.round(delay / 60000)} minutes`);
-
-  consolidationTimer = setTimeout(async () => {
-    try {
-      console.log('[Scheduler] Running scheduled consolidation...');
-      const plan = runAutoConsolidation();
-      updateSchedulerConfig({ lastConsolidationRun: new Date().toISOString() });
-      console.log(`[Scheduler] Consolidation completed: ${plan.actions.length} actions`);
-    } catch (err) {
-      console.error('[Scheduler] Consolidation failed:', (err as Error).message);
-    }
-    scheduleNextConsolidation();
-  }, delay);
-}
-
 export function startScheduler(): void {
   const config = getSchedulerConfig();
-  console.log(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, consolidation: ${config.consolidationEnabled})`);
+  console.log(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, cron: ${config.dreamingCron})`);
   scheduleNextDream();
-  scheduleNextConsolidation();
 }
 
 export function restartScheduler(): void {
   console.log('[Scheduler] Restarting scheduler with updated config');
   scheduleNextDream();
-  scheduleNextConsolidation();
 }
 
 export function stopScheduler(): void {
   if (dreamTimer) clearTimeout(dreamTimer);
-  if (consolidationTimer) clearTimeout(consolidationTimer);
   dreamTimer = null;
-  consolidationTimer = null;
   console.log('[Scheduler] Stopped');
 }

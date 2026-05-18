@@ -6,6 +6,7 @@ import {
   getSchedulerConfig,
   updateSchedulerConfig,
   runDream,
+  rollbackDream,
 } from '../lib/api';
 import type { DreamReport, DreamSignalEntry, SchedulerConfig } from '../lib/api';
 import { useToast } from './Toast';
@@ -87,17 +88,6 @@ export default function DreamView() {
       const updated = await updateSchedulerConfig({ dreamingEnabled: enabled });
       setConfig(updated);
       toast(enabled ? '梦境已开启' : '梦境已关闭', 'success');
-    } catch {
-      toast('更新失败', 'error');
-    }
-  }, [config, toast]);
-
-  const handleToggleConsolidation = useCallback(async (enabled: boolean) => {
-    if (!config) return;
-    try {
-      const updated = await updateSchedulerConfig({ consolidationEnabled: enabled });
-      setConfig(updated);
-      toast(enabled ? '整理已开启' : '整理已关闭', 'success');
     } catch {
       toast('更新失败', 'error');
     }
@@ -196,109 +186,59 @@ export default function DreamView() {
           <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 20px' }}>
             调度设置
           </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            <div
-              style={{
-                padding: 16,
-                borderRadius: 'var(--radius-md)',
-                border: '0.5px solid var(--border)',
-                background: 'var(--bg-main)',
-              }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  🌙 梦境整理
-                </span>
-                <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24 }}>
-                  <input
-                    type="checkbox"
-                    checked={config.dreamingEnabled}
-                    onChange={(e) => handleToggleDreaming(e.target.checked)}
-                    style={{ opacity: 0, width: 0, height: 0 }}
-                  />
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 'var(--radius-md)',
+              border: '0.5px solid var(--border)',
+              background: 'var(--bg-main)',
+              maxWidth: 400,
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                🌙 自动梦境
+              </span>
+              <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24 }}>
+                <input
+                  type="checkbox"
+                  checked={config.dreamingEnabled}
+                  onChange={(e) => handleToggleDreaming(e.target.checked)}
+                  style={{ opacity: 0, width: 0, height: 0 }}
+                />
+                <span
+                  style={{
+                    position: 'absolute',
+                    cursor: 'pointer',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    borderRadius: 12,
+                    background: config.dreamingEnabled ? 'var(--accent)' : 'var(--bg-muted)',
+                    transition: '0.2s',
+                  }}
+                >
                   <span
                     style={{
                       position: 'absolute',
-                      cursor: 'pointer',
-                      top: 0, left: 0, right: 0, bottom: 0,
-                      borderRadius: 12,
-                      background: config.dreamingEnabled ? 'var(--accent)' : 'var(--bg-muted)',
+                      width: 18, height: 18,
+                      left: config.dreamingEnabled ? 23 : 3,
+                      bottom: 3,
+                      borderRadius: '50%',
+                      background: '#fff',
                       transition: '0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                     }}
-                  >
-                    <span
-                      style={{
-                        position: 'absolute',
-                        width: 18, height: 18,
-                        left: config.dreamingEnabled ? 23 : 3,
-                        bottom: 3,
-                        borderRadius: '50%',
-                        background: '#fff',
-                        transition: '0.2s',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                      }}
-                    />
-                  </span>
-                </label>
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-                调度: {cronToLabel(config.dreamingCron)}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                上次运行: {formatTime(config.lastDreamRun)}
-              </div>
+                  />
+                </span>
+              </label>
             </div>
-
-            <div
-              style={{
-                padding: 16,
-                borderRadius: 'var(--radius-md)',
-                border: '0.5px solid var(--border)',
-                background: 'var(--bg-main)',
-              }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  📋 记忆整理
-                </span>
-                <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24 }}>
-                  <input
-                    type="checkbox"
-                    checked={config.consolidationEnabled}
-                    onChange={(e) => handleToggleConsolidation(e.target.checked)}
-                    style={{ opacity: 0, width: 0, height: 0 }}
-                  />
-                  <span
-                    style={{
-                      position: 'absolute',
-                      cursor: 'pointer',
-                      top: 0, left: 0, right: 0, bottom: 0,
-                      borderRadius: 12,
-                      background: config.consolidationEnabled ? 'var(--accent)' : 'var(--bg-muted)',
-                      transition: '0.2s',
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: 'absolute',
-                        width: 18, height: 18,
-                        left: config.consolidationEnabled ? 23 : 3,
-                        bottom: 3,
-                        borderRadius: '50%',
-                        background: '#fff',
-                        transition: '0.2s',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                      }}
-                    />
-                  </span>
-                </label>
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-                调度: {cronToLabel(config.consolidationCron)}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                上次运行: {formatTime(config.lastConsolidationRun)}
-              </div>
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+              调度: {cronToLabel(config.dreamingCron)}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
+              上次运行: {formatTime(config.lastDreamRun)}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8, opacity: 0.7 }}>
+              梦境包含评分升级、去重合并、归档过期等全部整理操作
             </div>
           </div>
         </div>
@@ -373,6 +313,33 @@ export default function DreamView() {
             <span>⬆️ 升级: {selectedReport.promoted}</span>
             <span>📦 归档: {selectedReport.archived}</span>
             <span>🔗 合并: {selectedReport.merged}</span>
+            <div style={{ flex: 1 }} />
+            {selectedReport.status === 'completed' && (
+              <button
+                onClick={async () => {
+                  try {
+                    const result = await rollbackDream(selectedReport.id);
+                    setSelectedReport(result);
+                    toast('梦境已回滚，所有记忆已恢复', 'success');
+                    fetchData();
+                  } catch {
+                    toast('回滚失败', 'error');
+                  }
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '0.5px solid rgba(255,59,48,0.3)',
+                  background: 'rgba(255,59,48,0.06)',
+                  color: '#FF3B30',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                ↩️ 回滚此梦境
+              </button>
+            )}
           </div>
 
           {signals.length > 0 && (

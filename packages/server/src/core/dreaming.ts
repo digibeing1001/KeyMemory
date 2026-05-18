@@ -1,12 +1,11 @@
 import { v4 as uuid } from 'uuid';
-import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS } from '@keymemory/shared';
+import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, ConsolidationAction } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
-import { forgetMemory } from './forgetting.js';
+import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
-import { planConsolidation, executeConsolidation, rollbackConsolidation } from './consolidation.js';
 
 export function runDreamCycle(): DreamReport {
   const reportId = uuid();
@@ -22,29 +21,28 @@ export function runDreamCycle(): DreamReport {
   const lightSession = runLightPhase(reportId);
   sessions.push(lightSession);
 
-  const remSession = runRemPhase(reportId, lightSession);
+  const remSession = runRemPhase(reportId);
   sessions.push(remSession);
 
-  const deepSession = runDeepPhase(reportId, lightSession, remSession);
+  const { deepSession, promoted, archived, merged } = runDeepPhase(reportId, lightSession, remSession);
   sessions.push(deepSession);
 
   const totalCandidates = lightSession.candidatesProcessed + remSession.candidatesProcessed + deepSession.candidatesProcessed;
-  const promoted = deepSession.candidatesPromoted;
 
   const completedAt = new Date().toISOString();
   db.prepare(`
     UPDATE dream_reports
-    SET status = 'completed', total_candidates = ?, promoted = ?, sessions = ?, completed_at = ?
+    SET status = 'completed', total_candidates = ?, promoted = ?, archived = ?, merged = ?, sessions = ?, completed_at = ?
     WHERE id = ?
-  `).run(totalCandidates, promoted, JSON.stringify(sessions), completedAt, reportId);
+  `).run(totalCandidates, promoted, archived, merged, JSON.stringify(sessions), completedAt, reportId);
 
   return {
     id: reportId,
     sessions,
     totalCandidates,
     promoted,
-    archived: 0,
-    merged: 0,
+    archived,
+    merged,
     status: 'completed',
     createdAt: now,
     completedAt,
@@ -93,7 +91,7 @@ function runLightPhase(reportId: string): DreamSession {
 
   const signals: Record<string, number> = { deduplicated: dedupCount, scanned: candidatesProcessed };
 
-  const session: DreamSession = {
+  return {
     id: sessionId,
     phase: 'light',
     candidatesProcessed,
@@ -103,11 +101,9 @@ function runLightPhase(reportId: string): DreamSession {
     completedAt: new Date().toISOString(),
     summary: `浅睡阶段：扫描${candidatesProcessed}条近期记忆，标记${dedupCount}条重复`,
   };
-
-  return session;
 }
 
-function runRemPhase(reportId: string, lightSession: DreamSession): DreamSession {
+function runRemPhase(reportId: string): DreamSession {
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
@@ -129,7 +125,6 @@ function runRemPhase(reportId: string, lightSession: DreamSession): DreamSession
     for (const tag of tags) {
       tagFrequency.set(tag, (tagFrequency.get(tag) || 0) + 1);
     }
-
     for (let i = 0; i < tags.length; i++) {
       for (let j = i + 1; j < tags.length; j++) {
         const key = [tags[i], tags[j]].sort().join('::');
@@ -153,7 +148,7 @@ function runRemPhase(reportId: string, lightSession: DreamSession): DreamSession
     cooccurrences: conceptCooccurrence.size,
   };
 
-  const session: DreamSession = {
+  return {
     id: sessionId,
     phase: 'rem',
     candidatesProcessed,
@@ -163,51 +158,69 @@ function runRemPhase(reportId: string, lightSession: DreamSession): DreamSession
     completedAt: new Date().toISOString(),
     summary: `REM阶段：分析${candidatesProcessed}条短期记忆，发现${themes.length}个主题（${themes.slice(0, 3).map(t => t[0]).join(', ')}）`,
   };
-
-  return session;
 }
 
-function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession): DreamSession {
+function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession): {
+  deepSession: DreamSession;
+  promoted: number;
+  archived: number;
+  merged: number;
+} {
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
 
+  const actions = detectCleanupActions(db);
+  const allAffectedIds = new Set<string>();
+  for (const a of actions) {
+    for (const id of a.sourceIds) allAffectedIds.add(id);
+    if (a.targetId) allAffectedIds.add(a.targetId);
+  }
+
+  createSnapshots(db, reportId, Array.from(allAffectedIds));
+
+  let promoted = 0;
+  let archived = 0;
+  let merged = 0;
+
   const candidates = scoreCandidates(db);
-
-  const promoted: DreamCandidate[] = [];
-  const notPromoted: DreamCandidate[] = [];
-
   for (const candidate of candidates) {
     if (
       candidate.score >= DREAM_THRESHOLDS.minScore &&
       candidate.hitCount >= DREAM_THRESHOLDS.minRecallCount &&
       candidate.uniqueQueryCount >= DREAM_THRESHOLDS.minUniqueQueries
     ) {
-      promoted.push(candidate);
-    } else {
-      notPromoted.push(candidate);
+      if (candidate.layer === 'short') {
+        moveLayer(candidate.memoryId, 'long', `梦境升级：评分${candidate.score.toFixed(2)}`);
+        promoted++;
+      }
+
+      db.prepare(`
+        INSERT INTO dream_signals (id, report_id, memory_id, relevance, frequency, query_diversity, recency, consolidation, conceptual_richness, total_score, phase, promoted, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deep', 1, ?)
+      `).run(
+        uuid(), reportId, candidate.memoryId,
+        candidate.signals.relevance, candidate.signals.frequency,
+        candidate.signals.queryDiversity, candidate.signals.recency,
+        candidate.signals.consolidation, candidate.signals.conceptualRichness,
+        candidate.score, now,
+      );
     }
   }
 
-  for (const candidate of promoted) {
-    if (candidate.layer === 'short') {
-      moveLayer(candidate.memoryId, 'long', `梦境升级：评分${candidate.score.toFixed(2)}`);
+  for (const action of actions) {
+    try {
+      const result = executeAction(db, action);
+      promoted += result.promoted;
+      archived += result.archived;
+      merged += result.merged;
+      action.status = 'executed';
+    } catch {
+      action.status = 'skipped';
     }
-
-    db.prepare(`
-      INSERT INTO dream_signals (id, report_id, memory_id, relevance, frequency, query_diversity, recency, consolidation, conceptual_richness, total_score, phase, promoted, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deep', 1, ?)
-    `).run(
-      uuid(), reportId, candidate.memoryId,
-      candidate.signals.relevance, candidate.signals.frequency,
-      candidate.signals.queryDiversity, candidate.signals.recency,
-      candidate.signals.consolidation, candidate.signals.conceptualRichness,
-      candidate.score, now,
-    );
   }
 
-  const candidatesProcessed = candidates.length;
-  const candidatesPromoted = promoted.length;
+  const candidatesProcessed = candidates.length + actions.length;
 
   const signals: Record<string, number> = {
     avgScore: candidates.length > 0 ? candidates.reduce((s, c) => s + c.score, 0) / candidates.length : 0,
@@ -215,18 +228,212 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
     remBoost: remSession.signals.themesFound || 0,
   };
 
-  const session: DreamSession = {
+  const deepSession: DreamSession = {
     id: sessionId,
     phase: 'deep',
     candidatesProcessed,
-    candidatesPromoted,
+    candidatesPromoted: promoted,
     signals,
     startedAt: now,
     completedAt: new Date().toISOString(),
-    summary: `深睡阶段：评分${candidatesProcessed}条候选，升级${candidatesPromoted}条为长期记忆`,
+    summary: `深睡阶段：评分${candidates.length}条候选升级${promoted}条，清理${archived + merged}条`,
   };
 
-  return session;
+  return { deepSession, promoted, archived, merged };
+}
+
+function detectCleanupActions(db: ReturnType<typeof getDatabase>): ConsolidationAction[] {
+  const actions: ConsolidationAction[] = [];
+  const affectedIds = new Set<string>();
+
+  const dupActions = detectDuplicateActions(db, affectedIds);
+  actions.push(...dupActions);
+
+  const staleActions = detectStaleActions(db, affectedIds);
+  actions.push(...staleActions);
+
+  const flashActions = detectOldFlashActions(db, affectedIds);
+  actions.push(...flashActions);
+
+  return actions.slice(0, CONSOLIDATION_CONFIG.maxActionsPerPlan);
+}
+
+function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds: Set<string>): ConsolidationAction[] {
+  const threshold = CONSOLIDATION_CONFIG.duplicateSimilarity;
+  const actions: ConsolidationAction[] = [];
+
+  const memories = db.prepare(`
+    SELECT m.id, m.title, e.embedding
+    FROM memories m
+    JOIN embeddings e ON e.memory_id = m.id
+    WHERE m.status = 'active'
+    ORDER BY m.created_at ASC
+    LIMIT 200
+  `).all() as { id: string; title: string; embedding: Buffer }[];
+
+  const mergedSet = new Set<string>();
+
+  for (let i = 0; i < memories.length; i++) {
+    if (mergedSet.has(memories[i].id)) continue;
+    for (let j = i + 1; j < memories.length; j++) {
+      if (mergedSet.has(memories[j].id)) continue;
+
+      const vecA = bufferToEmbedding(memories[i].embedding);
+      const vecB = bufferToEmbedding(memories[j].embedding);
+      const sim = cosineSimilarity(vecA, vecB);
+
+      if (sim > threshold) {
+        const keeper = memories[i].id;
+        const removed = memories[j].id;
+
+        if (!affectedIds.has(keeper) && !affectedIds.has(removed)) {
+          actions.push({
+            id: uuid(),
+            type: 'deduplicate',
+            sourceIds: [keeper, removed],
+            targetId: keeper,
+            description: `「${memories[i].title}」与「${memories[j].title}」相似度${sim.toFixed(2)}，保留前者`,
+            status: 'pending',
+          });
+          affectedIds.add(removed);
+          mergedSet.add(removed);
+        }
+      }
+    }
+  }
+
+  return actions;
+}
+
+function detectStaleActions(db: ReturnType<typeof getDatabase>, affectedIds: Set<string>): ConsolidationAction[] {
+  const staleDays = CONSOLIDATION_CONFIG.staleDays;
+  const actions: ConsolidationAction[] = [];
+  const exclude = buildExcludeClause(affectedIds);
+
+  const stale = db.prepare(`
+    SELECT id, title, layer FROM memories
+    WHERE status = 'active'
+      AND layer IN ('short', 'long')
+      AND decay_factor < 0.3
+      AND last_hit_at IS NOT NULL
+      AND last_hit_at <= datetime('now', ? || ' days')
+      ${exclude.clause}
+  `).all(`-${staleDays}`, ...exclude.params) as { id: string; title: string; layer: string }[];
+
+  for (const m of stale) {
+    if (!affectedIds.has(m.id)) {
+      actions.push({
+        id: uuid(),
+        type: 'archive_stale',
+        sourceIds: [m.id],
+        description: `「${m.title}」(${m.layer}层)已${staleDays}天未访问且衰变因子<0.3，归档`,
+        status: 'pending',
+      });
+      affectedIds.add(m.id);
+    }
+  }
+
+  return actions;
+}
+
+function detectOldFlashActions(db: ReturnType<typeof getDatabase>, affectedIds: Set<string>): ConsolidationAction[] {
+  const maxDays = CONSOLIDATION_CONFIG.flashMaxDays;
+  const actions: ConsolidationAction[] = [];
+  const exclude = buildExcludeClause(affectedIds);
+
+  const oldFlash = db.prepare(`
+    SELECT id, title FROM memories
+    WHERE status = 'active'
+      AND layer = 'flash'
+      AND created_at <= datetime('now', ? || ' days')
+      ${exclude.clause}
+  `).all(`-${maxDays}`, ...exclude.params) as { id: string; title: string }[];
+
+  for (const m of oldFlash) {
+    if (!affectedIds.has(m.id)) {
+      actions.push({
+        id: uuid(),
+        type: 'archive_flash',
+        sourceIds: [m.id],
+        description: `闪念「${m.title}」已超过${maxDays}天，归档`,
+        status: 'pending',
+      });
+      affectedIds.add(m.id);
+    }
+  }
+
+  return actions;
+}
+
+function buildExcludeClause(ids: Set<string>): { clause: string; params: string[] } {
+  if (ids.size === 0) return { clause: '', params: [] };
+  const params = Array.from(ids);
+  const clause = `AND id NOT IN (${params.map(() => '?').join(',')})`;
+  return { clause, params };
+}
+
+function createSnapshots(db: ReturnType<typeof getDatabase>, reportId: string, memoryIds: string[]): void {
+  const now = new Date().toISOString();
+
+  const stmt = db.prepare(`
+    INSERT INTO consolidation_snapshots (id, plan_id, memory_id, title, content, layer, status, tags, metadata, project, agent_space, confidence, decay_factor, captured_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const mid of memoryIds) {
+    const mem = getMemory(mid);
+    if (!mem) continue;
+
+    stmt.run(
+      uuid(),
+      reportId,
+      mem.id,
+      mem.title,
+      mem.content,
+      mem.layer,
+      mem.status,
+      mem.tags ? JSON.stringify(mem.tags) : null,
+      mem.metadata ? JSON.stringify(mem.metadata) : null,
+      mem.project ?? null,
+      mem.agentSpace,
+      mem.confidence,
+      mem.decayFactor,
+      now,
+    );
+  }
+}
+
+function executeAction(db: ReturnType<typeof getDatabase>, action: ConsolidationAction): { promoted: number; archived: number; merged: number } {
+  switch (action.type) {
+    case 'deduplicate': {
+      const [keeperId, removedId] = action.sourceIds;
+      const keeper = getMemory(keeperId);
+      const removed = getMemory(removedId);
+      if (!keeper || !removed) throw new Error('Memory not found');
+
+      const mergedTags = [...new Set([...(keeper.tags || []), ...(removed.tags || [])])];
+      const mergedContent = keeper.content + '\n\n---\n' + removed.content;
+
+      updateMemory(keeperId, {
+        content: mergedContent,
+        tags: mergedTags,
+      }, `梦境合并：与「${removed.title}」合并`);
+
+      forgetMemory(removedId, 'archive');
+      return { promoted: 0, archived: 0, merged: 1 };
+    }
+
+    case 'archive_stale':
+    case 'archive_flash': {
+      for (const id of action.sourceIds) {
+        forgetMemory(id, 'archive');
+      }
+      return { promoted: 0, archived: action.sourceIds.length, merged: 0 };
+    }
+
+    default:
+      return { promoted: 0, archived: 0, merged: 0 };
+  }
 }
 
 function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
@@ -298,6 +505,39 @@ function computeTextSimilarity(textA: string, textB: string): number {
   const union = new Set([...wordsA, ...wordsB]);
   if (union.size === 0) return 1.0;
   return intersection.size / union.size;
+}
+
+export function rollbackDream(reportId: string): DreamReport {
+  const db = getDatabase();
+  const report = getDreamReport(reportId);
+  if (!report) throw new Error(`Report not found: ${reportId}`);
+  if (report.status !== 'completed') throw new Error(`Report status is '${report.status}', can only rollback 'completed' reports`);
+
+  const snapshots = db.prepare(`
+    SELECT * FROM consolidation_snapshots WHERE plan_id = ?
+  `).all(reportId) as Record<string, unknown>[];
+
+  for (const snap of snapshots) {
+    const memId = snap.memory_id as string;
+    const existing = getMemory(memId);
+
+    if (existing && existing.status === 'archived') {
+      restoreMemory(memId);
+    }
+
+    if (!existing || existing.status === 'active') {
+      updateMemory(memId, {
+        title: snap.title as string,
+        content: snap.content as string,
+        tags: snap.tags ? JSON.parse(snap.tags as string) : undefined,
+        metadata: snap.metadata ? JSON.parse(snap.metadata as string) : undefined,
+      }, `回滚梦境 ${reportId}`);
+    }
+  }
+
+  db.prepare(`UPDATE dream_reports SET status = 'rolled_back' WHERE id = ?`).run(reportId);
+
+  return { ...report, status: 'rolled_back' };
 }
 
 export function getDreamReport(reportId: string): DreamReport | null {
@@ -375,7 +615,8 @@ export function formatDreamReport(report: DreamReport): string {
   }
 
   lines.push('');
-  lines.push(`📊 总计: ${report.totalCandidates}条候选，${report.promoted}条升级为长期记忆`);
+  lines.push(`📊 总计: ${report.totalCandidates}条候选，${report.promoted}条升级，${report.archived}条归档，${report.merged}条合并`);
+  lines.push(`💡 如需回滚: keymemory dream --rollback ${report.id}`);
 
   return lines.join('\n');
 }

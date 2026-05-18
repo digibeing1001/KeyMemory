@@ -8,7 +8,7 @@ import { autoRemember, extractTags } from './core/auto.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from './core/evolution.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay } from './core/forgetting.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation, formatConsolidationReport } from './core/consolidation.js';
-import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, formatDreamReport } from './core/dreaming.js';
+import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, formatDreamReport, rollbackDream } from './core/dreaming.js';
 import { getHealthReport } from './core/health.js';
 import { listEntities, getEntityGraph, extractEntities } from './graph/entity.js';
 import { initEmbedding } from './embed/onnx.js';
@@ -666,6 +666,7 @@ program
   .option('--list', 'list recent dream reports')
   .option('--show <reportId>', 'show dream report details')
   .option('--signals <reportId>', 'show dream signals for a report')
+  .option('--rollback <reportId>', 'rollback a dream report')
   .action((opts) => {
     const format: OutputFormat = program.opts().format || 'json';
 
@@ -698,6 +699,20 @@ program
     if (opts.signals) {
       const signals = getDreamSignalsForReport(opts.signals);
       printAndExit(signals, format);
+    }
+
+    if (opts.rollback) {
+      try {
+        const result = rollbackDream(opts.rollback);
+        if (format !== 'json') {
+          process.stdout.write(formatDreamReport(result) + '\n');
+          closeDatabase();
+          process.exit(0);
+        }
+        printAndExit(result, format);
+      } catch (err) {
+        printError((err as Error).message);
+      }
     }
 
     const report = runDreamCycle();
