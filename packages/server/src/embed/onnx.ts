@@ -21,6 +21,16 @@ const EMBEDDING_DIM = 384;
 
 let session: ort.InferenceSession | null = null;
 let tokenizer: BertTokenizer | null = null;
+let modelAvailable = false;
+let modelLoadError: string | null = null;
+
+export function isEmbeddingAvailable(): boolean {
+  return modelAvailable;
+}
+
+export function getEmbeddingLoadError(): string | null {
+  return modelLoadError;
+}
 
 function resolveModelPath(filename: string): string | null {
   const builtin = path.join(BUILTIN_MODEL_DIR, filename);
@@ -200,67 +210,82 @@ class BertTokenizer {
 }
 
 export async function initEmbedding(): Promise<void> {
-  const modelPath = await ensureModel();
-  const tokenizerPath = await ensureTokenizer();
+  try {
+    const modelPath = await ensureModel();
+    const tokenizerPath = await ensureTokenizer();
 
-  tokenizer = new BertTokenizer();
-  const tokenizerConfig = JSON.parse(fs.readFileSync(tokenizerPath, 'utf8'));
-  tokenizer.load(tokenizerConfig);
+    tokenizer = new BertTokenizer();
+    const tokenizerConfig = JSON.parse(fs.readFileSync(tokenizerPath, 'utf8'));
+    tokenizer.load(tokenizerConfig);
 
-  const modelBuffer = fs.readFileSync(modelPath);
-  session = await ort.InferenceSession.create(
-    new Uint8Array(modelBuffer.buffer, modelBuffer.byteOffset, modelBuffer.byteLength),
-    {
-      executionProviders: ['cpu'],
-      graphOptimizationLevel: 'all',
-    },
-  );
+    const modelBuffer = fs.readFileSync(modelPath);
+    session = await ort.InferenceSession.create(
+      new Uint8Array(modelBuffer.buffer, modelBuffer.byteOffset, modelBuffer.byteLength),
+      {
+        executionProviders: ['cpu'],
+        graphOptimizationLevel: 'all',
+      },
+    );
 
-  const source = modelPath.includes(BUILTIN_MODEL_DIR) ? 'built-in' : 'user data';
-  console.log(`ONNX embedding session initialized (model: ${source}).`);
+    modelAvailable = true;
+    modelLoadError = null;
+    const source = modelPath.includes(BUILTIN_MODEL_DIR) ? 'built-in' : 'user data';
+    console.log(`[KeyMemory] ONNX embedding model loaded successfully (source: ${source}).`);
+  } catch (err) {
+    modelAvailable = false;
+    modelLoadError = (err as Error).message;
+    console.error(`[KeyMemory] Failed to load ONNX embedding model: ${modelLoadError}`);
+    console.log(`[KeyMemory] Semantic search will be disabled. Full-text search still available.`);
+  }
 }
 
-export async function embed(text: string): Promise<Float32Array> {
-  if (!session) throw new Error('Embedding session not initialized. Call initEmbedding() first.');
-  if (!tokenizer) throw new Error('Tokenizer not initialized.');
+export async function embed(text: string): Promise<Float32Array | null> {
+  if (!modelAvailable || !session || !tokenizer) {
+    return null;
+  }
 
-  const tokens = tokenizer.tokenize(text);
-  const inputIds = new ort.Tensor('int64', BigInt64Array.from(tokens.map(BigInt)), [1, tokens.length]);
-  const attentionMask = new ort.Tensor('int64', BigInt64Array.from(tokens.map(() => 1n)), [1, tokens.length]);
-  const tokenTypeIds = new ort.Tensor('int64', BigInt64Array.from(tokens.map(() => 0n)), [1, tokens.length]);
+  try {
+    const tokens = tokenizer.tokenize(text);
+    const inputIds = new ort.Tensor('int64', BigInt64Array.from(tokens.map(BigInt)), [1, tokens.length]);
+    const attentionMask = new ort.Tensor('int64', BigInt64Array.from(tokens.map(() => 1n)), [1, tokens.length]);
+    const tokenTypeIds = new ort.Tensor('int64', BigInt64Array.from(tokens.map(() => 0n)), [1, tokens.length]);
 
-  const output = await session.run({
-    input_ids: inputIds,
-    attention_mask: attentionMask,
-    token_type_ids: tokenTypeIds,
-  });
+    const output = await session.run({
+      input_ids: inputIds,
+      attention_mask: attentionMask,
+      token_type_ids: tokenTypeIds,
+    });
 
-  const lastHidden = output['last_hidden_state'];
-  const data = lastHidden.data as Float32Array;
-  const seqLen = lastHidden.dims[1];
-  const hiddenSize = lastHidden.dims[2];
+    const lastHidden = output['last_hidden_state'];
+    const data = lastHidden.data as Float32Array;
+    const seqLen = lastHidden.dims[1];
+    const hiddenSize = lastHidden.dims[2];
 
-  const pooled = new Float32Array(hiddenSize);
-  for (let i = 0; i < hiddenSize; i++) {
-    let sum = 0;
-    for (let j = 0; j < seqLen; j++) {
-      sum += data[j * hiddenSize + i];
+    const pooled = new Float32Array(hiddenSize);
+    for (let i = 0; i < hiddenSize; i++) {
+      let sum = 0;
+      for (let j = 0; j < seqLen; j++) {
+        sum += data[j * hiddenSize + i];
+      }
+      pooled[i] = sum / seqLen;
     }
-    pooled[i] = sum / seqLen;
-  }
 
-  let norm = 0;
-  for (let i = 0; i < pooled.length; i++) norm += pooled[i] * pooled[i];
-  norm = Math.sqrt(norm);
-  if (norm > 0) {
-    for (let i = 0; i < pooled.length; i++) pooled[i] /= norm;
-  }
+    let norm = 0;
+    for (let i = 0; i < pooled.length; i++) norm += pooled[i] * pooled[i];
+    norm = Math.sqrt(norm);
+    if (norm > 0) {
+      for (let i = 0; i < pooled.length; i++) pooled[i] /= norm;
+    }
 
-  return pooled;
+    return pooled;
+  } catch (err) {
+    console.error(`[KeyMemory] Embedding error: ${(err as Error).message}`);
+    return null;
+  }
 }
 
-export async function embedBatch(texts: string[]): Promise<Float32Array[]> {
-  const results: Float32Array[] = [];
+export async function embedBatch(texts: string[]): Promise<(Float32Array | null)[]> {
+  const results: (Float32Array | null)[] = [];
   for (const text of texts) {
     results.push(await embed(text));
   }

@@ -117,6 +117,7 @@ export async function injectContext(options: { project?: string; query?: string;
   if (options.query) {
     const db = getDatabase();
     const queryVec = await embed(options.query);
+    if (!queryVec) return [];
 
     const rows = db.prepare(`
       SELECT m.*, e.embedding FROM memories m

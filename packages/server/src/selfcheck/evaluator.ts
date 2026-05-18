@@ -69,6 +69,8 @@ async function scoreProjectRelevance(content: string, currentProject?: string): 
   if (projectMemories.length === 0) return 0.5;
 
   const contentVec = await embed(content);
+  if (!contentVec) return 0.5;
+
   let maxSim = 0;
   for (const pm of projectMemories) {
     const vec = bufferToEmbedding(pm.embedding);
@@ -110,6 +112,8 @@ async function scoreNovelty(content: string): Promise<number> {
   if (recentEmbeddings.length === 0) return 0.8;
 
   const contentVec = await embed(content);
+  if (!contentVec) return 0.8;
+
   let maxSim = 0;
   for (const re of recentEmbeddings) {
     const vec = bufferToEmbedding(re.embedding);

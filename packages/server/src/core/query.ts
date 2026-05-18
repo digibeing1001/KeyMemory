@@ -1,7 +1,7 @@
 import type { SearchResult, Layer, MemoryStatus } from '@keymemory/shared';
 import { SEARCH_WEIGHTS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
-import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, EMBEDDING_DIM, initEmbedding } from '../embed/onnx.js';
+import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, EMBEDDING_DIM, initEmbedding, isEmbeddingAvailable } from '../embed/onnx.js';
 import { recordHit } from './atom.js';
 import { rowToMemory } from '../db/mapper.js';
 
@@ -21,6 +21,9 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
   }
 
   const vector = await embed(embedText);
+  if (!vector) {
+    return;
+  }
   const now = new Date().toISOString();
   db.prepare(`
     INSERT INTO embeddings (memory_id, embedding, model, created_at)
@@ -67,9 +70,16 @@ export async function searchFulltext(query: string, options?: { layer?: Layer; s
 }
 
 export async function searchSemantic(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; limit?: number }): Promise<SearchResult[]> {
-  const db = getDatabase();
-  const queryVec = await embed(query);
+  if (!isEmbeddingAvailable()) {
+    return [];
+  }
 
+  const queryVec = await embed(query);
+  if (!queryVec) {
+    return [];
+  }
+
+  const db = getDatabase();
   const conditions = ["status = 'active'"];
   const params: Record<string, unknown> = {};
   if (options?.layer) {
