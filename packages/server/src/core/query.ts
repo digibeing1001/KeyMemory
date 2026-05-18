@@ -87,11 +87,18 @@ export async function searchSemantic(query: string, options?: { layer?: Layer; s
   const rows = db.prepare(`
     SELECT m.*, e.embedding
     FROM memories m
-    JOIN embeddings e ON e.memory_id = m.id
+    LEFT JOIN embeddings e ON e.memory_id = m.id
     WHERE ${conditions.join(' AND ')}
-  `).all(params) as (Record<string, unknown> & { embedding: Buffer })[];
+  `).all(params) as (Record<string, unknown> & { embedding: Buffer | undefined })[];
 
   const scored = rows.map(r => {
+    if (!r.embedding) {
+      return {
+        memory: rowToMemory(r),
+        score: 0,
+        matchType: 'semantic' as const,
+      };
+    }
     const memVec = bufferToEmbedding(r.embedding);
     const sim = cosineSimilarity(queryVec, memVec);
     return {

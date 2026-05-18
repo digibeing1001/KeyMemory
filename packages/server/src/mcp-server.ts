@@ -195,7 +195,9 @@ async function handleRequest(request: any) {
             metadata: args.metadata,
             source: args.source,
           });
-          ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
+          ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch((err) => {
+            stderr.write(`[KeyMemory] Warning: Failed to create embedding for memory ${mem.id}: ${(err as Error).message}\n`);
+          });
           return {
             content: [
               {
@@ -281,7 +283,11 @@ async function handleRequest(request: any) {
               {
                 type: 'text',
                 text: `${mems.length} 条记忆：\n\n` +
-                  mems.map((m, i) => `${i + 1}. [${m.layer}] ${m.title}`).join('\n'),
+                  mems.map((m, i) => {
+                    const preview = m.content.slice(0, 100);
+                    const suffix = m.content.length > 100 ? '...' : '';
+                    return `${i + 1}. [${m.layer}] ${m.title}\n   ID: ${m.id}\n   ${preview}${suffix}`;
+                  }).join('\n\n'),
               },
             ],
           };
@@ -375,7 +381,9 @@ async function handleRequest(request: any) {
               source: item.source,
               sourceId: item.sourceId,
             });
-            ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
+            ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch((err) => {
+            stderr.write(`[KeyMemory] Warning: Failed to create embedding for memory ${mem.id}: ${(err as Error).message}\n`);
+          });
             count++;
           }
 
