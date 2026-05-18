@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import type { Memory, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
+import { extractEntities, extractProjects, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
 
 export function createMemory(input: CreateMemoryInput): Memory {
   const db = getDatabase();
@@ -73,6 +74,22 @@ export function createMemory(input: CreateMemoryInput): Memory {
       content: mem.content,
       createdAt: now,
     });
+
+    const entities = extractEntities(mem.content);
+    for (const ext of entities) {
+      const entity = ensureEntity(ext.name, ext.type);
+      linkMemoryEntity(mem.id, entity.id);
+    }
+
+    const projects = extractProjects(mem.content);
+    if (projects.length > 0 && !mem.project) {
+      db.prepare(`UPDATE memories SET project = ?, updated_at = ? WHERE id = ?`).run(
+        projects[0],
+        now,
+        mem.id
+      );
+      mem.project = projects[0];
+    }
 
     return mem;
   })();

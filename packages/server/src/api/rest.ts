@@ -4,7 +4,7 @@ import { moveLayer, getLayerStats } from '../core/layer.js';
 import { searchHybrid, ensureEmbedding } from '../core/query.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from '../core/evolution.js';
-import { processContent, listEntities, getEntityGraph } from '../graph/entity.js';
+import { processContent, listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
 import { getVersions, diffVersions, rollbackToVersion } from '../core/provenance.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDecay } from '../core/forgetting.js';
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
@@ -144,6 +144,49 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.post('/api/layers/decay', async () => {
     return runDecay();
+  });
+
+  app.post('/api/embeddings/rebuild-all', async () => {
+    const db = getDatabase();
+    const memories = db.prepare(`
+      SELECT id, title, content, tags, metadata FROM memories WHERE status = 'active'
+    `).all() as { id: string; title: string; content: string; tags: string | null; metadata: string | null }[];
+
+    let success = 0;
+    let failed = 0;
+
+    for (const mem of memories) {
+      try {
+        const tags = mem.tags ? JSON.parse(mem.tags) : undefined;
+        const metadata = mem.metadata ? JSON.parse(mem.metadata) : undefined;
+        await ensureEmbedding(mem.id, mem.title, mem.content, tags, metadata, true);
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+
+    return { total: memories.length, success, failed };
+  });
+
+  app.post('/api/entities/rebuild-all', async () => {
+    const db = getDatabase();
+    const memories = db.prepare(`
+      SELECT id, content FROM memories WHERE status = 'active'
+    `).all() as { id: string; content: string }[];
+
+    let processed = 0;
+
+    for (const mem of memories) {
+      const entities = extractEntities(mem.content);
+      for (const ext of entities) {
+        const entity = ensureEntity(ext.name, ext.type);
+        linkMemoryEntity(mem.id, entity.id);
+      }
+      processed++;
+    }
+
+    return { total: memories.length, processed };
   });
 
   app.get('/api/versions/:memoryId', async (request) => {

@@ -18,9 +18,64 @@ export function extractEntities(content: string): { name: string; type: EntityTy
     while ((match = pattern.regex.exec(content)) !== null) {
       const name = match[1];
       const key = `${pattern.type}:${name}`;
-      if (!seen.has(key)) {
+      if (!seen.has(key) && name.length >= 1) {
         seen.add(key);
         entities.push({ name, type: pattern.type });
+      }
+    }
+  }
+
+  const chinesePersonPattern = /(?:名叫|名字是|是[\s]*[\u4e00-\u9fa5]{2,4}(?:老师|同学|先生|女士|经理|总监|老板|工程师|设计师))|(?:^|[^a-zA-Z\u4e00-\u9fa5])([\u4e00-\u9fa5]{2,3})(?:说|觉得|认为|表示|提到|告诉)/gu;
+  let match;
+  while ((match = chinesePersonPattern.exec(content)) !== null) {
+    const name = match[1] || match[2];
+    if (name && name.length >= 2 && name.length <= 4) {
+      const key = `person:${name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        entities.push({ name, type: 'person' });
+      }
+    }
+  }
+
+  const orgPatterns = [
+    /([\u4e00-\u9fa5]{2,10}(?:公司|集团|工作室|实验室|团队|部门|机构|组织|协会|联盟))/g,
+    /((?:腾讯|阿里|字节|百度|京东|美团|华为|小米|微软|谷歌|苹果|亚马逊))/g,
+  ];
+  for (const orgPattern of orgPatterns) {
+    while ((match = orgPattern.exec(content)) !== null) {
+      const name = match[1];
+      const key = `organization:${name}`;
+      if (!seen.has(key) && name.length >= 2) {
+        seen.add(key);
+        entities.push({ name, type: 'organization' });
+      }
+    }
+  }
+
+  const emailPattern = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
+  while ((match = emailPattern.exec(content)) !== null) {
+    const email = match[0].toLowerCase();
+    const key = `tool:${email}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      entities.push({ name: email, type: 'tool' });
+    }
+  }
+
+  const techPatterns = [
+    /(React|Vue|Angular|Svelte|Next\.js|Nuxt|Gatsby|Vite|Webpack|Tailwind)/g,
+    /(Node\.js|Python|JavaScript|TypeScript|Go|Rust|Java|Kotlin|Swift)/g,
+    /(PostgreSQL|MySQL|SQLite|MongoDB|Redis|Elasticsearch)/g,
+    /(Docker|Kubernetes|Terraform|AWS|Azure|GCP|GitHub|GitLab)/g,
+  ];
+  for (const techPattern of techPatterns) {
+    while ((match = techPattern.exec(content)) !== null) {
+      const name = match[1];
+      const key = `tool:${name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        entities.push({ name, type: 'tool' });
       }
     }
   }
