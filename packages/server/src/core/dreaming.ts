@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, ConsolidationAction } from '@keymemory/shared';
+import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
 import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
@@ -14,14 +14,15 @@ export function runDreamCycle(): DreamReport {
 
   const db = getDatabase();
   db.prepare(`
-    INSERT INTO dream_reports (id, status, total_candidates, promoted, archived, merged, sessions, created_at)
-    VALUES (?, 'running', 0, 0, 0, 0, '[]', ?)
+    INSERT INTO dream_reports (id, status, total_candidates, promoted, archived, merged, sessions, todo_items, created_at)
+    VALUES (?, 'running', 0, 0, 0, 0, '[]', '[]', ?)
   `).run(reportId, now);
 
   let promoted = 0;
   let archived = 0;
   let merged = 0;
   let totalCandidates = 0;
+  let todoItems: DreamTodoItem[] = [];
 
   try {
     const lightSession = runLightPhase(reportId);
@@ -35,6 +36,7 @@ export function runDreamCycle(): DreamReport {
     promoted = deepResult.promoted;
     archived = deepResult.archived;
     merged = deepResult.merged;
+    todoItems = deepResult.todoItems;
 
     totalCandidates = lightSession.candidatesProcessed + remSession.candidatesProcessed + deepResult.deepSession.candidatesProcessed;
   } catch (err) {
@@ -55,15 +57,16 @@ export function runDreamCycle(): DreamReport {
       status: 'failed',
       createdAt: now,
       completedAt: failedAt,
+      todoItems,
     };
   }
 
   const completedAt = new Date().toISOString();
   db.prepare(`
     UPDATE dream_reports
-    SET status = 'completed', total_candidates = ?, promoted = ?, archived = ?, merged = ?, sessions = ?, completed_at = ?
+    SET status = 'completed', total_candidates = ?, promoted = ?, archived = ?, merged = ?, sessions = ?, todo_items = ?, completed_at = ?
     WHERE id = ?
-  `).run(totalCandidates, promoted, archived, merged, JSON.stringify(sessions), completedAt, reportId);
+  `).run(totalCandidates, promoted, archived, merged, JSON.stringify(sessions), JSON.stringify(todoItems), completedAt, reportId);
 
   return {
     id: reportId,
@@ -75,6 +78,7 @@ export function runDreamCycle(): DreamReport {
     status: 'completed',
     createdAt: now,
     completedAt,
+    todoItems,
   };
 }
 
@@ -194,6 +198,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
   promoted: number;
   archived: number;
   merged: number;
+  todoItems: DreamTodoItem[];
 } {
   const db = getDatabase();
   const sessionId = uuid();
@@ -251,10 +256,16 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
 
   const candidatesProcessed = candidates.length + actions.length;
 
+  const orphans = detectOrphanMemories(db);
+  const conflicts = detectConflictMemories(db);
+  const todoItems: DreamTodoItem[] = [...orphans, ...conflicts];
+
   const signals: Record<string, number> = {
     avgScore: candidates.length > 0 ? candidates.reduce((s, c) => s + c.score, 0) / candidates.length : 0,
     lightBoost: lightSession.signals.deduplicated || 0,
     remBoost: remSession.signals.themesFound || 0,
+    orphansFound: orphans.length,
+    conflictsFound: conflicts.length,
   };
 
   const deepSession: DreamSession = {
@@ -265,10 +276,10 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
     signals,
     startedAt: now,
     completedAt: new Date().toISOString(),
-    summary: `深睡阶段：评分${candidates.length}条候选升级${promoted}条，清理${archived + merged}条`,
+    summary: `深睡阶段：评分${candidates.length}条候选升级${promoted}条，清理${archived + merged}条${todoItems.length > 0 ? `，发现${todoItems.length}条待办` : ''}`,
   };
 
-  return { deepSession, promoted, archived, merged };
+  return { deepSession, promoted, archived, merged, todoItems };
 }
 
 function detectCleanupActions(db: ReturnType<typeof getDatabase>): ConsolidationAction[] {
@@ -399,6 +410,61 @@ function detectOldFlashActions(db: ReturnType<typeof getDatabase>, affectedIds: 
   }
 
   return actions;
+}
+
+function detectOrphanMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
+  const rows = db.prepare(`
+    SELECT m.id, m.title FROM memories m
+    WHERE m.status = 'active'
+      AND m.id NOT IN (SELECT memory_id FROM memory_entities)
+      AND m.project IS NULL
+      AND m.layer NOT IN ('flash')
+    LIMIT 20
+  `).all() as { id: string; title: string }[];
+
+  return rows.map(r => ({
+    type: 'orphan' as const,
+    memoryId: r.id,
+    title: r.title,
+    reason: '该记忆未关联任何实体、未归属项目，无法被有效检索',
+  }));
+}
+
+function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
+  const contradictionPatterns = ['不是', '错误', '相反', '否定', 'not', 'wrong', 'opposite'];
+  const items: DreamTodoItem[] = [];
+
+  const entities = db.prepare(`
+    SELECT e.id, e.name FROM entities e
+    JOIN memory_entities me ON me.entity_id = e.id
+    JOIN memories m ON m.id = me.memory_id AND m.status = 'active'
+    GROUP BY e.id
+    HAVING COUNT(me.memory_id) >= 2
+    LIMIT 50
+  `).all() as { id: string; name: string }[];
+
+  for (const entity of entities) {
+    const mems = db.prepare(`
+      SELECT m.id, m.title, m.content FROM memories m
+      JOIN memory_entities me ON me.memory_id = m.id
+      WHERE me.entity_id = ? AND m.status = 'active'
+    `).all(entity.id) as { id: string; title: string; content: string }[];
+
+    for (const m of mems) {
+      const matchedPattern = contradictionPatterns.find(p => m.content.toLowerCase().includes(p));
+      if (matchedPattern) {
+        items.push({
+          type: 'conflict' as const,
+          memoryId: m.id,
+          title: m.title,
+          reason: `该记忆关联实体「${entity.name}」，内容包含否定词「${matchedPattern}」，可能与其他记忆冲突`,
+        });
+        break;
+      }
+    }
+  }
+
+  return items.slice(0, 20);
 }
 
 function buildExcludeClause(ids: Set<string>): { clause: string; params: string[] } {
@@ -616,6 +682,7 @@ export function getDreamReport(reportId: string): DreamReport | null {
     status: row.status as DreamReport['status'],
     createdAt: row.created_at as string,
     completedAt: row.completed_at as string | undefined,
+    todoItems: row.todo_items ? JSON.parse(row.todo_items as string) as DreamTodoItem[] : [],
   };
 }
 
@@ -631,6 +698,7 @@ export function listDreamReports(limit = 20): DreamReport[] {
     archived: row.archived as number,
     merged: row.merged as number,
     status: row.status as DreamReport['status'],
+    todoItems: row.todo_items ? JSON.parse(row.todo_items as string) as DreamTodoItem[] : [],
     createdAt: row.created_at as string,
     completedAt: row.completed_at as string | undefined,
   }));

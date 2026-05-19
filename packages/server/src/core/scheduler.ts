@@ -105,6 +105,34 @@ let signalHandlersRegistered = false;
 export function startScheduler(): void {
   const config = getSchedulerConfig();
   console.log(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, cron: ${config.dreamingCron})`);
+
+  // 漏跑检测：如果今天还没运行过且已经过了运行时间，立即补跑一次
+  if (config.dreamingEnabled && config.lastDreamRun) {
+    const lastRun = new Date(config.lastDreamRun);
+    const now = new Date();
+    const { hour, minute } = parseCron(config.dreamingCron);
+
+    const todayRunTime = new Date(now);
+    todayRunTime.setHours(hour, minute, 0, 0);
+
+    const lastRunDay = new Date(lastRun);
+    lastRunDay.setHours(0, 0, 0, 0);
+    const todayDay = new Date(now);
+    todayDay.setHours(0, 0, 0, 0);
+
+    // 如果今天已经过了运行时间，但上次运行不是今天，立即补跑
+    if (now.getTime() > todayRunTime.getTime() && lastRunDay.getTime() < todayDay.getTime()) {
+      console.log('[Scheduler] Detected missed dream cycle today, running now...');
+      try {
+        const report = runDreamCycle();
+        updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
+        console.log(`[Scheduler] Missed dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
+      } catch (err) {
+        console.error('[Scheduler] Missed dream cycle failed:', (err as Error).message);
+      }
+    }
+  }
+
   scheduleNextDream();
 
   if (!signalHandlersRegistered) {

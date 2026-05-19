@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Moon, Play, Settings, Activity, Sparkles, RotateCcw, Clock, Zap, Brain, Eye } from './Icons';
+import { Moon, Play, Settings, Activity, Sparkles, RotateCcw, Clock, Zap, Brain, Eye, Inbox, AlertTriangle } from './Icons';
 import {
   listDreamReports,
   getDreamSignals,
@@ -220,6 +220,71 @@ export default function DreamView() {
           </button>
         </div>
       </div>
+
+      {/* Health Status */}
+      {config && (
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            borderRadius: 'var(--radius-lg)',
+            border: '0.5px solid var(--border)',
+            padding: '18px 22px',
+            marginBottom: 24,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 24,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: config.dreamingEnabled ? '#34C759' : '#FF3B30',
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
+              自动梦境 {config.dreamingEnabled ? '已开启' : '已关闭'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              上次:
+              {config.lastDreamRun ? (
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, marginLeft: 4 }}>
+                  {formatTime(config.lastDreamRun)}
+                </span>
+              ) : (
+                <span style={{ color: '#F5A623', fontWeight: 600, marginLeft: 4 }}>从未运行</span>
+              )}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Moon size={13} style={{ color: 'var(--text-tertiary)' }} />
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              下次: <span style={{ color: 'var(--text-primary)', fontWeight: 500, marginLeft: 4 }}>{cronToLabel(config.dreamingCron)}</span>
+            </span>
+          </div>
+          {!config.lastDreamRun && (
+            <div
+              style={{
+                fontSize: 12,
+                color: '#F5A623',
+                background: 'rgba(245,166,35,0.08)',
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-sm)',
+                fontWeight: 500,
+              }}
+            >
+              建议立即运行一次梦境
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Settings Panel */}
       {showSettings && config && (
@@ -536,6 +601,91 @@ export default function DreamView() {
               </button>
             )}
           </div>
+
+          {/* Todo Items */}
+          {selectedReport.todoItems && selectedReport.todoItems.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AlertTriangle size={14} />
+                需要人工干预 ({selectedReport.todoItems.length})
+              </h4>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {selectedReport.todoItems.map((item, idx) => {
+                  const isOrphan = item.type === 'orphan';
+                  const Icon = isOrphan ? Inbox : AlertTriangle;
+                  const color = isOrphan ? '#86868B' : '#F5A623';
+                  const bg = isOrphan ? 'var(--bg-main)' : 'rgba(245,166,35,0.04)';
+                  const borderColor = isOrphan ? 'var(--border)' : 'rgba(245,166,35,0.2)';
+                  return (
+                    <div
+                      key={item.memoryId}
+                      style={{
+                        padding: '14px 18px',
+                        borderRadius: 'var(--radius-md)',
+                        background: bg,
+                        border: `0.5px solid ${borderColor}`,
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 12,
+                        transition: 'all var(--transition-fast)',
+                        animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.05}s both`,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 7,
+                          background: isOrphan ? 'var(--bg-muted)' : 'rgba(245,166,35,0.1)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: color,
+                          flexShrink: 0,
+                          marginTop: 1,
+                        }}
+                      >
+                        <Icon size={14} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: '#fff',
+                              background: color,
+                              padding: '2px 8px',
+                              borderRadius: 10,
+                              letterSpacing: '0.02em',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {isOrphan ? '孤儿' : '冲突'}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: 'var(--text-primary)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {item.title}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+                          {item.reason}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Signals */}
           {signals.length > 0 && (

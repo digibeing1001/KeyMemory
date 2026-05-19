@@ -210,6 +210,13 @@ export interface DreamSession {
   summary?: string;
 }
 
+export interface DreamTodoItem {
+  type: 'orphan' | 'conflict';
+  memoryId: string;
+  title: string;
+  reason: string;
+}
+
 export interface DreamReport {
   id: string;
   sessions: DreamSession[];
@@ -221,6 +228,7 @@ export interface DreamReport {
   createdAt: string;
   completedAt?: string;
   durationMs?: number;
+  todoItems: DreamTodoItem[];
 }
 
 export interface AutoRememberResult {

@@ -181,6 +181,7 @@ function runMigrations(db: Database.Database): void {
       archived INTEGER DEFAULT 0,
       merged INTEGER DEFAULT 0,
       sessions TEXT NOT NULL,
+      todo_items TEXT,
       created_at TEXT NOT NULL,
       completed_at TEXT
     );
@@ -234,6 +235,7 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memories ADD COLUMN metadata TEXT',
     'ALTER TABLE memories ADD COLUMN source TEXT',
     'ALTER TABLE memories ADD COLUMN source_id TEXT',
+    'ALTER TABLE dream_reports ADD COLUMN todo_items TEXT',
   ];
   for (const stmt of alterStatements) {
     try {

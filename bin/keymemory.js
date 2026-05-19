@@ -44,7 +44,8 @@ function showHelp() {
   console.log('');
   console.log('  \x1b[1m命令:\x1b[0m');
   console.log('    \x1b[36mupdate\x1b[0m      更新 KeyMemory 到最新版本');
-  console.log('    \x1b[36mui\x1b[0m          启动 Web UI 服务');
+  console.log('    \x1b[36mui\x1b[0m          启动 Web UI 服务 (别名: dashboard)');
+  console.log('    \x1b[36mstatus\x1b[0m      查看系统健康状态');
   console.log('    \x1b[36mversion\x1b[0m     显示当前版本');
   console.log('    \x1b[36mhelp\x1b[0m        显示帮助信息');
   console.log('');
@@ -55,6 +56,7 @@ function showHelp() {
   console.log('    keymemory update');
   console.log('    keymemory update --stash');
   console.log('    keymemory ui');
+  console.log('    keymemory status');
   console.log('');
 }
 
@@ -188,6 +190,109 @@ function doUi() {
   require('./keymemory-ui');
 }
 
+function doStatus() {
+  const http = require('http');
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+
+  const PORT = 3210;
+  const DATA_DIR = process.env.KEYMEMORY_DATA_DIR || path.join(os.homedir(), '.keymemory');
+  const DB_PATH = process.env.KEYMEMORY_DB_PATH || path.join(DATA_DIR, 'data.db');
+
+  console.log('');
+  console.log('  \x1b[1m\x1b[36mKeyMemory\x1b[0m 健康状态');
+  console.log('  \x1b[2m─────────────────────\x1b[0m');
+  console.log('');
+
+  // 检查数据库文件
+  const dbExists = fs.existsSync(DB_PATH);
+  console.log('  \x1b[1m数据存储:\x1b[0m');
+  console.log('    数据库: ' + (dbExists ? '\x1b[32m✓ 存在\x1b[0m' : '\x1b[31m✗ 不存在\x1b[0m'));
+  if (dbExists) {
+    const stats = fs.statSync(DB_PATH);
+    const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+    console.log('    大小:   ' + sizeMB + ' MB');
+    console.log('    路径:   ' + DB_PATH);
+  }
+  console.log('');
+
+  // 尝试连接 API
+  const req = http.get(`http://127.0.0.1:${PORT}/api/health/report`, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      try {
+        const health = JSON.parse(data);
+        console.log('  \x1b[1mServer 状态:\x1b[0m \x1b[32m✓ 运行中\x1b[0m');
+        console.log('    地址:   http://127.0.0.1:' + PORT);
+        console.log('    健康度: ' + health.score + '/100');
+        console.log('    重复:   ' + health.duplicateCount);
+        console.log('    孤儿:   ' + health.orphanCount);
+        console.log('    冲突:   ' + health.conflictCount);
+        console.log('    衰减:   ' + health.decayingCount);
+      } catch {
+        console.log('  \x1b[1mServer 状态:\x1b[0m \x1b[32m✓ 运行中\x1b[0m (健康数据解析失败)');
+      }
+      console.log('');
+      checkScheduler();
+    });
+  });
+
+  req.on('error', () => {
+    console.log('  \x1b[1mServer 状态:\x1b[0m \x1b[31m✗ 未运行\x1b[0m');
+    console.log('    \x1b[2mKeyMemory Server 没有在 ' + PORT + ' 端口运行\x1b[0m');
+    console.log('    \x1b[2m运行 \x1b[36mkeymemory ui\x1b[0m \x1b[2m启动服务\x1b[0m');
+    console.log('');
+    checkScheduler();
+  });
+
+  req.setTimeout(2000, () => {
+    req.destroy();
+  });
+
+  function checkScheduler() {
+    // 如果数据库存在，直接读取 scheduler 配置
+    if (dbExists) {
+      try {
+        const Database = require('better-sqlite3');
+        const db = new Database(DB_PATH, { readonly: true });
+        const rows = db.prepare("SELECT key, value FROM scheduler_config").all();
+        const config = {};
+        for (const row of rows) config[row.key] = row.value;
+
+        console.log('  \x1b[1m梦境调度器:\x1b[0m');
+        console.log('    状态:   ' + (config.dreamingEnabled === 'true' ? '\x1b[32m开启\x1b[0m' : '\x1b[31m关闭\x1b[0m'));
+        console.log('    时间:   ' + (config.dreamingCron || '0 3 * * *'));
+        console.log('    上次:   ' + (config.lastDreamRun ? new Date(config.lastDreamRun).toLocaleString('zh-CN') : '\x1b[33m从未运行\x1b[0m'));
+
+        // 检查最近梦境报告
+        const reports = db.prepare("SELECT status, created_at, completed_at, promoted, archived, merged FROM dream_reports ORDER BY created_at DESC LIMIT 3").all();
+        console.log('');
+        console.log('  \x1b[1m最近梦境:\x1b[0m');
+        if (reports.length === 0) {
+          console.log('    \x1b[2m无记录\x1b[0m');
+        } else {
+          reports.forEach(r => {
+            const time = r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN') : new Date(r.created_at).toLocaleString('zh-CN');
+            const statusColor = r.status === 'completed' ? '\x1b[32m' : r.status === 'failed' ? '\x1b[31m' : '\x1b[33m';
+            console.log('    ' + statusColor + r.status + '\x1b[0m | ' + time + ' | 升' + r.promoted + ' 归' + r.archived + ' 并' + r.merged);
+          });
+        }
+        db.close();
+      } catch (e) {
+        console.log('  \x1b[1m梦境调度器:\x1b[0m \x1b[33m无法读取 (better-sqlite3 未安装)\x1b[0m');
+      }
+    }
+    console.log('');
+    console.log('  \x1b[1m建议:\x1b[0m');
+    console.log('    1. 如需自动梦境，确保 Server 常驻运行');
+    console.log('    2. 运行 \x1b[36mkeymemory ui\x1b[0m 启动 Web UI 并常驻');
+    console.log('    3. 或使用 \x1b[36mnode packages/server/dist/cli.js dream\x1b[0m 手动运行梦境');
+    console.log('');
+  }
+}
+
 // 主命令路由
 const command = process.argv[2];
 
@@ -196,6 +301,7 @@ switch (command) {
     doUpdate();
     break;
   case 'ui':
+  case 'dashboard':
     doUi();
     break;
   case 'version':
