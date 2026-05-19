@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import type { Layer, SearchResult, HealthReport } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
-import { Search, Close, Heart, ArrowLeft } from './components/Icons';
+import { Search, Close, Heart, ArrowLeft, Inbox, FileSearch } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
@@ -202,36 +202,48 @@ function AppInner() {
         onViewModeChange={setViewMode}
       />
 
-      <div className="flex flex-col flex-1" style={{ marginLeft: 240 }}>
+      <div className="flex flex-col flex-1" style={{ marginLeft: 256 }}>
+        {/* 头部导航栏 */}
         <header
           className="flex items-center shrink-0"
           style={{
-            height: 64,
-            background: 'rgba(255,255,255,0.72)',
-            backdropFilter: 'blur(20px) saturate(150%)',
-            WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-            borderBottom: '0.5px solid var(--border)',
+            height: 68,
+            background: 'rgba(255,255,255,0.78)',
+            backdropFilter: 'blur(24px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+            borderBottom: '1px solid var(--border)',
           }}
         >
           <div className="flex items-center gap-4 flex-1 px-8" style={{ minWidth: 0 }}>
             {showDetail && (
               <button
                 onClick={handleCloseDetail}
-                className="shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium"
+                className="shrink-0 flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium"
                 style={{
                   color: 'var(--text-secondary)',
                   background: 'var(--bg-muted)',
                   transition: 'all var(--transition-fast)',
+                  border: '1px solid transparent',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-muted)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                onMouseEnter={(e) => { 
+                  e.currentTarget.style.background = 'var(--bg-hover)'; 
+                  e.currentTarget.style.color = 'var(--text-primary)';
+                  e.currentTarget.style.borderColor = 'var(--border)';
+                  e.currentTarget.style.transform = 'translateX(-2px)';
+                }}
+                onMouseLeave={(e) => { 
+                  e.currentTarget.style.background = 'var(--bg-muted)'; 
+                  e.currentTarget.style.color = 'var(--text-secondary)';
+                  e.currentTarget.style.borderColor = 'transparent';
+                  e.currentTarget.style.transform = 'translateX(0)';
+                }}
               >
                 <ArrowLeft size={14} />
                 返回
               </button>
             )}
             <form onSubmit={handleSearch} className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }}>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-quaternary)' }}>
                 <Search size={15} />
               </span>
               <input
@@ -239,18 +251,19 @@ function AppInner() {
                 placeholder="搜索记忆..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="w-full pl-8 pr-7 py-2 text-sm"
+                className="w-full pl-10 pr-8 py-2.5 text-sm"
                 style={{
                   background: 'var(--bg-muted)',
-                  border: '1px solid transparent',
-                  borderRadius: 'var(--radius-md)',
+                  border: '1.5px solid transparent',
+                  borderRadius: 'var(--radius-lg)',
                   color: 'var(--text-primary)',
                   transition: 'all var(--transition-fast)',
+                  fontWeight: 500,
                 }}
                 onFocus={(e) => {
                   e.currentTarget.style.background = 'var(--bg-card)';
                   e.currentTarget.style.borderColor = 'var(--accent)';
-                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(0,122,255,0.12)';
+                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(0,113,235,0.10), 0 1px 3px rgba(0,0,0,0.05)';
                 }}
                 onBlur={(e) => {
                   e.currentTarget.style.background = 'var(--bg-muted)';
@@ -262,8 +275,19 @@ function AppInner() {
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  className="absolute right-2 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--text-tertiary)' }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-0.5"
+                  style={{ 
+                    color: 'var(--text-quaternary)',
+                    transition: 'all var(--transition-fast)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                    e.currentTarget.style.background = 'var(--bg-hover)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text-quaternary)';
+                    e.currentTarget.style.background = 'transparent';
+                  }}
                 >
                   <Close size={14} />
                 </button>
@@ -275,32 +299,33 @@ function AppInner() {
             className="shrink-0 flex items-center px-6"
             style={{
               width: 300,
-              borderLeft: '0.5px solid var(--border)',
+              borderLeft: '1px solid var(--border)',
               height: '100%',
             }}
           >
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-1.5 w-full">
+              <div className="flex items-center gap-2.5">
                 <div
                   style={{
-                    width: 7,
-                    height: 7,
+                    width: 8,
+                    height: 8,
                     borderRadius: '50%',
                     background: store.healthOk ? 'var(--success)' : 'var(--danger)',
                     boxShadow: store.healthOk
-                      ? '0 0 6px rgba(52,199,89,0.5)'
-                      : '0 0 6px rgba(255,59,48,0.5)',
+                      ? '0 0 8px var(--success-glow)'
+                      : '0 0 8px var(--danger-glow)',
+                    transition: 'all var(--transition-normal)',
                   }}
                 />
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-secondary)' }}>
                   {store.healthOk ? '已连接' : '未连接'}
                 </span>
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-quaternary)', marginLeft: 'auto', fontWeight: 500 }}>
                   KeyMemory Server
                 </span>
               </div>
               {agents.length > 0 && (
-                <div className="flex flex-col gap-0.5 mt-1">
+                <div className="flex flex-col gap-1 mt-1">
                   {agents.map((agent) => (
                     <div key={agent.agentId} className="flex items-center gap-2">
                       <div
@@ -309,13 +334,13 @@ function AppInner() {
                           height: 5,
                           borderRadius: '50%',
                           background: 'var(--accent)',
-                          boxShadow: '0 0 4px rgba(0,122,255,0.4)',
+                          boxShadow: '0 0 6px var(--accent-glow)',
                         }}
                       />
-                      <span style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
                         {agent.agentId}
                       </span>
-                      <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 'auto', opacity: 0.6 }}>
+                      <span className="stat-number" style={{ fontSize: 10.5, color: 'var(--text-quaternary)', marginLeft: 'auto', opacity: 0.7 }}>
                         {agent.memoryCount} 条
                       </span>
                     </div>
@@ -323,7 +348,7 @@ function AppInner() {
                 </div>
               )}
               {agents.length === 0 && (
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', opacity: 0.5, marginTop: 2 }}>
+                <span style={{ fontSize: 11.5, color: 'var(--text-quaternary)', opacity: 0.6, marginTop: 2, fontWeight: 500 }}>
                   暂无 Agent 连接
                 </span>
               )}
@@ -347,60 +372,88 @@ function AppInner() {
                     onCancelCreate={handleCloseDetail}
                   />
                 ) : (
-                  <div className="px-8 py-6">
+                  <div className="px-8 py-7">
+                    {/* 搜索结果统计 */}
                     {isSearchMode && searchResults.length > 0 && (
-                      <div className="mb-4 text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>
-                        找到 {searchResults.length} 条结果
+                      <div 
+                        className="mb-5 flex items-center gap-2"
+                        style={{ color: 'var(--text-tertiary)' }}
+                      >
+                        <FileSearch size={14} />
+                        <span className="text-xs font-semibold">
+                          找到 <span className="stat-number" style={{ color: 'var(--accent)' }}>{searchResults.length}</span> 条结果
+                        </span>
                       </div>
                     )}
 
                     {store.loading ? (
-                      <div className="flex items-center justify-center h-48" style={{ color: 'var(--text-tertiary)' }}>
-                        <div className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full mr-2" />
-                        加载中...
+                      <div className="empty-state animate-fade-in">
+                        <div className="empty-state-icon">
+                          <div className="animate-spin w-6 h-6 border-[2.5px] border-current border-t-transparent rounded-full" />
+                        </div>
+                        <span className="text-sm font-medium">加载中...</span>
                       </div>
                     ) : isSearchMode && searchResults.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-48" style={{ color: 'var(--text-tertiary)' }}>
-                        <Search size={32} style={{ marginBottom: 8, opacity: 0.4 }} />
-                        <span className="text-sm">未找到匹配的记忆</span>
+                      <div className="empty-state animate-fade-in">
+                        <div className="empty-state-icon">
+                          <Search size={24} />
+                        </div>
+                        <span className="text-sm font-medium mb-1">未找到匹配的记忆</span>
+                        <span className="text-xs" style={{ color: 'var(--text-quaternary)' }}>尝试使用不同的关键词</span>
                       </div>
                     ) : !isSearchMode && store.memories.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-48" style={{ color: 'var(--text-tertiary)' }}>
-                        <Heart size={32} style={{ marginBottom: 8, opacity: 0.4 }} />
-                        <span className="text-sm">暂无记忆</span>
+                      <div className="empty-state animate-fade-in">
+                        <div className="empty-state-icon">
+                          <Inbox size={24} />
+                        </div>
+                        <span className="text-sm font-medium mb-1">暂无记忆</span>
+                        <span className="text-xs" style={{ color: 'var(--text-quaternary)' }}>点击左侧「新建记忆」开始记录</span>
                       </div>
                     ) : (
                       <div className="grid gap-4">
                         {isSearchMode
-                          ? searchResults.map((result) => (
+                          ? searchResults.map((result, index) => (
                               <MemoryCard
                                 key={result.memory.id}
                                 memory={result.memory}
                                 score={result.score}
                                 matchType={result.matchType}
                                 onClick={() => store.selectMemory(result.memory.id)}
+                                index={index}
                               />
                             ))
-                          : store.memories.map((memory) => (
+                          : store.memories.map((memory, index) => (
                               <MemoryCard
                                 key={memory.id}
                                 memory={memory}
                                 onClick={() => store.selectMemory(memory.id)}
+                                index={index}
                               />
                             ))}
                         {!isSearchMode && store.hasMore && (
-                          <div className="flex justify-center py-4">
+                          <div className="flex justify-center py-5">
                             <button
                               onClick={store.loadMore}
-                              className="px-6 py-2 text-sm font-medium rounded-lg"
+                              className="px-8 py-2.5 text-sm font-semibold rounded-xl"
                               style={{
                                 color: 'var(--accent)',
-                                background: 'var(--bg-muted)',
-                                border: '1px solid var(--border)',
+                                background: 'var(--bg-card)',
+                                border: '1.5px solid var(--border)',
                                 transition: 'all var(--transition-fast)',
+                                boxShadow: 'var(--shadow-sm)',
                               }}
-                              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-muted)'; }}
+                              onMouseEnter={(e) => { 
+                                e.currentTarget.style.background = 'var(--bg-card-hover)'; 
+                                e.currentTarget.style.borderColor = 'var(--accent)';
+                                e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                              }}
+                              onMouseLeave={(e) => { 
+                                e.currentTarget.style.background = 'var(--bg-card)'; 
+                                e.currentTarget.style.borderColor = 'var(--border)';
+                                e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                              }}
                             >
                               加载更多
                             </button>
@@ -413,17 +466,17 @@ function AppInner() {
               </div>
 
               <div
-                className="w-[380px] shrink-0 overflow-y-auto px-6 py-6"
+                className="w-[380px] shrink-0 overflow-y-auto px-6 py-7"
                 style={{
-                  background: 'rgba(255,255,255,0.5)',
-                  backdropFilter: 'blur(20px)',
-                  WebkitBackdropFilter: 'blur(20px)',
-                  borderLeft: '0.5px solid var(--border)',
+                  background: 'rgba(255,255,255,0.55)',
+                  backdropFilter: 'blur(24px) saturate(140%)',
+                  WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+                  borderLeft: '1px solid var(--border)',
                 }}
               >
                 <h3
-                  className="text-xs font-semibold uppercase tracking-wider mb-5"
-                  style={{ color: 'var(--text-tertiary)', letterSpacing: '0.08em', fontSize: 12 }}
+                  className="text-xs font-bold uppercase tracking-widest mb-6"
+                  style={{ color: 'var(--text-quaternary)', letterSpacing: '0.12em', fontSize: 11 }}
                 >
                   时间线
                 </h3>
@@ -446,7 +499,7 @@ function AppInner() {
           )}
 
           {viewMode === 'tags' && (
-            <div className="flex-1 overflow-y-auto px-8 py-6">
+            <div className="flex-1 overflow-y-auto px-8 py-7">
               <TagCloud
                 tags={tagCloudData?.tags ?? []}
                 projects={tagCloudData?.projects}
@@ -464,28 +517,50 @@ function AppInner() {
         </div>
 
         <footer
-          className="flex items-center justify-between px-8 py-2 shrink-0 text-xs"
+          className="flex items-center justify-between px-8 py-2.5 shrink-0 text-xs"
           style={{
-            background: 'rgba(255,255,255,0.6)',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
-            borderTop: '0.5px solid var(--border)',
-            color: 'var(--text-tertiary)',
+            background: 'rgba(255,255,255,0.65)',
+            backdropFilter: 'blur(16px) saturate(130%)',
+            WebkitBackdropFilter: 'blur(16px) saturate(130%)',
+            borderTop: '1px solid var(--border)',
+            color: 'var(--text-quaternary)',
           }}
         >
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5">
-              <Heart size={11} style={{ color: store.healthOk ? 'var(--success)' : 'var(--danger)' }} />
-              {healthReport?.score ?? '—'}
+          <div className="flex items-center gap-5">
+            <span className="flex items-center gap-2">
+              <Heart size={12} style={{ color: store.healthOk ? 'var(--success)' : 'var(--danger)' }} />
+              <span className="stat-number" style={{ fontWeight: 600 }}>{healthReport?.score ?? '—'}</span>
             </span>
-            <span>{totalMemories} 条记忆</span>
+            <span className="stat-number" style={{ fontWeight: 500 }}>{totalMemories} 条记忆</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             {isSearchMode && (
-              <button onClick={handleClearSearch} className="hover:underline" style={{ color: 'var(--accent)' }}>清除搜索</button>
+              <button 
+                onClick={handleClearSearch} 
+                className="font-medium"
+                style={{ 
+                  color: 'var(--accent)',
+                  transition: 'opacity var(--transition-fast)',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                清除搜索
+              </button>
             )}
             {store.selectedLayer && (
-              <button onClick={() => handleLayerSelect(null)} className="hover:underline" style={{ color: 'var(--accent)' }}>清除筛选</button>
+              <button 
+                onClick={() => handleLayerSelect(null)} 
+                className="font-medium"
+                style={{ 
+                  color: 'var(--accent)',
+                  transition: 'opacity var(--transition-fast)',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                清除筛选
+              </button>
             )}
           </div>
         </footer>

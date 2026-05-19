@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { AlertTriangle } from './Icons';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -53,45 +54,107 @@ export default function ConfirmDialog({
     >
       <div
         className="fixed inset-0"
-        style={{ background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+        style={{ 
+          background: 'rgba(0, 0, 0, 0.35)', 
+          backdropFilter: 'blur(8px)', 
+          WebkitBackdropFilter: 'blur(8px)',
+        }}
         onClick={onCancel}
       />
       <div
-        className="relative rounded-2xl p-6"
+        className="relative rounded-2xl p-7 animate-scale-in"
         style={{
-          background: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(40px)',
-          WebkitBackdropFilter: 'blur(40px)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.15), 0 0 0 0.5px rgba(0,0,0,0.05)',
-          width: 300,
-          animation: 'scale-in 0.2s cubic-bezier(0.25, 0.1, 0.25, 1)',
+          background: 'rgba(255, 255, 255, 0.96)',
+          backdropFilter: 'blur(40px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.05), 0 0 0 1px rgba(255,255,255,0.5) inset',
+          width: 340,
+          maxWidth: 'calc(100vw - 48px)',
         }}
       >
-        <h3 id="confirm-title" style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{title}</h3>
-        <p id="confirm-message" className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{message}</p>
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="flex items-start gap-4">
+          {danger && (
+            <div
+              className="shrink-0 rounded-xl p-2.5"
+              style={{
+                background: 'var(--danger-light)',
+                color: 'var(--danger)',
+              }}
+            >
+              <AlertTriangle size={20} />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <h3 
+              id="confirm-title" 
+              className="text-[15px] font-bold"
+              style={{ 
+                color: 'var(--text-primary)', 
+                letterSpacing: '-0.02em',
+                lineHeight: 1.4,
+              }}
+            >
+              {title}
+            </h3>
+            <p 
+              id="confirm-message" 
+              className="mt-2 text-sm leading-relaxed"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {message}
+            </p>
+          </div>
+        </div>
+        
+        <div className="mt-6 flex justify-end gap-3">
           <button
             onClick={onCancel}
-            className="rounded-lg px-4 py-2 text-sm font-medium"
+            className="rounded-xl px-5 py-2.5 text-sm font-semibold"
             style={{
               color: 'var(--text-secondary)',
+              background: 'var(--bg-muted)',
               transition: 'all var(--transition-fast)',
+              border: '1px solid transparent',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-muted)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={(e) => { 
+              e.currentTarget.style.background = 'var(--bg-hover)'; 
+              e.currentTarget.style.borderColor = 'var(--border)';
+            }}
+            onMouseLeave={(e) => { 
+              e.currentTarget.style.background = 'var(--bg-muted)'; 
+              e.currentTarget.style.borderColor = 'transparent';
+            }}
           >
             {cancelLabel}
           </button>
           <button
             ref={confirmRef}
             onClick={onConfirm}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+            className="rounded-xl px-5 py-2.5 text-sm font-bold text-white"
             style={{
-              background: danger ? 'var(--danger)' : 'var(--accent)',
+              background: danger 
+                ? 'linear-gradient(135deg, #FF3B30 0%, #FF6B6B 100%)' 
+                : 'linear-gradient(135deg, var(--accent) 0%, #0051D5 100%)',
               transition: 'all var(--transition-fast)',
+              boxShadow: danger 
+                ? '0 2px 8px var(--danger-glow)' 
+                : '0 2px 8px var(--accent-glow)',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+            onMouseEnter={(e) => { 
+              e.currentTarget.style.transform = 'translateY(-1px)'; 
+              e.currentTarget.style.boxShadow = danger 
+                ? '0 4px 16px var(--danger-glow)' 
+                : '0 4px 16px var(--accent-glow)';
+            }}
+            onMouseLeave={(e) => { 
+              e.currentTarget.style.transform = 'translateY(0)'; 
+              e.currentTarget.style.boxShadow = danger 
+                ? '0 2px 8px var(--danger-glow)' 
+                : '0 2px 8px var(--accent-glow)';
+            }}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
+            }}
           >
             {confirmLabel}
           </button>

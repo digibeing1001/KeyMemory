@@ -126,3 +126,47 @@ export const Play: FC<IconProps> = (p) => (
 export const Settings: FC<IconProps> = (p) => (
   <I {...p}><circle cx="10" cy="10" r="3" /><path d="M10 1v2M10 17v2M3.5 5.5l1.4 1.4M15.1 17.1l1.4 1.4M1 10h2M17 10h2M3.5 14.5l1.4-1.4M15.1 2.9l1.4-1.4" /></I>
 );
+
+export const Sparkles: FC<IconProps> = (p) => (
+  <I {...p}><path d="M10 2l1.5 4.5L16 8l-4.5 1.5L10 14l-1.5-4.5L4 8l4.5-1.5z" /><path d="M16 14l.8 2.2L19 17l-2.2.8L16 20l-.8-2.2L13 17l2.2-.8z" /></I>
+);
+
+export const RotateCcw: FC<IconProps> = (p) => (
+  <I {...p}><path d="M3 10a7 7 0 117 7v-2" /><path d="M3 10l3-3M3 10l3 3" /></I>
+);
+
+export const Zap: FC<IconProps> = (p) => (
+  <I {...p}><path d="M11 1L4 11h5l-1 8 7-10h-5l1-8z" /></I>
+);
+
+export const Brain: FC<IconProps> = (p) => (
+  <I {...p}><path d="M10 3c-3.5 0-6.5 2-7 5.5-.3 2.2.7 4.3 2.5 5.5C6.5 15.5 8 17 10 17s3.5-1.5 4.5-3c1.8-1.2 2.8-3.3 2.5-5.5C16 5 13 3 10 3z" /><path d="M7 9.5c.5 0 1-.3 1.2-.8M12.8 9.5c-.3.5-.7.8-1.2.8M9.3 12.5c.4.3 1 .3 1.4 0" /></I>
+);
+
+export const Eye: FC<IconProps> = (p) => (
+  <I {...p}><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" /><circle cx="10" cy="10" r="2.5" /></I>
+);
+
+export const CheckCircle: FC<IconProps> = (p) => (
+  <I {...p}><circle cx="10" cy="10" r="7.5" /><path d="M6.5 10l2.5 2.5 4-4.5" /></I>
+);
+
+export const XCircle: FC<IconProps> = (p) => (
+  <I {...p}><circle cx="10" cy="10" r="7.5" /><path d="M7 7l6 6M13 7L7 13" /></I>
+);
+
+export const Info: FC<IconProps> = (p) => (
+  <I {...p}><circle cx="10" cy="10" r="7.5" /><path d="M10 6.5v.5M10 9.5v4" /></I>
+);
+
+export const Inbox: FC<IconProps> = (p) => (
+  <I {...p}><path d="M2 8l3-5h10l3 5v6a2 2 0 01-2 2H4a2 2 0 01-2-2V8z" /><path d="M10 13v-3M6 10h8" /></I>
+);
+
+export const FileSearch: FC<IconProps> = (p) => (
+  <I {...p}><path d="M11.5 1.5H5a1.5 1.5 0 00-1.5 1.5v14a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V7.5L11.5 1.5z" /><circle cx="10" cy="12" r="2.5" /><path d="M13.5 15.5l2 2" /></I>
+);
+
+export const AlertTriangle: FC<IconProps> = (p) => (
+  <I {...p}><path d="M10 3.5L1.5 17h17L10 3.5z" /><path d="M10 8v4.5M10 14.5v.5" /></I>
+);

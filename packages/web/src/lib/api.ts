@@ -156,6 +156,7 @@ export interface DreamReport {
   status: 'running' | 'completed' | 'failed' | 'rolled_back';
   createdAt: string;
   completedAt?: string;
+  durationMs?: number;
 }
 
 export interface DreamSignalEntry {
