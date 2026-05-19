@@ -1,4 +1,5 @@
 import type { Version, ChangeType } from '@keymemory/shared';
+import { v4 as uuid } from 'uuid';
 import { getDatabase } from '../db/sqlite.js';
 
 export function getVersions(memoryId: string): Version[] {
@@ -55,7 +56,7 @@ export function rollbackToVersion(memoryId: string, targetVersion: number, reaso
     INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
     VALUES (?, ?, ?, ?, ?, 'restore', ?, ?)
   `).run(
-    crypto.randomUUID(),
+    uuid(),
     memoryId,
     versionCount + 1,
     target.title,

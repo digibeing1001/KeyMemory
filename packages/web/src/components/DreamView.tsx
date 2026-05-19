@@ -40,6 +40,9 @@ export default function DreamView() {
   const [running, setRunning] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editingCron, setEditingCron] = useState(false);
+  const [cronHour, setCronHour] = useState(3);
+  const [cronMinute, setCronMinute] = useState(0);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -92,6 +95,18 @@ export default function DreamView() {
       toast('更新失败', 'error');
     }
   }, [config, toast]);
+
+  const handleSaveCron = useCallback(async () => {
+    const newCron = `${cronMinute} ${cronHour} * * *`;
+    try {
+      const updated = await updateSchedulerConfig({ dreamingCron: newCron });
+      setConfig(updated);
+      setEditingCron(false);
+      toast(`调度时间已更新为 ${String(cronHour).padStart(2, '0')}:${String(cronMinute).padStart(2, '0')}`, 'success');
+    } catch {
+      toast('更新调度时间失败', 'error');
+    }
+  }, [cronHour, cronMinute, toast]);
 
   if (loading) {
     return (
@@ -232,7 +247,53 @@ export default function DreamView() {
               </label>
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-              调度: {cronToLabel(config.dreamingCron)}
+              {editingCron ? (
+                <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={cronHour}
+                    onChange={(e) => setCronHour(Math.max(0, Math.min(23, parseInt(e.target.value) || 0)))}
+                    style={{ width: 48, padding: '4px 6px', borderRadius: 'var(--radius-sm)', border: '0.5px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 13, textAlign: 'center' }}
+                  />
+                  <span>:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={cronMinute}
+                    onChange={(e) => setCronMinute(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                    style={{ width: 48, padding: '4px 6px', borderRadius: 'var(--radius-sm)', border: '0.5px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 13, textAlign: 'center' }}
+                  />
+                  <button
+                    onClick={handleSaveCron}
+                    style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 12, cursor: 'pointer' }}
+                  >
+                    保存
+                  </button>
+                  <button
+                    onClick={() => setEditingCron(false)}
+                    style={{ padding: '4px 10px', borderRadius: 'var(--radius-sm)', border: '0.5px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : (
+                <span
+                  onClick={() => {
+                    if (config) {
+                      const parts = config.dreamingCron.trim().split(/\s+/);
+                      setCronMinute(parseInt(parts[0], 10) || 0);
+                      setCronHour(parseInt(parts[1], 10) || 3);
+                    }
+                    setEditingCron(true);
+                  }}
+                  style={{ cursor: 'pointer', borderBottom: '1px dashed var(--text-tertiary)' }}
+                >
+                  调度: {cronToLabel(config.dreamingCron)}（点击修改）
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
               上次运行: {formatTime(config.lastDreamRun)}
@@ -322,6 +383,10 @@ export default function DreamView() {
                     setSelectedReport(result);
                     toast('梦境已回滚，所有记忆已恢复', 'success');
                     fetchData();
+                    try {
+                      const s = await getDreamSignals(result.id);
+                      setSignals(s);
+                    } catch { /* ignore */ }
                   } catch {
                     toast('回滚失败', 'error');
                   }

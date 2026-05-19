@@ -100,10 +100,18 @@ function scheduleNextDream(): void {
   }, delay);
 }
 
+let signalHandlersRegistered = false;
+
 export function startScheduler(): void {
   const config = getSchedulerConfig();
   console.log(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, cron: ${config.dreamingCron})`);
   scheduleNextDream();
+
+  if (!signalHandlersRegistered) {
+    process.on('SIGINT', stopScheduler);
+    process.on('SIGTERM', stopScheduler);
+    signalHandlersRegistered = true;
+  }
 }
 
 export function restartScheduler(): void {

@@ -13,8 +13,7 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; auto
     SET decay_factor = decay_factor * @rate, updated_at = @now
     WHERE layer = 'flash'
       AND status = 'active'
-      AND last_hit_at IS NOT NULL
-      AND last_hit_at <= datetime('now', ? || ' days')
+      AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
       AND decay_factor > 0.01
   `).run({ rate: flashConfig.decayRate, now }, `-${flashConfig.decayDays}`);
 
@@ -24,8 +23,7 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; auto
     SET decay_factor = decay_factor * @rate, updated_at = @now
     WHERE layer = 'short'
       AND status = 'active'
-      AND last_hit_at IS NOT NULL
-      AND last_hit_at <= datetime('now', ? || ' days')
+      AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
       AND decay_factor > 0.01
   `).run({ rate: shortConfig.decayRate, now }, `-${shortConfig.decayDays}`);
 
@@ -48,20 +46,21 @@ export function forgetMemory(id: string, method: ForgetMethod): boolean {
 
   const now = new Date().toISOString();
 
-  switch (method) {
-    case 'archive':
-      db.prepare(`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
-      break;
-    case 'decay':
-      db.prepare(`UPDATE memories SET confidence = 0, decay_factor = 0, updated_at = ? WHERE id = ?`).run(now, id);
-      break;
-    case 'delete':
+  if (method === 'delete') {
+    return db.transaction(() => {
       db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
       db.prepare(`DELETE FROM versions WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM memory_entities WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
-      break;
+      return true;
+    })();
+  }
+
+  if (method === 'archive') {
+    db.prepare(`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
+  } else if (method === 'decay') {
+    db.prepare(`UPDATE memories SET confidence = 0, decay_factor = 0, updated_at = ? WHERE id = ?`).run(now, id);
   }
 
   return true;

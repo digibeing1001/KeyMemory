@@ -11,7 +11,7 @@ import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
 import Editor from './views/Editor';
 import ConfirmDialog from './components/ConfirmDialog';
-import { getHealth, getMemoryConnections, getTagCloud, getAgents } from './lib/api';
+import { getHealth, getMemoryConnections, getTagCloud, getAgents, searchMemories } from './lib/api';
 import type { MemoryGraphData, TagCloudData, AgentInfo } from './lib/api';
 
 type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream';
@@ -82,18 +82,8 @@ function AppInner() {
       }
       setIsSearchMode(true);
       try {
-        const sp = new URLSearchParams();
-        sp.set('q', q);
-        if (store.selectedLayer) sp.set('layer', store.selectedLayer);
-        const res = await fetch(`/api/memories/search?${sp.toString()}`, {
-          headers: { 'Content-Type': 'application/json' },
-        });
-        if (res.ok) {
-          const results: SearchResult[] = await res.json();
-          setSearchResults(results);
-        } else {
-          setSearchResults([]);
-        }
+        const results = await searchMemories(q, store.selectedLayer ?? undefined);
+        setSearchResults(results);
       } catch {
         setSearchResults([]);
       }
@@ -184,13 +174,8 @@ function AppInner() {
       setViewMode('memories');
       setSearchInput(tagName);
       setIsSearchMode(true);
-      const sp = new URLSearchParams();
-      sp.set('q', tagName);
-      fetch(`/api/memories/search?${sp.toString()}`, {
-        headers: { 'Content-Type': 'application/json' },
-      })
-        .then((res) => res.json())
-        .then((results: SearchResult[]) => setSearchResults(results))
+      searchMemories(tagName)
+        .then((results) => setSearchResults(results))
         .catch(() => setSearchResults([]));
     },
     [],
@@ -403,6 +388,24 @@ function AppInner() {
                                 onClick={() => store.selectMemory(memory.id)}
                               />
                             ))}
+                        {!isSearchMode && store.hasMore && (
+                          <div className="flex justify-center py-4">
+                            <button
+                              onClick={store.loadMore}
+                              className="px-6 py-2 text-sm font-medium rounded-lg"
+                              style={{
+                                color: 'var(--accent)',
+                                background: 'var(--bg-muted)',
+                                border: '1px solid var(--border)',
+                                transition: 'all var(--transition-fast)',
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-muted)'; }}
+                            >
+                              加载更多
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

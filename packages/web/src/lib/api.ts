@@ -61,13 +61,12 @@ export async function moveLayer(id: string, layer: Layer, reason?: string): Prom
   });
 }
 
-export async function searchMemories(query: string, layer?: Layer, limit?: number): Promise<Memory[]> {
+export async function searchMemories(query: string, layer?: Layer, limit?: number): Promise<SearchResult[]> {
   const sp = new URLSearchParams();
   sp.set('q', query);
   if (layer) sp.set('layer', layer);
   if (limit) sp.set('limit', String(limit));
-  const results = await request<SearchResult[]>(`/memories/search?${sp.toString()}`);
-  return results.map((r) => r.memory);
+  return request(`/memories/search?${sp.toString()}`);
 }
 
 export async function getVersions(memoryId: string): Promise<Version[]> {
@@ -78,13 +77,11 @@ export async function getLayerStats(): Promise<Record<Layer, { count: number; ac
   return request('/layers/stats');
 }
 
-export async function forgetMemory(id: string, method: 'archive' | 'decay' | 'delete' = 'archive') {
-  const res = await fetch(`${BASE}/memories/${id}/forget`, {
+export async function forgetMemory(id: string, method: 'archive' | 'decay' | 'delete' = 'archive'): Promise<{ success: boolean }> {
+  return request(`/memories/${id}/forget`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method }),
   });
-  return res.json();
 }
 
 export interface GraphNode {
@@ -156,7 +153,7 @@ export interface DreamReport {
   promoted: number;
   archived: number;
   merged: number;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'rolled_back';
   createdAt: string;
   completedAt?: string;
 }

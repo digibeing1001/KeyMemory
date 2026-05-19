@@ -268,31 +268,35 @@ export function revertToVersion(memoryId: string, version: number, reason?: stri
   const current = getMemory(memoryId);
   if (!current) return null;
 
-  db.prepare(`
-    UPDATE memories
-    SET title = @title, content = @content, updated_at = @now
-    WHERE id = @id
-  `).run({
-    id: memoryId,
-    title: versionData.title,
-    content: versionData.content,
-    now,
-  });
+  return db.transaction(() => {
+    db.prepare(`
+      UPDATE memories
+      SET title = @title, content = @content, updated_at = @now
+      WHERE id = @id
+    `).run({
+      id: memoryId,
+      title: versionData.title,
+      content: versionData.content,
+      now,
+    });
 
-  db.prepare(`
-    INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
-    VALUES (@vid, @mid, @version, @title, @content, 'revert', @changeReason, @createdAt)
-  `).run({
-    vid: uuid(),
-    mid: memoryId,
-    version: current.hitCount + 1,
-    title: versionData.title,
-    content: versionData.content,
-    changeReason: reason ?? `Reverted to version ${version}`,
-    createdAt: now,
-  });
+    const versionCount = (db.prepare(`SELECT COUNT(*) as cnt FROM versions WHERE memory_id = ?`).get(memoryId) as { cnt: number }).cnt;
 
-  return getMemory(memoryId);
+    db.prepare(`
+      INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
+      VALUES (@vid, @mid, @version, @title, @content, 'revert', @changeReason, @createdAt)
+    `).run({
+      vid: uuid(),
+      mid: memoryId,
+      version: versionCount + 1,
+      title: versionData.title,
+      content: versionData.content,
+      changeReason: reason ?? `Reverted to version ${version}`,
+      createdAt: now,
+    });
+
+    return getMemory(memoryId);
+  })();
 }
 
 export function batchCreateMemories(inputs: CreateMemoryInput[]): { success: Memory[]; failed: { input: CreateMemoryInput; error: string }[] } {

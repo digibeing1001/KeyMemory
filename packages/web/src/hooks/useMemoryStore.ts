@@ -19,6 +19,7 @@ interface UseMemoryStoreReturn {
   healthOk: boolean;
   activeProject: string | null;
   loading: boolean;
+  hasMore: boolean;
   selectedMemory: Memory | null;
   selectLayer: (layer: Layer | null) => void;
   selectMemory: (id: string) => void;
@@ -32,6 +33,7 @@ interface UseMemoryStoreReturn {
   clearSearch: () => void;
   setActiveProject: (project: string | null) => void;
   refresh: () => void;
+  loadMore: () => void;
 }
 
 export function useMemoryStore(): UseMemoryStoreReturn {
@@ -48,9 +50,11 @@ export function useMemoryStore(): UseMemoryStoreReturn {
   const [healthOk, setHealthOk] = useState(false);
   const [activeProject, setActiveProjectState] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const mountedRef = useRef(true);
   const loadingCountRef = useRef(0);
   const { toast } = useToast();
+  const PAGE_SIZE = 50;
 
   const updateLoading = useCallback((delta: number) => {
     loadingCountRef.current = Math.max(0, loadingCountRef.current + delta);
@@ -87,8 +91,13 @@ export function useMemoryStore(): UseMemoryStoreReturn {
         layer: selectedLayer ?? undefined,
         project: activeProject ?? undefined,
         status: 'active',
+        limit: PAGE_SIZE,
+        offset: 0,
       });
-      if (mountedRef.current) setMemories(list);
+      if (mountedRef.current) {
+        setMemories(list);
+        setHasMore(list.length >= PAGE_SIZE);
+      }
     } catch (err) {
       toast('加载记忆失败: ' + ((err as Error).message || '请检查网络'), 'error');
       if (mountedRef.current) setMemories([]);
@@ -96,6 +105,29 @@ export function useMemoryStore(): UseMemoryStoreReturn {
       updateLoading(-1);
     }
   }, [selectedLayer, activeProject, toast, updateLoading]);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingCountRef.current > 0) return;
+    updateLoading(1);
+    try {
+      const currentOffset = memories.length;
+      const list = await api.listMemories({
+        layer: selectedLayer ?? undefined,
+        project: activeProject ?? undefined,
+        status: 'active',
+        limit: PAGE_SIZE,
+        offset: currentOffset,
+      });
+      if (mountedRef.current) {
+        setMemories((prev) => [...prev, ...list]);
+        setHasMore(list.length >= PAGE_SIZE);
+      }
+    } catch (err) {
+      toast('加载更多失败: ' + ((err as Error).message || '请检查网络'), 'error');
+    } finally {
+      updateLoading(-1);
+    }
+  }, [hasMore, memories.length, selectedLayer, activeProject, toast, updateLoading]);
 
   const fetchStats = useCallback(async () => {
     updateLoading(1);
@@ -211,7 +243,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     updateLoading(1);
     try {
       const results = await api.searchMemories(query, selectedLayer ?? undefined);
-      if (mountedRef.current) setMemories(results);
+      if (mountedRef.current) setMemories(results.map(r => r.memory));
     } catch (err) {
       toast('搜索失败: ' + ((err as Error).message || '请检查网络'), 'error');
       if (mountedRef.current) setMemories([]);
@@ -244,6 +276,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     healthOk,
     activeProject,
     loading,
+    hasMore,
     selectedMemory,
     selectLayer,
     selectMemory,
@@ -257,5 +290,6 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     clearSearch,
     setActiveProject,
     refresh,
+    loadMore,
   };
 }

@@ -56,14 +56,21 @@ function detectDuplicateActions(db: Database.Database, affectedIds: Set<string>)
   const threshold = CONSOLIDATION_CONFIG.duplicateSimilarity;
   const actions: ConsolidationAction[] = [];
 
-  const memories = db.prepare(`
-    SELECT m.id, m.title, e.embedding
-    FROM memories m
-    JOIN embeddings e ON e.memory_id = m.id
-    WHERE m.status = 'active'
-    ORDER BY m.created_at ASC
-    LIMIT 200
-  `).all() as { id: string; title: string; embedding: Buffer }[];
+  let memories: { id: string; title: string; embedding: Buffer }[];
+  try {
+    memories = db.prepare(`
+      SELECT m.id, m.title, e.embedding
+      FROM memories m
+      JOIN embeddings e ON e.memory_id = m.id
+      WHERE m.status = 'active'
+      ORDER BY m.created_at ASC
+      LIMIT 200
+    `).all() as { id: string; title: string; embedding: Buffer }[];
+  } catch {
+    return actions;
+  }
+
+  if (memories.length < 2) return actions;
 
   const merged = new Set<string>();
 

@@ -165,9 +165,12 @@ export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphP
       }
     }
 
+    const nodeMap = new Map<string, SimNode>();
+    for (const n of nodes) nodeMap.set(n.id, n);
+
     for (const edge of edges) {
-      const src = nodes.find((n) => n.id === edge.source);
-      const tgt = nodes.find((n) => n.id === edge.target);
+      const src = nodeMap.get(edge.source);
+      const tgt = nodeMap.get(edge.target);
       if (!src || !tgt) continue;
       const dx = tgt.x - src.x;
       const dy = tgt.y - src.y;
@@ -244,9 +247,12 @@ export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphP
       }
     }
 
+    const nodeMap = new Map<string, SimNode>();
+    for (const n of nodes) nodeMap.set(n.id, n);
+
     for (const edge of edges) {
-      const src = nodes.find((n) => n.id === edge.source);
-      const tgt = nodes.find((n) => n.id === edge.target);
+      const src = nodeMap.get(edge.source);
+      const tgt = nodeMap.get(edge.target);
       if (!src || !tgt) continue;
 
       const isHighlighted = hoveredId && (edge.source === hoveredId || edge.target === hoveredId);
@@ -466,7 +472,10 @@ export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphP
       const world = screenToWorld(sx, sy);
 
       if (dragRef.current.nodeId) {
-        const node = simRef.current.nodes.find((n) => n.id === dragRef.current.nodeId);
+        const { nodes } = simRef.current;
+        const nodeMap = new Map<string, SimNode>();
+        for (const n of nodes) nodeMap.set(n.id, n);
+        const node = nodeMap.get(dragRef.current.nodeId);
         if (node) {
           node.x = world.x - dragRef.current.offsetX;
           node.y = world.y - dragRef.current.offsetY;

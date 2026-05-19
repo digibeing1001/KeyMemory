@@ -18,16 +18,45 @@ export function runDreamCycle(): DreamReport {
     VALUES (?, 'running', 0, 0, 0, 0, '[]', ?)
   `).run(reportId, now);
 
-  const lightSession = runLightPhase(reportId);
-  sessions.push(lightSession);
+  let promoted = 0;
+  let archived = 0;
+  let merged = 0;
+  let totalCandidates = 0;
 
-  const remSession = runRemPhase(reportId);
-  sessions.push(remSession);
+  try {
+    const lightSession = runLightPhase(reportId);
+    sessions.push(lightSession);
 
-  const { deepSession, promoted, archived, merged } = runDeepPhase(reportId, lightSession, remSession);
-  sessions.push(deepSession);
+    const remSession = runRemPhase(reportId);
+    sessions.push(remSession);
 
-  const totalCandidates = lightSession.candidatesProcessed + remSession.candidatesProcessed + deepSession.candidatesProcessed;
+    const deepResult = runDeepPhase(reportId, lightSession, remSession);
+    sessions.push(deepResult.deepSession);
+    promoted = deepResult.promoted;
+    archived = deepResult.archived;
+    merged = deepResult.merged;
+
+    totalCandidates = lightSession.candidatesProcessed + remSession.candidatesProcessed + deepResult.deepSession.candidatesProcessed;
+  } catch (err) {
+    const failedAt = new Date().toISOString();
+    db.prepare(`
+      UPDATE dream_reports
+      SET status = 'failed', sessions = ?, completed_at = ?
+      WHERE id = ?
+    `).run(JSON.stringify(sessions), failedAt, reportId);
+
+    return {
+      id: reportId,
+      sessions,
+      totalCandidates,
+      promoted,
+      archived,
+      merged,
+      status: 'failed',
+      createdAt: now,
+      completedAt: failedAt,
+    };
+  }
 
   const completedAt = new Date().toISOString();
   db.prepare(`
@@ -262,14 +291,21 @@ function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds:
   const threshold = CONSOLIDATION_CONFIG.duplicateSimilarity;
   const actions: ConsolidationAction[] = [];
 
-  const memories = db.prepare(`
-    SELECT m.id, m.title, e.embedding
-    FROM memories m
-    JOIN embeddings e ON e.memory_id = m.id
-    WHERE m.status = 'active'
-    ORDER BY m.created_at ASC
-    LIMIT 200
-  `).all() as { id: string; title: string; embedding: Buffer }[];
+  let memories: { id: string; title: string; embedding: Buffer }[];
+  try {
+    memories = db.prepare(`
+      SELECT m.id, m.title, e.embedding
+      FROM memories m
+      JOIN embeddings e ON e.memory_id = m.id
+      WHERE m.status = 'active'
+      ORDER BY m.created_at ASC
+      LIMIT 200
+    `).all() as { id: string; title: string; embedding: Buffer }[];
+  } catch {
+    return actions;
+  }
+
+  if (memories.length < 2) return actions;
 
   const mergedSet = new Set<string>();
 
@@ -521,11 +557,36 @@ export function rollbackDream(reportId: string): DreamReport {
     const memId = snap.memory_id as string;
     const existing = getMemory(memId);
 
-    if (existing && existing.status === 'archived') {
+    if (!existing) {
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO memories (id, title, content, layer, project, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        memId,
+        snap.title as string,
+        snap.content as string,
+        snap.layer as string,
+        snap.project as string | null,
+        snap.agent_space as string,
+        null,
+        snap.confidence as number,
+        snap.decay_factor as number,
+        snap.captured_at as string,
+        now,
+        snap.tags ? snap.tags as string : null,
+        snap.metadata ? snap.metadata as string : null,
+        null,
+        null,
+      );
+      continue;
+    }
+
+    if (existing.status === 'archived' || existing.status === 'decayed') {
       restoreMemory(memId);
     }
 
-    if (!existing || existing.status === 'active') {
+    if (existing.status === 'active') {
       updateMemory(memId, {
         title: snap.title as string,
         content: snap.content as string,

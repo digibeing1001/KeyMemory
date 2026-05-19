@@ -7,7 +7,6 @@ import { moveLayer, getLayerStats } from './core/layer.js';
 import { autoRemember, extractTags } from './core/auto.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from './core/evolution.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay } from './core/forgetting.js';
-import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation, formatConsolidationReport } from './core/consolidation.js';
 import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, formatDreamReport, rollbackDream } from './core/dreaming.js';
 import { getHealthReport } from './core/health.js';
 import { listEntities, getEntityGraph, extractEntities } from './graph/entity.js';
@@ -551,36 +550,13 @@ program
     const cors = (await import('@fastify/cors')).default;
     const { registerRoutes } = await import('./api/rest.js');
     const { registerMCPRoutes } = await import('./api/mcp.js');
-    const path = await import('path');
-    const fs = await import('fs');
-    const { fileURLToPath } = await import('url');
+    const { registerWebUI } = await import('./web-ui.js');
 
     const app = Fastify({ logger: true });
     await app.register(cors, { origin: true });
     registerRoutes(app);
     registerMCPRoutes(app);
-
-    const webDistDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
-    if (fs.existsSync(webDistDir) && fs.existsSync(path.join(webDistDir, 'index.html'))) {
-      app.setNotFoundHandler((request, reply) => {
-        const urlPath = request.url.split('?')[0];
-        if (urlPath.startsWith('/api')) {
-          reply.code(404).send({ error: 'Not found' });
-          return;
-        }
-        const filePath = path.join(webDistDir, urlPath === '/' ? 'index.html' : urlPath);
-        const safePath = path.normalize(filePath);
-        if (!safePath.startsWith(webDistDir)) {
-          reply.code(403).send('Forbidden');
-          return;
-        }
-        if (fs.existsSync(safePath) && fs.statSync(safePath).isFile()) {
-          reply.type('text/html; charset=utf-8').send(fs.readFileSync(safePath));
-          return;
-        }
-        reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDistDir, 'index.html')));
-      });
-    }
+    registerWebUI(app);
 
     await app.listen({ port: parseInt(opts.port, 10), host: opts.host });
     console.log(`KeyMemory server running at http://${opts.host}:${opts.port}`);
@@ -588,75 +564,17 @@ program
 
 program
   .command('consolidate')
-  .description('Plan, execute, or rollback memory consolidation')
-  .option('--plan', 'create a consolidation plan without executing')
-  .option('--execute <planId>', 'execute a consolidation plan')
-  .option('--auto', 'auto plan and execute consolidation')
-  .option('--rollback <planId>', 'rollback a consolidation plan')
-  .option('--action-ids <ids>', 'comma-separated action IDs for partial rollback')
-  .option('--list', 'list recent consolidation plans')
-  .option('--show <planId>', 'show consolidation plan details')
-  .option('--snapshots <planId>', 'show snapshots for a consolidation plan')
-  .action((opts) => {
+  .description('(deprecated) Use "dream" command instead')
+  .action(() => {
+    process.stderr.write('Note: "consolidate" is deprecated. Use "keymemory dream --run" instead.\n');
     const format: OutputFormat = program.opts().format || 'json';
-
-    if (opts.plan) {
-      const plan = planConsolidation();
-      printAndExit(plan, format);
+    const report = runDreamCycle();
+    if (format !== 'json') {
+      process.stdout.write(formatDreamReport(report) + '\n');
+      closeDatabase();
+      process.exit(0);
     }
-
-    if (opts.execute) {
-      try {
-        const result = executeConsolidation(opts.execute);
-        if (format !== 'json') {
-          process.stdout.write(formatConsolidationReport(result) + '\n');
-          closeDatabase();
-          process.exit(0);
-        }
-        printAndExit(result, format);
-      } catch (err) {
-        printError((err as Error).message);
-      }
-    }
-
-    if (opts.auto) {
-      const result = runAutoConsolidation();
-      if (format !== 'json') {
-        process.stdout.write(formatConsolidationReport(result) + '\n');
-        closeDatabase();
-        process.exit(0);
-      }
-      printAndExit(result, format);
-    }
-
-    if (opts.rollback) {
-      const actionIds = opts.actionIds ? opts.actionIds.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined;
-      try {
-        const result = rollbackConsolidation(opts.rollback, actionIds);
-        printAndExit(result, format);
-      } catch (err) {
-        printError((err as Error).message);
-      }
-    }
-
-    if (opts.list) {
-      const plans = listConsolidationPlans();
-      printAndExit(plans, format);
-    }
-
-    if (opts.show) {
-      const plan = getConsolidationPlan(opts.show);
-      if (!plan) printError(`Plan not found: ${opts.show}`);
-      printAndExit(plan, format);
-    }
-
-    if (opts.snapshots) {
-      const snapshots = getConsolidationSnapshots(opts.snapshots);
-      printAndExit(snapshots, format);
-    }
-
-    const plan = planConsolidation();
-    printAndExit(plan, format);
+    printAndExit(report, format);
   });
 
 program
@@ -713,15 +631,10 @@ program
       } catch (err) {
         printError((err as Error).message);
       }
+      return;
     }
 
-    const report = runDreamCycle();
-    if (format !== 'json') {
-      process.stdout.write(formatDreamReport(report) + '\n');
-      closeDatabase();
-      process.exit(0);
-    }
-    printAndExit(report, format);
+    program.help();
   });
 
 program.parse();

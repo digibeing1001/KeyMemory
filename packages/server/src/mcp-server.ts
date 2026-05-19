@@ -26,12 +26,14 @@ async function startRestServerInBackground() {
     const cors = (await import('@fastify/cors')).default;
     const { registerRoutes } = await import('./api/rest.js');
     const { registerMCPRoutes } = await import('./api/mcp.js');
+    const { registerWebUI } = await import('./web-ui.js');
     const { DEFAULT_PORT, DEFAULT_HOST } = await import('@keymemory/shared');
 
     const app = Fastify({ logger: false });
     await app.register(cors, { origin: true });
     registerRoutes(app);
     registerMCPRoutes(app);
+    registerWebUI(app);
     await app.listen({ port: DEFAULT_PORT, host: DEFAULT_HOST });
 
     stderr.write(`[KeyMemory] REST API + Web UI available at http://${DEFAULT_HOST}:${DEFAULT_PORT}\n`);

@@ -623,8 +623,17 @@ export function registerRoutes(app: FastifyInstance): void {
     return getConsolidationSnapshots(planId);
   });
 
-  app.post('/api/dream/run', async () => {
-    return runDreamCycle();
+  app.post('/api/dream/run', async (request, reply) => {
+    try {
+      const report = runDreamCycle();
+      if (report.status === 'failed') {
+        reply.code(500);
+      }
+      return report;
+    } catch (err) {
+      reply.code(500);
+      return { error: (err as Error).message };
+    }
   });
 
   app.get('/api/dream/reports', async (request) => {
