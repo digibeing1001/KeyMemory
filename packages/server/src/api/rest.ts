@@ -10,7 +10,7 @@ import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDeca
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
 import { getHealthReport, injectContext } from '../core/health.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
-import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream } from '../core/dreaming.js';
+import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport } from '../core/dreaming.js';
 import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../core/scheduler.js';
 import { routeMemory, createAgentContext } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
@@ -661,6 +661,15 @@ export function registerRoutes(app: FastifyInstance): void {
     } catch (err) {
       return { error: (err as Error).message };
     }
+  });
+
+  app.delete('/api/dream/reports/:reportId', async (request) => {
+    const { reportId } = request.params as { reportId: string };
+    const result = deleteDreamReport(reportId);
+    if (!result.success) {
+      return { error: 'Report not found' };
+    }
+    return { success: true };
   });
 
   app.get('/api/scheduler/config', async () => {

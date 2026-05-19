@@ -4,7 +4,8 @@ const BASE = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body != null;
-  const headers: Record<string, string> = hasBody ? { 'Content-Type': 'application/json' } : {};
+  const isMutating = options?.method === 'POST' || options?.method === 'PUT' || options?.method === 'PATCH';
+  const headers: Record<string, string> = (hasBody || isMutating) ? { 'Content-Type': 'application/json' } : {};
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: { ...headers, ...(options?.headers as Record<string, string> | undefined) },
@@ -206,7 +207,11 @@ export async function getDreamSignals(reportId: string): Promise<DreamSignalEntr
 }
 
 export async function rollbackDream(reportId: string): Promise<DreamReport> {
-  return request(`/dream/rollback/${reportId}`, { method: 'POST' });
+  return request('/dream/rollback/' + reportId, { method: 'POST' });
+}
+
+export async function deleteDreamReport(reportId: string): Promise<{ success: boolean }> {
+  return request('/dream/reports/' + reportId, { method: 'DELETE' });
 }
 
 export async function getSchedulerConfig(): Promise<SchedulerConfig> {

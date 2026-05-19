@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Moon, Play, Settings, Activity, Sparkles, RotateCcw, Clock, Zap, Brain, Eye, Inbox, AlertTriangle } from './Icons';
+import { Archive, Play, Settings, Activity, RotateCcw, Clock, CheckCircle, Link, FileSearch, Inbox, AlertTriangle, GitMerge, Sliders } from './Icons';
 import {
   listDreamReports,
   getDreamSignals,
@@ -7,14 +7,15 @@ import {
   updateSchedulerConfig,
   runDream,
   rollbackDream,
+  deleteDreamReport,
 } from '../lib/api';
 import type { DreamReport, DreamSignalEntry, SchedulerConfig } from '../lib/api';
 import { useToast } from './Toast';
 
-const PHASE_CONFIG: Record<string, { label: string; icon: typeof Brain; color: string; bg: string; desc: string }> = {
-  light: { label: '浅睡期', icon: Eye, color: '#F5A623', bg: 'rgba(245,166,35,0.08)', desc: '筛选与评分' },
-  rem: { label: 'REM期', icon: Brain, color: '#7B61FF', bg: 'rgba(123,97,255,0.08)', desc: '关联与重组' },
-  deep: { label: '深睡期', icon: Zap, color: '#34C759', bg: 'rgba(52,199,89,0.08)', desc: '归档与合并' },
+const PHASE_CONFIG: Record<string, { label: string; icon: typeof Archive; color: string; bg: string; desc: string }> = {
+  light: { label: '初步整理', icon: Sliders, color: '#86868B', bg: 'var(--bg-muted)', desc: '去重与筛选' },
+  rem: { label: '关联分析', icon: Link, color: '#86868B', bg: 'var(--bg-muted)', desc: '标签优化与主题发现' },
+  deep: { label: '深度整理', icon: CheckCircle, color: '#86868B', bg: 'var(--bg-muted)', desc: '评分升级与归档' },
 };
 
 function formatTime(iso: string | null | undefined): string {
@@ -58,7 +59,7 @@ export default function DreamView() {
       setReports(r);
       setConfig(c);
     } catch {
-      toast('加载梦境数据失败', 'error');
+      toast('加载整理数据失败', 'error');
     } finally {
       setLoading(false);
     }
@@ -72,11 +73,13 @@ export default function DreamView() {
     setRunning(true);
     try {
       const report = await runDream();
-      toast(`梦境完成：${report.promoted} 条记忆升级`, 'success');
+      toast(`整理完成：${report.promoted} 条记忆升级`, 'success');
       fetchData();
       setSelectedReport(report);
-    } catch {
-      toast('梦境运行失败', 'error');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '未知错误';
+      toast(`整理运行失败: ${message}`, 'error');
+      console.error('Dream run failed:', err);
     } finally {
       setRunning(false);
     }
@@ -94,12 +97,27 @@ export default function DreamView() {
     }
   }, []);
 
+  const handleDeleteReport = useCallback(async (reportId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('确定要删除这条整理记录吗？')) return;
+    try {
+      await deleteDreamReport(reportId);
+      toast('整理记录已删除', 'success');
+      fetchData();
+      if (selectedReport?.id === reportId) {
+        setSelectedReport(null);
+      }
+    } catch {
+      toast('删除失败', 'error');
+    }
+  }, [fetchData, selectedReport, toast]);
+
   const handleToggleDreaming = useCallback(async (enabled: boolean) => {
     if (!config) return;
     try {
       const updated = await updateSchedulerConfig({ dreamingEnabled: enabled });
       setConfig(updated);
-      toast(enabled ? '梦境已开启' : '梦境已关闭', 'success');
+      toast(enabled ? '自动整理已开启' : '自动整理已关闭', 'success');
     } catch {
       toast('更新失败', 'error');
     }
@@ -136,35 +154,22 @@ export default function DreamView() {
               width: 48,
               height: 48,
               borderRadius: 14,
-              background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+              background: 'var(--bg-card)',
+              border: '0.5px solid var(--border)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#e0e6ed',
-              boxShadow: '0 4px 16px rgba(15,52,96,0.3), inset 0 1px 0 rgba(255,255,255,0.1)',
-              position: 'relative',
-              overflow: 'hidden',
+              color: 'var(--text-secondary)',
             }}
           >
-            <div
-              style={{
-                position: 'absolute',
-                top: -10,
-                right: -10,
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(245,166,35,0.4) 0%, transparent 70%)',
-              }}
-            />
-            <Moon size={22} />
+            <Archive size={22} />
           </div>
           <div>
             <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-              梦境
+              记忆整理
             </h2>
             <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>
-              记忆自动整理与巩固 · Light → REM → Deep
+              自动归档、去重与关联优化
             </p>
           </div>
         </div>
@@ -198,7 +203,7 @@ export default function DreamView() {
               padding: '9px 18px',
               borderRadius: 'var(--radius-md)',
               border: 'none',
-              background: running ? 'var(--bg-muted)' : 'linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%)',
+              background: running ? 'var(--bg-muted)' : 'var(--text-primary)',
               color: running ? 'var(--text-tertiary)' : '#fff',
               fontSize: 13,
               fontWeight: 600,
@@ -207,15 +212,14 @@ export default function DreamView() {
               alignItems: 'center',
               gap: 6,
               transition: 'all var(--transition-fast)',
-              boxShadow: running ? 'none' : '0 4px 14px rgba(15,52,96,0.25)',
             }}
-            onMouseEnter={(e) => { if (!running) e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+            onMouseEnter={(e) => { if (!running) e.currentTarget.style.opacity = '0.9'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
           >
             {running ? (
               <><div className="animate-spin w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full" /> 运行中...</>
             ) : (
-              <><Sparkles size={14} /> 立即运行</>
+              <><Play size={14} /> 开始整理</>
             )}
           </button>
         </div>
@@ -247,7 +251,7 @@ export default function DreamView() {
               }}
             />
             <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
-              自动梦境 {config.dreamingEnabled ? '已开启' : '已关闭'}
+              自动整理 {config.dreamingEnabled ? '已开启' : '已关闭'}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -264,7 +268,7 @@ export default function DreamView() {
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Moon size={13} style={{ color: 'var(--text-tertiary)' }} />
+            <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
               下次: <span style={{ color: 'var(--text-primary)', fontWeight: 500, marginLeft: 4 }}>{cronToLabel(config.dreamingCron)}</span>
             </span>
@@ -280,7 +284,7 @@ export default function DreamView() {
                 fontWeight: 500,
               }}
             >
-              建议立即运行一次梦境
+              建议立即开始一次整理
             </div>
           )}
         </div>
@@ -313,8 +317,8 @@ export default function DreamView() {
           >
             <div className="flex items-center justify-between mb-4">
               <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Moon size={16} style={{ color: '#7B61FF' }} />
-                自动梦境
+                <Archive size={16} style={{ color: 'var(--text-secondary)' }} />
+                自动整理
               </span>
               <label style={{ position: 'relative', display: 'inline-block', width: 48, height: 26, cursor: 'pointer' }}>
                 <input
@@ -328,7 +332,7 @@ export default function DreamView() {
                     position: 'absolute',
                     top: 0, left: 0, right: 0, bottom: 0,
                     borderRadius: 13,
-                    background: config.dreamingEnabled ? '#7B61FF' : 'var(--bg-muted)',
+                    background: config.dreamingEnabled ? '#34C759' : 'var(--bg-muted)',
                     transition: '0.25s',
                   }}
                 >
@@ -370,7 +374,7 @@ export default function DreamView() {
                   />
                   <button
                     onClick={handleSaveCron}
-                    style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: 'none', background: '#7B61FF', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer', marginLeft: 4 }}
+                    style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--text-primary)', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer', marginLeft: 4 }}
                   >
                     保存
                   </button>
@@ -406,7 +410,7 @@ export default function DreamView() {
               上次运行: {formatTime(config.lastDreamRun)}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 10, opacity: 0.7, lineHeight: 1.5 }}>
-              梦境包含评分升级、去重合并、归档过期等全部整理操作
+              包含去重合并、评分升级、归档过期、语义关联等全部整理操作
             </div>
           </div>
         </div>
@@ -432,18 +436,19 @@ export default function DreamView() {
                   width: 36,
                   height: 36,
                   borderRadius: 10,
-                  background: 'linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%)',
+                  background: 'var(--bg-main)',
+                  border: '0.5px solid var(--border)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#fff',
+                  color: 'var(--text-secondary)',
                 }}
               >
-                <Sparkles size={16} />
+                <GitMerge size={16} />
               </div>
               <div>
                 <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  梦境报告 #{selectedReport.id.slice(0, 8)}
+                  整理报告 #{selectedReport.id.slice(0, 8)}
                 </h3>
                 <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0 0' }}>
                   {formatTime(selectedReport.completedAt || selectedReport.createdAt)}
@@ -474,7 +479,7 @@ export default function DreamView() {
           {/* Phase Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
             {selectedReport.sessions.map((session, idx) => {
-              const phaseInfo = PHASE_CONFIG[session.phase] || { label: session.phase, icon: Brain, color: '#86868B', bg: 'var(--bg-muted)', desc: '' };
+              const phaseInfo = PHASE_CONFIG[session.phase] || { label: session.phase, icon: Archive, color: '#86868B', bg: 'var(--bg-muted)', desc: '' };
               const PhaseIcon = phaseInfo.icon;
               return (
                 <div
@@ -569,7 +574,7 @@ export default function DreamView() {
                   try {
                     const result = await rollbackDream(selectedReport.id);
                     setSelectedReport(result);
-                    toast('梦境已回滚，所有记忆已恢复', 'success');
+                    toast('整理已回滚，所有记忆已恢复', 'success');
                     fetchData();
                     try {
                       const s = await getDreamSignals(result.id);
@@ -597,7 +602,7 @@ export default function DreamView() {
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.05)'; }}
               >
                 <RotateCcw size={13} />
-                回滚此梦境
+                回滚此整理
               </button>
             )}
           </div>
@@ -661,7 +666,7 @@ export default function DreamView() {
                               flexShrink: 0,
                             }}
                           >
-                            {isOrphan ? '孤儿' : '冲突'}
+                            {isOrphan ? '未归类' : '冲突'}
                           </span>
                           <span
                             style={{
@@ -741,7 +746,7 @@ export default function DreamView() {
       <div>
         <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Clock size={15} style={{ color: 'var(--text-tertiary)' }} />
-          历史梦境
+          整理记录
         </h3>
         {reports.length === 0 ? (
           <div
@@ -766,16 +771,16 @@ export default function DreamView() {
                 marginBottom: 16,
               }}
             >
-              <Moon size={28} style={{ opacity: 0.35 }} />
+              <Archive size={28} style={{ opacity: 0.35 }} />
             </div>
-            <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>暂无梦境记录</span>
+            <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>暂无整理记录</span>
             <span style={{ fontSize: 13, marginTop: 6, opacity: 0.6 }}>
-              点击「立即运行」开始第一次梦境
+              点击「开始整理」进行第一次归档
             </span>
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
-            {reports.map((report, idx) => {
+            {reports.map((report) => {
               const isSelected = selectedReport?.id === report.id;
               const isAnimating = animatingCards.has(report.id);
               return (
@@ -802,6 +807,8 @@ export default function DreamView() {
                       e.currentTarget.style.transform = 'translateY(-1px)';
                       e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
                     }
+                    const deleteBtn = e.currentTarget.querySelector('button');
+                    if (deleteBtn) deleteBtn.style.opacity = '1';
                   }}
                   onMouseLeave={(e) => {
                     if (!isSelected) {
@@ -810,6 +817,8 @@ export default function DreamView() {
                       e.currentTarget.style.transform = 'translateY(0)';
                       e.currentTarget.style.boxShadow = 'none';
                     }
+                    const deleteBtn = e.currentTarget.querySelector('button');
+                    if (deleteBtn) deleteBtn.style.opacity = '0';
                   }}
                 >
                   <div className="flex items-center gap-4">
@@ -819,21 +828,22 @@ export default function DreamView() {
                         height: 36,
                         borderRadius: 10,
                         background: report.status === 'completed'
-                          ? 'linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%)'
+                          ? 'var(--bg-main)'
                           : 'var(--bg-muted)',
+                        border: '0.5px solid var(--border)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: report.status === 'completed' ? '#fff' : 'var(--text-tertiary)',
+                        color: report.status === 'completed' ? 'var(--text-secondary)' : 'var(--text-tertiary)',
                         fontSize: 14,
                         flexShrink: 0,
                       }}
                     >
-                      {report.status === 'completed' ? <Sparkles size={16} /> : <Activity size={16} />}
+                      {report.status === 'completed' ? <GitMerge size={16} /> : <Activity size={16} />}
                     </div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
-                        梦境 #{report.id.slice(0, 8)}
+                        整理 #{report.id.slice(0, 8)}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
                         <Clock size={11} />
@@ -865,6 +875,24 @@ export default function DreamView() {
                         {report.status === 'running' ? '运行中' : '失败'}
                       </span>
                     )}
+                    <button
+                      onClick={(e) => handleDeleteReport(report.id, e)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--text-tertiary)',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        opacity: 0,
+                        transition: 'all var(--transition-fast)',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = '#FF3B30'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                    >
+                      删除
+                    </button>
                   </div>
                 </div>
               );

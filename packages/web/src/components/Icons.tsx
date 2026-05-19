@@ -170,3 +170,19 @@ export const FileSearch: FC<IconProps> = (p) => (
 export const AlertTriangle: FC<IconProps> = (p) => (
   <I {...p}><path d="M10 3.5L1.5 17h17L10 3.5z" /><path d="M10 8v4.5M10 14.5v.5" /></I>
 );
+
+export const RefreshCw: FC<IconProps> = (p) => (
+  <I {...p}><path d="M3 10a7 7 0 017-7h.5M17 10a7 7 0 01-7 7h-.5" /><path d="M14 3l3.5 3.5L14 10M6 17l-3.5-3.5L6 10" /></I>
+);
+
+export const GitMerge: FC<IconProps> = (p) => (
+  <I {...p}><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M6 9v6" /><circle cx="18" cy="12" r="3" /><path d="M6 6c0 3 3 3 6 3h3" /></I>
+);
+
+export const Box: FC<IconProps> = (p) => (
+  <I {...p}><path d="M10 2l-7 4v8l7 4 7-4V6l-7-4z" /><path d="M10 14V6" /><path d="M3 6l7 4 7-4" /></I>
+);
+
+export const Sliders: FC<IconProps> = (p) => (
+  <I {...p}><path d="M4 6h2M14 6h2M8 6h2M4 12h8M14 12h2M4 18h2M10 18h6" /><path d="M8 4v4M12 10v4M6 16v4" /></I>
+);

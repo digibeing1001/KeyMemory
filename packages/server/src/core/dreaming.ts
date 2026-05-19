@@ -8,6 +8,7 @@ import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
 
 export function runDreamCycle(): DreamReport {
+  const startTime = Date.now();
   const reportId = uuid();
   const now = new Date().toISOString();
   const sessions: DreamSession[] = [];
@@ -25,20 +26,32 @@ export function runDreamCycle(): DreamReport {
   let todoItems: DreamTodoItem[] = [];
 
   try {
-    const lightSession = runLightPhase(reportId);
-    sessions.push(lightSession);
+    // Phase 1: Light - 扫描并去重近期记忆
+    const lightResult = runLightPhase(reportId);
+    sessions.push(lightResult.session);
+    merged += lightResult.mergedCount;
+    totalCandidates += lightResult.session.candidatesProcessed;
 
-    const remSession = runRemPhase(reportId);
-    sessions.push(remSession);
+    // Phase 2: REM - 主题分析与标签优化
+    const remResult = runRemPhase(reportId);
+    sessions.push(remResult.session);
+    totalCandidates += remResult.session.candidatesProcessed;
 
-    const deepResult = runDeepPhase(reportId, lightSession, remSession);
+    // Phase 3: Deep - 评分升级、智能合并、归档清理
+    const deepResult = runDeepPhase(reportId, lightResult.session, remResult.session);
     sessions.push(deepResult.deepSession);
-    promoted = deepResult.promoted;
-    archived = deepResult.archived;
-    merged = deepResult.merged;
+    promoted += deepResult.promoted;
+    archived += deepResult.archived;
+    merged += deepResult.merged;
     todoItems = deepResult.todoItems;
+    totalCandidates += deepResult.deepSession.candidatesProcessed;
 
-    totalCandidates = lightSession.candidatesProcessed + remSession.candidatesProcessed + deepResult.deepSession.candidatesProcessed;
+    // Phase 4: Semantic - 基于语义相似度的关联合并
+    const semanticResult = runSemanticMergePhase(reportId);
+    sessions.push(semanticResult.session);
+    merged += semanticResult.mergedCount;
+    totalCandidates += semanticResult.session.candidatesProcessed;
+
   } catch (err) {
     const failedAt = new Date().toISOString();
     db.prepare(`
@@ -82,7 +95,9 @@ export function runDreamCycle(): DreamReport {
   };
 }
 
-function runLightPhase(reportId: string): DreamSession {
+// ========== Light Phase: 去重与初步清理 ==========
+
+function runLightPhase(reportId: string): { session: DreamSession; mergedCount: number } {
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
@@ -97,46 +112,103 @@ function runLightPhase(reportId: string): DreamSession {
     ORDER BY m.created_at DESC
   `).all(`-${lookback}`) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; updated_at: string }[];
 
-  const deduplicated = new Set<string>();
-  let dedupCount = 0;
+  let mergedCount = 0;
+  const processedIds = new Set<string>();
+  const mergeGroups: { keeper: string; duplicates: string[] }[] = [];
 
+  // 检测重复组
   for (let i = 0; i < recentMemories.length; i++) {
-    if (deduplicated.has(recentMemories[i].id)) continue;
+    if (processedIds.has(recentMemories[i].id)) continue;
+    
+    const duplicates: string[] = [];
+    const tagsA = recentMemories[i].tags ? JSON.parse(recentMemories[i].tags as string) as string[] : [];
+    
     for (let j = i + 1; j < recentMemories.length; j++) {
-      if (deduplicated.has(recentMemories[j].id)) continue;
+      if (processedIds.has(recentMemories[j].id)) continue;
 
-      const tagsA = recentMemories[i].tags ? JSON.parse(recentMemories[i].tags as string) as string[] : [];
       const tagsB = recentMemories[j].tags ? JSON.parse(recentMemories[j].tags as string) as string[] : [];
       const jaccard = computeJaccard(tagsA, tagsB);
 
       if (jaccard > DREAM_THRESHOLDS.lightJaccardThreshold) {
-        const sim = computeTextSimilarity(recentMemories[i].content, recentMemories[j].content);
-        if (sim > 0.8) {
-          deduplicated.add(recentMemories[j].id);
-          dedupCount++;
+        const textSim = computeTextSimilarity(recentMemories[i].content, recentMemories[j].content);
+        if (textSim > 0.75) {
+          duplicates.push(recentMemories[j].id);
+          processedIds.add(recentMemories[j].id);
         }
       }
+    }
+
+    if (duplicates.length > 0) {
+      mergeGroups.push({ keeper: recentMemories[i].id, duplicates });
+      processedIds.add(recentMemories[i].id);
+    }
+  }
+
+  // 执行智能合并
+  for (const group of mergeGroups) {
+    try {
+      const keeper = getMemory(group.keeper);
+      if (!keeper) continue;
+
+      const allContents: string[] = [keeper.content];
+      const allTags = new Set(keeper.tags || []);
+      let totalHits = keeper.hitCount;
+
+      for (const dupId of group.duplicates) {
+        const dup = getMemory(dupId);
+        if (!dup) continue;
+        
+        allContents.push(dup.content);
+        (dup.tags || []).forEach(t => allTags.add(t));
+        totalHits += dup.hitCount;
+        
+        // 归档重复项
+        forgetMemory(dupId, 'archive');
+      }
+
+      // 智能合并内容
+      const mergedContent = smartMergeContents(allContents);
+      const mergedTags = Array.from(allTags);
+
+      updateMemory(group.keeper, {
+        content: mergedContent,
+        tags: mergedTags,
+      }, `整理合并：合并 ${group.duplicates.length} 条重复记忆`);
+
+      // 更新命中次数
+      db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, group.keeper);
+
+      mergedCount += group.duplicates.length;
+    } catch (err) {
+      console.error(`[Light Phase] Failed to merge group ${group.keeper}:`, err);
     }
   }
 
   const candidatesProcessed = recentMemories.length;
-  const candidatesPromoted = candidatesProcessed - dedupCount;
 
-  const signals: Record<string, number> = { deduplicated: dedupCount, scanned: candidatesProcessed };
+  const signals: Record<string, number> = { 
+    scanned: candidatesProcessed,
+    groupsFound: mergeGroups.length,
+    merged: mergedCount 
+  };
 
-  return {
+  const session: DreamSession = {
     id: sessionId,
     phase: 'light',
     candidatesProcessed,
-    candidatesPromoted,
+    candidatesPromoted: mergeGroups.length,
     signals,
     startedAt: now,
     completedAt: new Date().toISOString(),
-    summary: `浅睡阶段：扫描${candidatesProcessed}条近期记忆，标记${dedupCount}条重复`,
+    summary: `初步整理：扫描${candidatesProcessed}条记忆，发现${mergeGroups.length}组重复，合并${mergedCount}条`,
   };
+
+  return { session, mergedCount };
 }
 
-function runRemPhase(reportId: string): DreamSession {
+// ========== REM Phase: 主题分析与标签优化 ==========
+
+function runRemPhase(reportId: string): { session: DreamSession } {
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
@@ -150,48 +222,76 @@ function runRemPhase(reportId: string): DreamSession {
       AND m.created_at >= datetime('now', ? || ' days')
   `).all(`-${lookback}`) as { id: string; title: string; content: string; tags: string | null; hit_count: number; project: string | null }[];
 
+  // 分析标签频率
   const tagFrequency = new Map<string, number>();
-  const conceptCooccurrence = new Map<string, Set<string>>();
+  const memoryTagMap = new Map<string, string[]>();
 
   for (const mem of shortTermMemories) {
     const tags: string[] = mem.tags ? JSON.parse(mem.tags) : [];
+    memoryTagMap.set(mem.id, tags);
     for (const tag of tags) {
       tagFrequency.set(tag, (tagFrequency.get(tag) || 0) + 1);
     }
-    for (let i = 0; i < tags.length; i++) {
-      for (let j = i + 1; j < tags.length; j++) {
-        const key = [tags[i], tags[j]].sort().join('::');
-        if (!conceptCooccurrence.has(key)) conceptCooccurrence.set(key, new Set());
-        conceptCooccurrence.get(key)!.add(mem.id);
+  }
+
+  // 发现热门主题（出现2次以上的标签）
+  const hotThemes = Array.from(tagFrequency.entries())
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15);
+
+  // 为缺少热门主题标签的记忆补充标签
+  let tagsAdded = 0;
+  for (const mem of shortTermMemories) {
+    const currentTags = memoryTagMap.get(mem.id) || [];
+    const currentTagSet = new Set(currentTags.map(t => t.toLowerCase()));
+    const missingTags: string[] = [];
+
+    for (const [theme] of hotThemes) {
+      if (!currentTagSet.has(theme.toLowerCase())) {
+        // 检查记忆内容是否包含该主题关键词
+        if (mem.content.toLowerCase().includes(theme.toLowerCase()) || 
+            mem.title.toLowerCase().includes(theme.toLowerCase())) {
+          missingTags.push(theme);
+        }
+      }
+    }
+
+    if (missingTags.length > 0) {
+      try {
+        updateMemory(mem.id, {
+          tags: [...currentTags, ...missingTags.slice(0, 3)], // 最多补充3个
+        }, `整理优化：补充关联标签`);
+        tagsAdded += missingTags.length;
+      } catch (err) {
+        console.error(`[REM Phase] Failed to update tags for ${mem.id}:`, err);
       }
     }
   }
 
-  const themes = Array.from(tagFrequency.entries())
-    .filter(([, count]) => count >= 2)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-
   const candidatesProcessed = shortTermMemories.length;
-  const candidatesPromoted = themes.length;
 
   const signals: Record<string, number> = {
-    themesFound: themes.length,
+    themesFound: hotThemes.length,
     tagTypes: tagFrequency.size,
-    cooccurrences: conceptCooccurrence.size,
+    tagsAdded,
   };
 
-  return {
+  const session: DreamSession = {
     id: sessionId,
     phase: 'rem',
     candidatesProcessed,
-    candidatesPromoted,
+    candidatesPromoted: tagsAdded,
     signals,
     startedAt: now,
     completedAt: new Date().toISOString(),
-    summary: `REM阶段：分析${candidatesProcessed}条短期记忆，发现${themes.length}个主题（${themes.slice(0, 3).map(t => t[0]).join(', ')}）`,
+    summary: `关联分析：分析${candidatesProcessed}条记忆，发现${hotThemes.length}个热门主题，补充${tagsAdded}个标签`,
   };
+
+  return { session };
 }
+
+// ========== Deep Phase: 评分升级与清理 ==========
 
 function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession): {
   deepSession: DreamSession;
@@ -204,6 +304,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
   const sessionId = uuid();
   const now = new Date().toISOString();
 
+  // 检测需要清理的动作
   const actions = detectCleanupActions(db);
   const allAffectedIds = new Set<string>();
   for (const a of actions) {
@@ -211,12 +312,14 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
     if (a.targetId) allAffectedIds.add(a.targetId);
   }
 
+  // 创建快照以便回滚
   createSnapshots(db, reportId, Array.from(allAffectedIds));
 
   let promoted = 0;
   let archived = 0;
   let merged = 0;
 
+  // 评分并升级高质量记忆
   const candidates = scoreCandidates(db);
   for (const candidate of candidates) {
     if (
@@ -225,7 +328,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
       candidate.uniqueQueryCount >= DREAM_THRESHOLDS.minUniqueQueries
     ) {
       if (candidate.layer === 'short') {
-        moveLayer(candidate.memoryId, 'long', `梦境升级：评分${candidate.score.toFixed(2)}`);
+        moveLayer(candidate.memoryId, 'long', `整理升级：评分${candidate.score.toFixed(2)}`);
         promoted++;
       }
 
@@ -242,6 +345,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
     }
   }
 
+  // 执行清理动作
   for (const action of actions) {
     try {
       const result = executeAction(db, action);
@@ -256,14 +360,15 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
 
   const candidatesProcessed = candidates.length + actions.length;
 
+  // 检测问题记忆
   const orphans = detectOrphanMemories(db);
   const conflicts = detectConflictMemories(db);
   const todoItems: DreamTodoItem[] = [...orphans, ...conflicts];
 
   const signals: Record<string, number> = {
     avgScore: candidates.length > 0 ? candidates.reduce((s, c) => s + c.score, 0) / candidates.length : 0,
-    lightBoost: lightSession.signals.deduplicated || 0,
-    remBoost: remSession.signals.themesFound || 0,
+    lightBoost: lightSession.signals.merged || 0,
+    remBoost: remSession.signals.tagsAdded || 0,
     orphansFound: orphans.length,
     conflictsFound: conflicts.length,
   };
@@ -276,11 +381,221 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
     signals,
     startedAt: now,
     completedAt: new Date().toISOString(),
-    summary: `深睡阶段：评分${candidates.length}条候选升级${promoted}条，清理${archived + merged}条${todoItems.length > 0 ? `，发现${todoItems.length}条待办` : ''}`,
+    summary: `深度整理：评分${candidates.length}条候选，升级${promoted}条，清理${archived + merged}条${todoItems.length > 0 ? `，发现${todoItems.length}条待处理` : ''}`,
   };
 
   return { deepSession, promoted, archived, merged, todoItems };
 }
+
+// ========== Semantic Merge Phase: 语义关联合并 ==========
+
+function runSemanticMergePhase(reportId: string): { session: DreamSession; mergedCount: number } {
+  const db = getDatabase();
+  const sessionId = uuid();
+  const now = new Date().toISOString();
+  let mergedCount = 0;
+
+  // 获取所有活跃的、有嵌入向量的短期记忆
+  let memories: { id: string; title: string; embedding: Buffer }[];
+  try {
+    memories = db.prepare(`
+      SELECT m.id, m.title, e.embedding
+      FROM memories m
+      JOIN embeddings e ON e.memory_id = m.id
+      WHERE m.status = 'active'
+        AND m.layer IN ('short', 'flash')
+      ORDER BY m.created_at DESC
+      LIMIT 150
+    `).all() as { id: string; title: string; embedding: Buffer }[];
+  } catch {
+    // 如果没有嵌入表或数据，跳过此阶段
+    const session: DreamSession = {
+      id: sessionId,
+      phase: 'light',
+      candidatesProcessed: 0,
+      candidatesPromoted: 0,
+      signals: { skipped: 1 },
+      startedAt: now,
+      completedAt: new Date().toISOString(),
+      summary: '语义合并：跳过（无嵌入数据）',
+    };
+    return { session, mergedCount: 0 };
+  }
+
+  if (memories.length < 2) {
+    const session: DreamSession = {
+      id: sessionId,
+      phase: 'light',
+      candidatesProcessed: 0,
+      candidatesPromoted: 0,
+      signals: { skipped: 1 },
+      startedAt: now,
+      completedAt: new Date().toISOString(),
+      summary: '语义合并：记忆数量不足，跳过',
+    };
+    return { session, mergedCount: 0 };
+  }
+
+  const mergeGroups: { keeper: string; related: string[]; similarity: number }[] = [];
+  const processedIds = new Set<string>();
+
+  // 基于语义相似度找到关联组
+  for (let i = 0; i < memories.length; i++) {
+    if (processedIds.has(memories[i].id)) continue;
+
+    const related: string[] = [];
+    const vecA = bufferToEmbedding(memories[i].embedding);
+
+    for (let j = i + 1; j < memories.length; j++) {
+      if (processedIds.has(memories[j].id)) continue;
+
+      const vecB = bufferToEmbedding(memories[j].embedding);
+      const sim = cosineSimilarity(vecA, vecB);
+
+      // 使用略低于去重阈值的相似度来找到"相关但不完全相同"的记忆
+      if (sim > 0.65 && sim < CONSOLIDATION_CONFIG.duplicateSimilarity) {
+        related.push(memories[j].id);
+        processedIds.add(memories[j].id);
+      }
+    }
+
+    if (related.length > 0) {
+      mergeGroups.push({ keeper: memories[i].id, related, similarity: 0 });
+      processedIds.add(memories[i].id);
+    }
+  }
+
+  // 执行语义合并
+  for (const group of mergeGroups) {
+    try {
+      const keeper = getMemory(group.keeper);
+      if (!keeper) continue;
+
+      const allContents: string[] = [keeper.content];
+      const allTags = new Set(keeper.tags || []);
+      let totalHits = keeper.hitCount;
+      const relatedTitles: string[] = [];
+
+      for (const relatedId of group.related) {
+        const related = getMemory(relatedId);
+        if (!related) continue;
+
+        allContents.push(related.content);
+        (related.tags || []).forEach(t => allTags.add(t));
+        totalHits += related.hitCount;
+        relatedTitles.push(related.title);
+
+        // 归档被合并的记忆
+        forgetMemory(relatedId, 'archive');
+      }
+
+      // 智能合并
+      const mergedContent = smartMergeContents(allContents);
+      const mergedTags = Array.from(allTags);
+
+      // 更新标题以反映合并（如果原始标题太简单）
+      let newTitle = keeper.title;
+      if (keeper.title.length < 15 && relatedTitles.length > 0) {
+        newTitle = `${keeper.title}（及相关${relatedTitles.length}条记录）`;
+      }
+
+      updateMemory(group.keeper, {
+        title: newTitle,
+        content: mergedContent,
+        tags: mergedTags,
+      }, `语义合并：整合 ${group.related.length} 条关联记忆`);
+
+      // 更新命中次数
+      db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, group.keeper);
+
+      mergedCount += group.related.length;
+    } catch (err) {
+      console.error(`[Semantic Phase] Failed to merge group ${group.keeper}:`, err);
+    }
+  }
+
+  const candidatesProcessed = memories.length;
+
+  const signals: Record<string, number> = {
+    scanned: candidatesProcessed,
+    groupsFound: mergeGroups.length,
+    merged: mergedCount,
+  };
+
+  const session: DreamSession = {
+    id: sessionId,
+    phase: 'rem',
+    candidatesProcessed,
+    candidatesPromoted: mergeGroups.length,
+    signals,
+    startedAt: now,
+    completedAt: new Date().toISOString(),
+    summary: `语义合并：分析${candidatesProcessed}条记忆，发现${mergeGroups.length}组关联，整合${mergedCount}条`,
+  };
+
+  return { session, mergedCount };
+}
+
+// ========== 智能内容合并 ==========
+
+function smartMergeContents(contents: string[]): string {
+  if (contents.length === 0) return '';
+  if (contents.length === 1) return contents[0];
+
+  // 步骤1：提取所有段落
+  const allParagraphs: string[] = [];
+  for (const content of contents) {
+    const paragraphs = content.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
+    allParagraphs.push(...paragraphs);
+  }
+
+  // 步骤2：去重相似段落
+  const uniqueParagraphs: string[] = [];
+  for (const para of allParagraphs) {
+    let isDuplicate = false;
+    for (const existing of uniqueParagraphs) {
+      if (computeTextSimilarity(para, existing) > 0.7) {
+        // 保留更长的段落
+        if (para.length > existing.length) {
+          const idx = uniqueParagraphs.indexOf(existing);
+          uniqueParagraphs[idx] = para;
+        }
+        isDuplicate = true;
+        break;
+      }
+    }
+    if (!isDuplicate) {
+      uniqueParagraphs.push(para);
+    }
+  }
+
+  // 步骤3：按原始顺序重组（基于第一个内容中的顺序）
+  const firstContent = contents[0];
+  const firstParagraphs = firstContent.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
+  
+  const orderedParagraphs: string[] = [];
+  const used = new Set<string>();
+
+  // 先按第一个内容的顺序排列
+  for (const para of firstParagraphs) {
+    const match = uniqueParagraphs.find(p => computeTextSimilarity(p, para) > 0.6 && !used.has(p));
+    if (match) {
+      orderedParagraphs.push(match);
+      used.add(match);
+    }
+  }
+
+  // 再添加剩余的唯一段落
+  for (const para of uniqueParagraphs) {
+    if (!used.has(para)) {
+      orderedParagraphs.push(para);
+    }
+  }
+
+  return orderedParagraphs.join('\n\n');
+}
+
+// ========== 清理动作检测 ==========
 
 function detectCleanupActions(db: ReturnType<typeof getDatabase>): ConsolidationAction[] {
   const actions: ConsolidationAction[] = [];
@@ -514,12 +829,16 @@ function executeAction(db: ReturnType<typeof getDatabase>, action: Consolidation
       if (!keeper || !removed) throw new Error('Memory not found');
 
       const mergedTags = [...new Set([...(keeper.tags || []), ...(removed.tags || [])])];
-      const mergedContent = keeper.content + '\n\n---\n' + removed.content;
+      const mergedContent = smartMergeContents([keeper.content, removed.content]);
 
       updateMemory(keeperId, {
         content: mergedContent,
         tags: mergedTags,
-      }, `梦境合并：与「${removed.title}」合并`);
+      }, `整理合并：与「${removed.title}」合并`);
+
+      // 合并命中次数
+      const totalHits = keeper.hitCount + removed.hitCount;
+      db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, keeperId);
 
       forgetMemory(removedId, 'archive');
       return { promoted: 0, archived: 0, merged: 1 };
@@ -658,7 +977,7 @@ export function rollbackDream(reportId: string): DreamReport {
         content: snap.content as string,
         tags: snap.tags ? JSON.parse(snap.tags as string) : undefined,
         metadata: snap.metadata ? JSON.parse(snap.metadata as string) : undefined,
-      }, `回滚梦境 ${reportId}`);
+      }, `回滚整理 ${reportId}`);
     }
   }
 
@@ -731,21 +1050,36 @@ export function getDreamSignalsForReport(reportId: string): { memoryId: string; 
   }));
 }
 
+export function deleteDreamReport(reportId: string): { success: boolean } {
+  const db = getDatabase();
+
+  // 先删除关联的 dream_signals
+  db.prepare(`DELETE FROM dream_signals WHERE report_id = ?`).run(reportId);
+
+  // 删除关联的 consolidation_snapshots
+  db.prepare(`DELETE FROM consolidation_snapshots WHERE plan_id = ?`).run(reportId);
+
+  // 删除报告本身
+  const result = db.prepare(`DELETE FROM dream_reports WHERE id = ?`).run(reportId);
+
+  return { success: result.changes > 0 };
+}
+
 export function formatDreamReport(report: DreamReport): string {
   const lines: string[] = [];
-  lines.push(`🌙 梦境报告 #${report.id.slice(0, 8)}`);
+  lines.push(`整理报告 #${report.id.slice(0, 8)}`);
   lines.push(`状态: ${report.status}`);
   lines.push(`时间: ${report.completedAt || report.createdAt}`);
   lines.push('');
 
   for (const session of report.sessions) {
-    const phaseIcon = session.phase === 'light' ? '☀️ 浅睡' : session.phase === 'rem' ? '👁️ REM' : '🌑 深睡';
-    lines.push(`${phaseIcon}: ${session.summary || `${session.candidatesProcessed}条处理，${session.candidatesPromoted}条提升`}`);
+    const phaseLabel = session.phase === 'light' ? '初步整理' : session.phase === 'rem' ? '关联分析' : '深度整理';
+    lines.push(`${phaseLabel}: ${session.summary || `${session.candidatesProcessed}条处理，${session.candidatesPromoted}条提升`}`);
   }
 
   lines.push('');
-  lines.push(`📊 总计: ${report.totalCandidates}条候选，${report.promoted}条升级，${report.archived}条归档，${report.merged}条合并`);
-  lines.push(`💡 如需回滚: keymemory dream --rollback ${report.id}`);
+  lines.push(`总计: ${report.totalCandidates}条候选，${report.promoted}条升级，${report.archived}条归档，${report.merged}条合并`);
+  lines.push(`如需回滚: keymemory dream --rollback ${report.id}`);
 
   return lines.join('\n');
 }
