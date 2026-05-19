@@ -4,6 +4,10 @@
   "private": true,
   "description": "KeyMemory - 个人记忆系统 MCP 服务器",
   "homepage": "https://github.com/your-username/keymemory",
+  "bin": {
+    "keymemory": "./bin/keymemory.js",
+    "keymemory-ui": "./bin/keymemory-ui.js"
+  },
   "scripts": {
     "dev": "pnpm -r --parallel run dev",
     "dev:server": "pnpm --filter @keymemory/server run dev",
