@@ -26,6 +26,7 @@ export function initDatabase(): Database.Database {
   if (db) return db;
 
   const dbPath = getDbPath();
+  console.log(`[KeyMemory] Database path: ${dbPath}`);
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');

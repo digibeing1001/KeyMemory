@@ -1084,6 +1084,8 @@ export function getDreamReport(reportId: string): DreamReport | null {
 export function listDreamReports(limit = 20): DreamReport[] {
   const db = getDatabase();
   const rows = db.prepare(`SELECT * FROM dream_reports ORDER BY created_at DESC LIMIT ?`).all(limit) as Record<string, unknown>[];
+  const ids = rows.map(r => r.id as string);
+  console.log('[Dream] listDreamReports returned IDs:', ids);
 
   return rows.map(row => ({
     id: row.id as string,
@@ -1129,6 +1131,15 @@ export function getDreamSignalsForReport(reportId: string): { memoryId: string; 
 export function deleteDreamReport(reportId: string): { success: boolean } {
   const db = getDatabase();
   console.log('[Dream] Deleting report:', reportId);
+
+  // 先检查报告是否存在
+  const existing = db.prepare(`SELECT id FROM dream_reports WHERE id = ?`).get(reportId) as { id: string } | undefined;
+  console.log('[Dream] Report exists check:', existing ? existing.id : 'NOT FOUND');
+
+  if (!existing) {
+    console.log('[Dream] Report not found, returning 404');
+    return { success: false };
+  }
 
   try {
     // 先删除关联的 dream_signals

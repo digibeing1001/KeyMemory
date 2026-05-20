@@ -18,7 +18,18 @@ type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream';
 function AppInner() {
   const store = useMemoryStore();
   const { toast } = useToast();
-  const [viewMode, setViewMode] = useState<ViewMode>('memories');
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem('keymemory_view_mode');
+    if (saved === 'memories' || saved === 'nebula' || saved === 'tags' || saved === 'dream') {
+      return saved;
+    }
+    return 'memories';
+  });
+
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    localStorage.setItem('keymemory_view_mode', mode);
+  };
   const [searchInput, setSearchInput] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearchMode, setIsSearchMode] = useState(false);
