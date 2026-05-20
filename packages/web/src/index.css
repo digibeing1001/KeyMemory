@@ -50,6 +50,47 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
+[data-theme="dark"] {
+  --bg-primary: #191919;
+  --bg-secondary: #202020;
+  --bg-tertiary: #252525;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.08);
+  --bg-selected: rgba(35, 131, 226, 0.15);
+
+  --text-primary: #e3e2e0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #6b6b6b;
+  --text-on-dark: #ffffff;
+
+  --border: rgba(255, 255, 255, 0.09);
+  --border-light: rgba(255, 255, 255, 0.04);
+  --border-focus: #2eaadc;
+
+  --accent: #2eaadc;
+  --accent-hover: #1d9bd1;
+
+  --success: #4dab7a;
+  --warning: #e8913a;
+  --danger: #e15759;
+}
+
+[data-theme="dark"] ::selection {
+  background: rgba(46, 170, 220, 0.25);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+[data-theme="dark"] * {
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
 }

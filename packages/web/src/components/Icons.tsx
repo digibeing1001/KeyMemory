@@ -119,6 +119,13 @@ export const Moon: FC<IconProps> = (p) => (
   <I {...p}><path d="M17 12.5A7.5 7.5 0 019.5 3 7.5 7.5 0 1017 12.5z" /></I>
 );
 
+export const Sun: FC<IconProps> = (p) => (
+  <I {...p}>
+    <circle cx="10" cy="10" r="3.5" />
+    <path d="M10 1.5v2M10 16.5v2M2.5 10h2M15.5 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M4.6 15.4l1.4-1.4M14 6l1.4-1.4" />
+  </I>
+);
+
 export const Play: FC<IconProps> = (p) => (
   <I {...p}><path d="M5 3l12 7-12 7V3z" /></I>
 );

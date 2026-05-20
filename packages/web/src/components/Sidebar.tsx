@@ -1,6 +1,6 @@
 import type { Layer } from '@keymemory/shared';
 import { LAYER_CONFIG, LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, Folder, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash } from './Icons';
+import { Flash, Clock, Anchor, Folder, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun } from './Icons';
 
 type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'recycle';
 
@@ -13,6 +13,8 @@ interface SidebarProps {
   healthScore: number | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  isDark: boolean;
+  onToggleTheme: () => void;
 }
 
 const LAYER_ICONS: Record<Layer, typeof Flash> = {
@@ -54,6 +56,8 @@ export default function Sidebar({
   healthScore,
   viewMode,
   onViewModeChange,
+  isDark,
+  onToggleTheme,
 }: SidebarProps) {
   return (
     <aside
@@ -217,8 +221,42 @@ export default function Sidebar({
             <span>健康度 {healthScore}</span>
           </div>
         )}
-        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          共 {totalMemories} 条记忆
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            共 {totalMemories} 条记忆
+          </span>
+          <button
+            onClick={onToggleTheme}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '4px 8px',
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-muted)',
+              fontSize: 12,
+              cursor: 'pointer',
+              transition: 'background var(--transition)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+            title={isDark ? '切换到亮色模式' : '切换到暗色模式'}
+          >
+            {isDark ? <Sun size={14} /> : <Moon size={14} />}
+            {isDark ? '亮色' : '暗色'}
+          </button>
         </div>
       </div>
     </aside>

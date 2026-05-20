@@ -27,6 +27,16 @@ function AppInner() {
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('keymemory_theme');
+    if (saved === 'dark' || saved === 'light') return saved === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    localStorage.setItem('keymemory_theme', isDark ? 'dark' : 'light');
+  }, [isDark]);
 
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
@@ -200,6 +210,8 @@ function AppInner() {
         healthScore={healthReport?.score ?? null}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        isDark={isDark}
+        onToggleTheme={() => setIsDark((d) => !d)}
       />
 
       <div className="flex flex-col flex-1" style={{ marginLeft: 240 }}>
