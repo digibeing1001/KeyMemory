@@ -170,8 +170,7 @@ function runMigrations(db: Database.Database): void {
       agent_space TEXT DEFAULT 'global',
       confidence REAL DEFAULT 1.0,
       decay_factor REAL DEFAULT 1.0,
-      captured_at TEXT NOT NULL,
-      FOREIGN KEY (plan_id) REFERENCES consolidation_plans(id)
+      captured_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS dream_reports (

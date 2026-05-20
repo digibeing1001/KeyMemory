@@ -59,6 +59,11 @@ export function runDreamCycle(): DreamReport {
     db.exec(`RELEASE SAVEPOINT ${savepointName}`);
 
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : '';
+    console.error('[Dream] Cycle failed:', errorMessage);
+    if (errorStack) console.error('[Dream] Stack:', errorStack);
+
     try {
       db.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
     } catch (rollbackErr) {

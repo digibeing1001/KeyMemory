@@ -208,7 +208,7 @@ export default function DreamView() {
               borderRadius: 'var(--radius-md)',
               border: 'none',
               background: running ? 'var(--bg-muted)' : 'var(--text-primary)',
-              color: running ? 'var(--text-tertiary)' : '#fff',
+              color: running ? 'var(--text-tertiary)' : 'var(--bg-primary)',
               fontSize: 13,
               fontWeight: 600,
               cursor: running ? 'not-allowed' : 'pointer',
