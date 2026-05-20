@@ -70,6 +70,7 @@ export const DREAM_CONFIG = {
   defaultCron: '0 3 * * *',
   minIntervalHours: 4,
   minSessionsBeforeDream: 3,
+  semanticMergeThreshold: 0.75,
 } as const;
 
 export const DEFAULT_PORT = 3210;

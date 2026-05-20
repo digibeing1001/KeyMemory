@@ -9,6 +9,7 @@ import { getLayerStats } from './core/layer.js';
 import type { Layer } from '@keymemory/shared';
 import { runDailyInspection } from './core/evolution.js';
 import { applyDecay } from './core/forgetting.js';
+import { startScheduler } from './core/scheduler.js';
 
 initDatabase();
 
@@ -17,6 +18,8 @@ initEmbedding().catch(() => {});
 setInterval(async () => {
   try { await runDailyInspection(); applyDecay(); } catch {}
 }, 86400000);
+
+startScheduler();
 
 startRestServerInBackground();
 

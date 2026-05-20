@@ -208,6 +208,15 @@ function runMigrations(db: Database.Database): void {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS query_logs (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      memory_id TEXT,
+      match_type TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (memory_id) REFERENCES memories(id)
+    );
   `);
 
   db.exec(`
@@ -223,6 +232,8 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_dream_reports_status ON dream_reports(status);
     CREATE INDEX IF NOT EXISTS idx_dream_signals_report ON dream_signals(report_id);
     CREATE INDEX IF NOT EXISTS idx_dream_signals_memory ON dream_signals(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_query_logs_memory ON query_logs(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_query_logs_created ON query_logs(created_at);
   `);
 
   const alterStatements = [

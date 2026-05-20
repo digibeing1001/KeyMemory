@@ -663,10 +663,11 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.delete('/api/dream/reports/:reportId', async (request) => {
+  app.delete('/api/dream/reports/:reportId', async (request, reply) => {
     const { reportId } = request.params as { reportId: string };
     const result = deleteDreamReport(reportId);
     if (!result.success) {
+      reply.code(404);
       return { error: 'Report not found' };
     }
     return { success: true };

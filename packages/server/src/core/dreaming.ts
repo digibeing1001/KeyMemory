@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
@@ -25,7 +25,11 @@ export function runDreamCycle(): DreamReport {
   let totalCandidates = 0;
   let todoItems: DreamTodoItem[] = [];
 
+  const savepointName = `sp_${reportId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
   try {
+    db.exec(`SAVEPOINT ${savepointName}`);
+
     // Phase 1: Light - 扫描并去重近期记忆
     const lightResult = runLightPhase(reportId);
     sessions.push(lightResult.session);
@@ -52,7 +56,15 @@ export function runDreamCycle(): DreamReport {
     merged += semanticResult.mergedCount;
     totalCandidates += semanticResult.session.candidatesProcessed;
 
+    db.exec(`RELEASE SAVEPOINT ${savepointName}`);
+
   } catch (err) {
+    try {
+      db.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+    } catch (rollbackErr) {
+      console.error('[Dream] Savepoint rollback failed:', (rollbackErr as Error).message);
+    }
+
     const failedAt = new Date().toISOString();
     db.prepare(`
       UPDATE dream_reports
@@ -71,6 +83,7 @@ export function runDreamCycle(): DreamReport {
       createdAt: now,
       completedAt: failedAt,
       todoItems,
+      durationMs: Date.now() - startTime,
     };
   }
 
@@ -92,6 +105,7 @@ export function runDreamCycle(): DreamReport {
     createdAt: now,
     completedAt,
     todoItems,
+    durationMs: Date.now() - startTime,
   };
 }
 
@@ -411,7 +425,7 @@ function runSemanticMergePhase(reportId: string): { session: DreamSession; merge
     // 如果没有嵌入表或数据，跳过此阶段
     const session: DreamSession = {
       id: sessionId,
-      phase: 'light',
+      phase: 'deep',
       candidatesProcessed: 0,
       candidatesPromoted: 0,
       signals: { skipped: 1 },
@@ -425,7 +439,7 @@ function runSemanticMergePhase(reportId: string): { session: DreamSession; merge
   if (memories.length < 2) {
     const session: DreamSession = {
       id: sessionId,
-      phase: 'light',
+      phase: 'deep',
       candidatesProcessed: 0,
       candidatesPromoted: 0,
       signals: { skipped: 1 },
@@ -452,8 +466,8 @@ function runSemanticMergePhase(reportId: string): { session: DreamSession; merge
       const vecB = bufferToEmbedding(memories[j].embedding);
       const sim = cosineSimilarity(vecA, vecB);
 
-      // 使用略低于去重阈值的相似度来找到"相关但不完全相同"的记忆
-      if (sim > 0.65 && sim < CONSOLIDATION_CONFIG.duplicateSimilarity) {
+      // 使用配置的相似度阈值来找到"相关但不完全相同"的记忆
+      if (sim > DREAM_CONFIG.semanticMergeThreshold && sim < CONSOLIDATION_CONFIG.duplicateSimilarity) {
         related.push(memories[j].id);
         processedIds.add(memories[j].id);
       }
@@ -524,7 +538,7 @@ function runSemanticMergePhase(reportId: string): { session: DreamSession; merge
 
   const session: DreamSession = {
     id: sessionId,
-    phase: 'rem',
+    phase: 'deep',
     candidatesProcessed,
     candidatesPromoted: mergeGroups.length,
     signals,
@@ -729,24 +743,35 @@ function detectOldFlashActions(db: ReturnType<typeof getDatabase>, affectedIds: 
 
 function detectOrphanMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
   const rows = db.prepare(`
-    SELECT m.id, m.title FROM memories m
+    SELECT m.id, m.title, m.layer FROM memories m
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
       AND m.project IS NULL
-      AND m.layer NOT IN ('flash')
     LIMIT 20
-  `).all() as { id: string; title: string }[];
+  `).all() as { id: string; title: string; layer: string }[];
 
   return rows.map(r => ({
     type: 'orphan' as const,
     memoryId: r.id,
     title: r.title,
-    reason: '该记忆未关联任何实体、未归属项目，无法被有效检索',
+    reason: r.layer === 'flash'
+      ? '该闪念未关联任何实体、未归属项目，易被遗忘'
+      : '该记忆未关联任何实体、未归属项目，无法被有效检索',
   }));
 }
 
 function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
-  const contradictionPatterns = ['不是', '错误', '相反', '否定', 'not', 'wrong', 'opposite'];
+  // 更精确的冲突模式：检测成对的对立表述
+  const conflictPairs: [string[], string[]][] = [
+    [['喜欢', '喜爱', '爱'], ['讨厌', '厌恶', '恨', '不喜欢']],
+    [['支持', '赞成', '同意'], ['反对', '否定', '拒绝']],
+    [['成功', '完成', '达成'], ['失败', '落空', '未达成']],
+    [['是', '属于', '为'], ['不是', '非', '不属于', '不为']],
+    [['有', '拥有', '具备'], ['没有', '无', '缺乏', '不具备']],
+    [['正确', '准确', '无误'], ['错误', '有误', '不正确']],
+    [['开启', '打开', '启用'], ['关闭', '停用', '禁用']],
+    [['增加', '上升', '提升'], ['减少', '下降', '降低']],
+  ];
   const items: DreamTodoItem[] = [];
 
   const entities = db.prepare(`
@@ -765,16 +790,20 @@ function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoIt
       WHERE me.entity_id = ? AND m.status = 'active'
     `).all(entity.id) as { id: string; title: string; content: string }[];
 
-    for (const m of mems) {
-      const matchedPattern = contradictionPatterns.find(p => m.content.toLowerCase().includes(p));
-      if (matchedPattern) {
+    if (mems.length < 2) continue;
+
+    // 检查是否同一实体下存在成对冲突
+    for (const [posSet, negSet] of conflictPairs) {
+      const posMem = mems.find(m => posSet.some(p => m.content.includes(p)));
+      const negMem = mems.find(m => negSet.some(n => m.content.includes(n)));
+      if (posMem && negMem && posMem.id !== negMem.id) {
         items.push({
           type: 'conflict' as const,
-          memoryId: m.id,
-          title: m.title,
-          reason: `该记忆关联实体「${entity.name}」，内容包含否定词「${matchedPattern}」，可能与其他记忆冲突`,
+          memoryId: negMem.id,
+          title: negMem.title,
+          reason: `实体「${entity.name}」存在矛盾表述：「${posMem.title}」称「${posSet.find(p => posMem.content.includes(p))}」，而此记忆称「${negSet.find(n => negMem.content.includes(n))}」`,
         });
-        break;
+        break; // 每个实体只报一个冲突
       }
     }
   }
@@ -869,16 +898,35 @@ function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
       AND m.created_at >= datetime('now', ? || ' days')
   `).all(`-${lookback}`) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; confidence: number; decay_factor: number; project: string | null }[];
 
+  // 批量查询各记忆的唯一查询数
+  const uniqueQueryMap = new Map<string, number>();
+  try {
+    const queryRows = db.prepare(`
+      SELECT memory_id, COUNT(DISTINCT query) as unique_count
+      FROM query_logs
+      WHERE memory_id IN (${memories.map(() => '?').join(',')})
+      GROUP BY memory_id
+    `).all(...memories.map(m => m.id)) as { memory_id: string; unique_count: number }[];
+    for (const row of queryRows) {
+      uniqueQueryMap.set(row.memory_id, row.unique_count);
+    }
+  } catch {
+    // query_logs 表可能不存在，忽略
+  }
+
   const candidates: DreamCandidate[] = [];
 
   for (const mem of memories) {
     const daysSinceCreation = Math.max(1, (Date.now() - new Date(mem.created_at).getTime()) / (1000 * 60 * 60 * 24));
     const tags: string[] = mem.tags ? JSON.parse(mem.tags) : [];
 
+    // 优先使用 query_logs 统计的真实唯一查询数，否则以 hit_count 为下限估计
+    const uniqueQueryCount = uniqueQueryMap.get(mem.id) ?? Math.max(1, Math.round(mem.hit_count * 0.6));
+
     const signals: DreamSignals = {
       relevance: Math.min(1.0, mem.confidence),
       frequency: Math.min(1.0, mem.hit_count / 20),
-      queryDiversity: Math.min(1.0, mem.hit_count / 10),
+      queryDiversity: Math.min(1.0, uniqueQueryCount / 10),
       recency: Math.exp(-daysSinceCreation / DREAM_THRESHOLDS.recencyHalfLifeDays),
       consolidation: Math.min(1.0, mem.hit_count > 0 ? 1 - mem.decay_factor + 0.5 : 0),
       conceptualRichness: Math.min(1.0, tags.length / 5),
@@ -899,7 +947,7 @@ function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
       layer: mem.layer as DreamCandidate['layer'],
       tags,
       hitCount: mem.hit_count,
-      uniqueQueryCount: mem.hit_count,
+      uniqueQueryCount,
       daysSinceCreation: Math.round(daysSinceCreation),
       score,
       signals,
@@ -911,7 +959,7 @@ function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
 }
 
 function computeJaccard(setA: string[], setB: string[]): number {
-  if (setA.length === 0 && setB.length === 0) return 1.0;
+  if (setA.length === 0 || setB.length === 0) return 0.0;
   const a = new Set(setA.map(s => s.toLowerCase()));
   const b = new Set(setB.map(s => s.toLowerCase()));
   const intersection = new Set([...a].filter(x => b.has(x)));
@@ -920,12 +968,40 @@ function computeJaccard(setA: string[], setB: string[]): number {
 }
 
 function computeTextSimilarity(textA: string, textB: string): number {
-  const wordsA = new Set(textA.toLowerCase().split(/\s+/));
-  const wordsB = new Set(textB.toLowerCase().split(/\s+/));
-  const intersection = new Set([...wordsA].filter(x => wordsB.has(x)));
-  const union = new Set([...wordsA, ...wordsB]);
+  const tokensA = tokenize(textA);
+  const tokensB = tokenize(textB);
+  const intersection = new Set([...tokensA].filter(x => tokensB.has(x)));
+  const union = new Set([...tokensA, ...tokensB]);
   if (union.size === 0) return 1.0;
   return intersection.size / union.size;
+}
+
+function tokenize(text: string): Set<string> {
+  const normalized = text.toLowerCase().trim();
+  if (!normalized) return new Set();
+
+  // 检测是否以中文字符为主
+  const cjkCount = (normalized.match(/[一-鿿]/g) || []).length;
+  const totalCount = normalized.length;
+
+  if (cjkCount / totalCount > 0.3) {
+    // 中文/CJK 文本：按字符分词，同时保留长度>=2的连续英文/数字词
+    const tokens = new Set<string>();
+    for (let i = 0; i < normalized.length; i++) {
+      const ch = normalized[i];
+      if (/[一-鿿]/.test(ch)) {
+        tokens.add(ch);
+      }
+    }
+    const words = normalized.match(/[a-z0-9]{2,}/g);
+    if (words) {
+      for (const w of words) tokens.add(w);
+    }
+    return tokens;
+  }
+
+  // 英文/西文文本：按空白分词
+  return new Set(normalized.split(/\s+/).filter(Boolean));
 }
 
 export function rollbackDream(reportId: string): DreamReport {
@@ -1073,7 +1149,7 @@ export function formatDreamReport(report: DreamReport): string {
   lines.push('');
 
   for (const session of report.sessions) {
-    const phaseLabel = session.phase === 'light' ? '初步整理' : session.phase === 'rem' ? '关联分析' : '深度整理';
+    const phaseLabel = session.phase === 'light' ? '初步整理' : session.phase === 'rem' ? '关联分析' : '深度整理/语义合并';
     lines.push(`${phaseLabel}: ${session.summary || `${session.candidatesProcessed}条处理，${session.candidatesPromoted}条提升`}`);
   }
 

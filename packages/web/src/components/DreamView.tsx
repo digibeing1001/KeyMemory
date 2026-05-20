@@ -99,16 +99,18 @@ export default function DreamView() {
 
   const handleDeleteReport = useCallback(async (reportId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('确定要删除这条整理记录吗？')) return;
+    e.preventDefault();
+    if (!confirm('确定要删除这条梦境记录吗？')) return;
     try {
       await deleteDreamReport(reportId);
-      toast('整理记录已删除', 'success');
+      toast('梦境记录已删除', 'success');
       fetchData();
       if (selectedReport?.id === reportId) {
         setSelectedReport(null);
       }
-    } catch {
-      toast('删除失败', 'error');
+    } catch (err) {
+      console.error('Delete report failed:', err);
+      toast('删除失败: ' + ((err as Error).message || '请检查网络'), 'error');
     }
   }, [fetchData, selectedReport, toast]);
 
@@ -166,10 +168,10 @@ export default function DreamView() {
           </div>
           <div>
             <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-              记忆整理
+              梦境
             </h2>
             <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>
-              自动归档、去重与关联优化
+              自动归档、去重与关联优化 — Light（去重清理）→ REM（关联分析）→ Deep（评分升级）→ Semantic（语义合并）
             </p>
           </div>
         </div>
@@ -818,7 +820,7 @@ export default function DreamView() {
                       e.currentTarget.style.boxShadow = 'none';
                     }
                     const deleteBtn = e.currentTarget.querySelector('button');
-                    if (deleteBtn) deleteBtn.style.opacity = '0';
+                    if (deleteBtn) deleteBtn.style.opacity = '0.5';
                   }}
                 >
                   <div className="flex items-center gap-4">
@@ -885,7 +887,7 @@ export default function DreamView() {
                         color: 'var(--text-tertiary)',
                         fontSize: 12,
                         cursor: 'pointer',
-                        opacity: 0,
+                        opacity: 0.5,
                         transition: 'all var(--transition-fast)',
                       }}
                       onMouseEnter={(e) => { e.currentTarget.style.color = '#FF3B30'; }}

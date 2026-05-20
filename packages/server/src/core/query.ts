@@ -1,9 +1,23 @@
+import { v4 as uuid } from 'uuid';
 import type { SearchResult, Layer, MemoryStatus } from '@keymemory/shared';
 import { SEARCH_WEIGHTS, SEARCH_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, EMBEDDING_DIM, initEmbedding, isEmbeddingAvailable } from '../embed/onnx.js';
 import { recordHit } from './atom.js';
 import { rowToMemory } from '../db/mapper.js';
+
+function logQuery(query: string, memoryId: string, matchType: string): void {
+  try {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO query_logs (id, query, memory_id, match_type, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(uuid(), query.trim().slice(0, 200), memoryId, matchType, now);
+  } catch {
+    // 查询日志失败不应影响搜索功能
+  }
+}
 
 export async function ensureEmbedding(memoryId: string, title: string, content: string, tags?: string[], metadata?: Record<string, unknown>, force?: boolean): Promise<void> {
   const db = getDatabase();
@@ -74,11 +88,17 @@ export async function searchFulltext(query: string, options?: { layer?: Layer; s
       LIMIT @limit
     `).all(params) as (Record<string, unknown> & { score: number })[];
 
-    return rows.map(r => ({
+    const results = rows.map(r => ({
       memory: rowToMemory(r),
       score: -r.score,
       matchType: 'fulltext' as const,
     }));
+
+    for (const r of results) {
+      logQuery(query, r.memory.id, 'fulltext');
+    }
+
+    return results;
   } catch {
     return [];
   }
@@ -135,11 +155,13 @@ export async function searchSemantic(query: string, options?: { layer?: Layer; s
 
   scored.sort((a, b) => b.score - a.score);
 
-  for (const r of scored.slice(0, options?.limit ?? 20)) {
+  const limited = scored.slice(0, options?.limit ?? 20);
+  for (const r of limited) {
     recordHit(r.memory.id);
+    logQuery(query, r.memory.id, 'semantic');
   }
 
-  return scored.slice(0, options?.limit ?? 20);
+  return limited;
 }
 
 export async function findDuplicateMemories(threshold: number = 0.9, limit: number = 20): Promise<{ memoryId1: string; memoryId2: string; similarity: number }[]> {
@@ -213,9 +235,11 @@ export async function searchHybrid(query: string, options?: { layer?: Layer; sta
 
   fused.sort((a, b) => b.score - a.score);
 
-  for (const r of fused.slice(0, limit)) {
+  const limited = fused.slice(0, limit);
+  for (const r of limited) {
     recordHit(r.memory.id);
+    logQuery(query, r.memory.id, 'hybrid');
   }
 
-  return fused.slice(0, limit);
+  return limited;
 }
