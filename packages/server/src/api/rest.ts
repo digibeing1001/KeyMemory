@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { createMemory, getMemory, listMemories, updateMemory, deleteMemory, recordHit, listVersions, getVersion, revertToVersion, batchCreateMemories, batchUpdateMemories, batchDeleteMemories, exportMemoriesAsJson, importMemories } from '../core/atom.js';
+import { createMemory, getMemory, listMemories, updateMemory, deleteMemory, recordHit, listVersions, getVersion, revertToVersion, batchCreateMemories, batchUpdateMemories, batchDeleteMemories, exportMemoriesAsJson, importMemories, listRecycleBin, restoreFromRecycleBin, permanentlyDeleteMemory } from '../core/atom.js';
 import { moveLayer, getLayerStats } from '../core/layer.js';
 import { searchHybrid, ensureEmbedding, findDuplicateMemories } from '../core/query.js';
 import { evaluate } from '../selfcheck/evaluator.js';
@@ -669,6 +669,35 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!result.success) {
       reply.code(404);
       return { error: 'Report not found' };
+    }
+    return { success: true };
+  });
+
+  app.get('/api/recycle-bin', async (request) => {
+    const query = request.query as Record<string, string>;
+    return listRecycleBin({
+      layer: query.layer as Layer | undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : undefined,
+      offset: query.offset ? parseInt(query.offset, 10) : undefined,
+    });
+  });
+
+  app.post('/api/recycle-bin/:id/restore', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const mem = restoreFromRecycleBin(id);
+    if (!mem) {
+      reply.code(404);
+      return { error: 'Memory not found or already active' };
+    }
+    return mem;
+  });
+
+  app.delete('/api/recycle-bin/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const ok = permanentlyDeleteMemory(id);
+    if (!ok) {
+      reply.code(404);
+      return { error: 'Memory not found' };
     }
     return { success: true };
   });

@@ -10,21 +10,23 @@ import NebulaGraph from './components/NebulaGraph';
 import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
 import Editor from './views/Editor';
-import { getHealth, getMemoryConnections, getTagCloud, getAgents, searchMemories } from './lib/api';
+import { getHealth, getMemoryConnections, getTagCloud, getAgents, searchMemories, listRecycleBin, restoreFromRecycleBin, permanentlyDeleteMemory } from './lib/api';
 import type { MemoryGraphData, TagCloudData, AgentInfo } from './lib/api';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'recycle';
 
 function AppInner() {
   const store = useMemoryStore();
   const { toast } = useToast();
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
     const saved = localStorage.getItem('keymemory_view_mode');
-    if (saved === 'memories' || saved === 'nebula' || saved === 'tags' || saved === 'dream') {
+    if (saved === 'memories' || saved === 'nebula' || saved === 'tags' || saved === 'dream' || saved === 'recycle') {
       return saved;
     }
     return 'memories';
   });
+  const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
+  const [recycleBinLoading, setRecycleBinLoading] = useState(false);
 
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
@@ -65,6 +67,39 @@ function AppInner() {
         .catch(() => setTagCloudData(null));
     }
   }, [viewMode, tagCloudData]);
+
+  useEffect(() => {
+    if (viewMode === 'recycle') {
+      setRecycleBinLoading(true);
+      listRecycleBin()
+        .then(setRecycleBinData)
+        .catch(() => setRecycleBinData([]))
+        .finally(() => setRecycleBinLoading(false));
+    }
+  }, [viewMode]);
+
+  const handleRestore = async (id: string) => {
+    try {
+      await restoreFromRecycleBin(id);
+      toast('记忆已恢复', 'success');
+      setRecycleBinData((prev) => prev.filter((m) => m.id !== id));
+      store.refresh();
+    } catch {
+      toast('恢复失败', 'error');
+    }
+  };
+
+  const handlePermanentDelete = async (id: string) => {
+    if (!confirm('确定要永久删除这条记忆吗？此操作不可撤销。')) return;
+    try {
+      await permanentlyDeleteMemory(id);
+      toast('记忆已永久删除', 'success');
+      setRecycleBinData((prev) => prev.filter((m) => m.id !== id));
+      store.refresh();
+    } catch {
+      toast('删除失败', 'error');
+    }
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -337,6 +372,111 @@ function AppInner() {
           {viewMode === 'dream' && (
             <div className="flex-1 overflow-y-auto">
               <DreamView />
+            </div>
+          )}
+
+          {viewMode === 'recycle' && (
+            <div className="flex-1 overflow-y-auto px-8 py-6">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+                    回收站
+                  </h2>
+                  <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>
+                    已删除、已归档的记忆可以在此恢复或永久清除
+                  </p>
+                </div>
+              </div>
+              {recycleBinLoading ? (
+                <div className="flex items-center justify-center h-64" style={{ color: 'var(--text-tertiary)' }}>
+                  <div className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full mr-2" />
+                  加载中...
+                </div>
+              ) : recycleBinData.length === 0 ? (
+                <div
+                  className="flex flex-col items-center justify-center"
+                  style={{
+                    padding: 56,
+                    color: 'var(--text-tertiary)',
+                    background: 'var(--bg-card)',
+                    borderRadius: 'var(--radius-lg)',
+                    border: '0.5px solid var(--border)',
+                  }}
+                >
+                  <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>回收站为空</span>
+                  <span style={{ fontSize: 13, marginTop: 6, opacity: 0.6 }}>删除或归档的记忆将出现在这里</span>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {recycleBinData.map((mem) => (
+                    <div
+                      key={mem.id}
+                      style={{
+                        padding: '16px 20px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '0.5px solid var(--border)',
+                        background: 'var(--bg-card)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div className="flex items-center gap-4">
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            background: mem.status === 'deleted' ? 'rgba(255,59,48,0.1)' : 'rgba(245,166,35,0.1)',
+                            color: mem.status === 'deleted' ? '#FF3B30' : '#F5A623',
+                          }}
+                        >
+                          {mem.status === 'deleted' ? '已删除' : mem.status === 'archived' ? '已归档' : '已衰变'}
+                        </span>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{mem.title}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                            [{mem.layer}] {mem.content.slice(0, 60)}{mem.content.length > 60 ? '...' : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleRestore(mem.id)}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--success)',
+                            background: 'transparent',
+                            color: 'var(--success)',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          恢复
+                        </button>
+                        <button
+                          onClick={() => handlePermanentDelete(mem.id)}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid #FF3B30',
+                            background: 'transparent',
+                            color: '#FF3B30',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          永久删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

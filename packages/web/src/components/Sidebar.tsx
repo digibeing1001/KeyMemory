@@ -1,8 +1,8 @@
 import type { Layer } from '@keymemory/shared';
 import { LAYER_CONFIG, LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, Folder, User, Layers, Plus, Heart, Globe, Tag, Moon } from './Icons';
+import { Flash, Clock, Anchor, Folder, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash } from './Icons';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'recycle';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -36,6 +36,7 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; label: string; icon: typeof Layers }> 
   { mode: 'nebula', label: '星云图', icon: Globe },
   { mode: 'tags', label: '标签云', icon: Tag },
   { mode: 'dream', label: '梦境', icon: Moon },
+  { mode: 'recycle', label: '回收站', icon: Trash },
 ];
 
 function getHealthColor(score: number): string {

@@ -417,6 +417,41 @@ export function deleteMemory(id: string, permanent = false): boolean {
   })();
 }
 
+export function listRecycleBin(options?: { layer?: Layer; limit?: number; offset?: number }): Memory[] {
+  const db = getDatabase();
+  const conditions: string[] = ["status != 'active'"];
+  const params: Record<string, unknown> = {};
+
+  if (options?.layer) {
+    conditions.push('layer = @layer');
+    params.layer = options.layer;
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+
+  const rows = db.prepare(`
+    SELECT * FROM memories ${where} ORDER BY updated_at DESC LIMIT @limit OFFSET @offset
+  `).all({ ...params, limit, offset }) as Record<string, unknown>[];
+
+  return rows.map(rowToMemory);
+}
+
+export function restoreFromRecycleBin(id: string): Memory | null {
+  const db = getDatabase();
+  const existing = getMemory(id);
+  if (!existing || existing.status === 'active') return null;
+
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE memories SET status = 'active', decay_factor = 1.0, updated_at = ? WHERE id = ?`).run(now, id);
+  return getMemory(id);
+}
+
+export function permanentlyDeleteMemory(id: string): boolean {
+  return deleteMemory(id, true);
+}
+
 export function recordHit(id: string): void {
   const db = getDatabase();
   const now = new Date().toISOString();

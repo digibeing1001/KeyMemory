@@ -210,6 +210,23 @@ export async function rollbackDream(reportId: string): Promise<DreamReport> {
   return request('/dream/rollback/' + reportId, { method: 'POST' });
 }
 
+export async function listRecycleBin(params?: { layer?: Layer; limit?: number; offset?: number }): Promise<Memory[]> {
+  const sp = new URLSearchParams();
+  if (params?.layer) sp.set('layer', params.layer);
+  if (params?.limit) sp.set('limit', String(params.limit));
+  if (params?.offset) sp.set('offset', String(params.offset));
+  const qs = sp.toString();
+  return request(`/recycle-bin${qs ? `?${qs}` : ''}`);
+}
+
+export async function restoreFromRecycleBin(id: string): Promise<Memory> {
+  return request(`/recycle-bin/${id}/restore`, { method: 'POST' });
+}
+
+export async function permanentlyDeleteMemory(id: string): Promise<{ success: boolean }> {
+  return request(`/recycle-bin/${id}`, { method: 'DELETE' });
+}
+
 export async function deleteDreamReport(reportId: string): Promise<{ success: boolean }> {
   console.log('[API] DELETE /dream/reports/' + reportId);
   const result = await request<{ success: boolean }>('/dream/reports/' + reportId, {
