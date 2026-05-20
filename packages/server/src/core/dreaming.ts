@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
+import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, DreamReportDetails, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
 import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
@@ -24,6 +24,7 @@ export function runDreamCycle(): DreamReport {
   let merged = 0;
   let totalCandidates = 0;
   let todoItems: DreamTodoItem[] = [];
+  const details: DreamReportDetails = { promoted: [], archived: [], merged: [] };
 
   const savepointName = `sp_${reportId.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
@@ -31,7 +32,7 @@ export function runDreamCycle(): DreamReport {
     db.exec(`SAVEPOINT ${savepointName}`);
 
     // Phase 1: Light - 扫描并去重近期记忆
-    const lightResult = runLightPhase(reportId);
+    const lightResult = runLightPhase(reportId, details);
     sessions.push(lightResult.session);
     merged += lightResult.mergedCount;
     totalCandidates += lightResult.session.candidatesProcessed;
@@ -42,7 +43,7 @@ export function runDreamCycle(): DreamReport {
     totalCandidates += remResult.session.candidatesProcessed;
 
     // Phase 3: Deep - 评分升级、智能合并、归档清理
-    const deepResult = runDeepPhase(reportId, lightResult.session, remResult.session);
+    const deepResult = runDeepPhase(reportId, lightResult.session, remResult.session, details);
     sessions.push(deepResult.deepSession);
     promoted += deepResult.promoted;
     archived += deepResult.archived;
@@ -51,7 +52,7 @@ export function runDreamCycle(): DreamReport {
     totalCandidates += deepResult.deepSession.candidatesProcessed;
 
     // Phase 4: Semantic - 基于语义相似度的关联合并
-    const semanticResult = runSemanticMergePhase(reportId);
+    const semanticResult = runSemanticMergePhase(reportId, details);
     sessions.push(semanticResult.session);
     merged += semanticResult.mergedCount;
     totalCandidates += semanticResult.session.candidatesProcessed;
@@ -73,9 +74,9 @@ export function runDreamCycle(): DreamReport {
     const failedAt = new Date().toISOString();
     db.prepare(`
       UPDATE dream_reports
-      SET status = 'failed', sessions = ?, completed_at = ?
+      SET status = 'failed', sessions = ?, completed_at = ?, details = ?
       WHERE id = ?
-    `).run(JSON.stringify(sessions), failedAt, reportId);
+    `).run(JSON.stringify(sessions), failedAt, JSON.stringify(details), reportId);
 
     return {
       id: reportId,
@@ -88,6 +89,7 @@ export function runDreamCycle(): DreamReport {
       createdAt: now,
       completedAt: failedAt,
       todoItems,
+      details,
       durationMs: Date.now() - startTime,
     };
   }
@@ -95,9 +97,9 @@ export function runDreamCycle(): DreamReport {
   const completedAt = new Date().toISOString();
   db.prepare(`
     UPDATE dream_reports
-    SET status = 'completed', total_candidates = ?, promoted = ?, archived = ?, merged = ?, sessions = ?, todo_items = ?, completed_at = ?
+    SET status = 'completed', total_candidates = ?, promoted = ?, archived = ?, merged = ?, sessions = ?, todo_items = ?, completed_at = ?, details = ?
     WHERE id = ?
-  `).run(totalCandidates, promoted, archived, merged, JSON.stringify(sessions), JSON.stringify(todoItems), completedAt, reportId);
+  `).run(totalCandidates, promoted, archived, merged, JSON.stringify(sessions), JSON.stringify(todoItems), completedAt, JSON.stringify(details), reportId);
 
   return {
     id: reportId,
@@ -110,13 +112,14 @@ export function runDreamCycle(): DreamReport {
     createdAt: now,
     completedAt,
     todoItems,
+    details,
     durationMs: Date.now() - startTime,
   };
 }
 
 // ========== Light Phase: 去重与初步清理 ==========
 
-function runLightPhase(reportId: string): { session: DreamSession; mergedCount: number } {
+function runLightPhase(reportId: string, details: DreamReportDetails): { session: DreamSession; mergedCount: number } {
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
@@ -183,6 +186,8 @@ function runLightPhase(reportId: string): { session: DreamSession; mergedCount: 
         
         // 归档重复项
         forgetMemory(dupId, 'archive');
+        details.merged.push({ memoryId: dupId, title: dup.title, intoId: group.keeper, intoTitle: keeper.title });
+        details.archived.push({ memoryId: dupId, title: dup.title, reason: '重复合并' });
       }
 
       // 智能合并内容
@@ -312,7 +317,7 @@ function runRemPhase(reportId: string): { session: DreamSession } {
 
 // ========== Deep Phase: 评分升级与清理 ==========
 
-function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession): {
+function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession, details: DreamReportDetails): {
   deepSession: DreamSession;
   promoted: number;
   archived: number;
@@ -341,33 +346,34 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
   // 评分并升级高质量记忆
   const candidates = scoreCandidates(db);
   for (const candidate of candidates) {
-    if (
+    const isPromoted =
       candidate.score >= DREAM_THRESHOLDS.minScore &&
       candidate.hitCount >= DREAM_THRESHOLDS.minRecallCount &&
-      candidate.uniqueQueryCount >= DREAM_THRESHOLDS.minUniqueQueries
-    ) {
-      if (candidate.layer === 'short') {
-        moveLayer(candidate.memoryId, 'long', `整理升级：评分${candidate.score.toFixed(2)}`);
-        promoted++;
-      }
+      candidate.uniqueQueryCount >= DREAM_THRESHOLDS.minUniqueQueries &&
+      candidate.layer === 'short';
 
-      db.prepare(`
-        INSERT INTO dream_signals (id, report_id, memory_id, relevance, frequency, query_diversity, recency, consolidation, conceptual_richness, total_score, phase, promoted, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deep', 1, ?)
-      `).run(
-        uuid(), reportId, candidate.memoryId,
-        candidate.signals.relevance, candidate.signals.frequency,
-        candidate.signals.queryDiversity, candidate.signals.recency,
-        candidate.signals.consolidation, candidate.signals.conceptualRichness,
-        candidate.score, now,
-      );
+    if (isPromoted) {
+      moveLayer(candidate.memoryId, 'long', `整理升级：评分${candidate.score.toFixed(2)}`);
+      promoted++;
+      details.promoted.push({ memoryId: candidate.memoryId, title: candidate.title, score: candidate.score });
     }
+
+    db.prepare(`
+      INSERT INTO dream_signals (id, report_id, memory_id, relevance, frequency, query_diversity, recency, consolidation, conceptual_richness, total_score, phase, promoted, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deep', ?, ?)
+    `).run(
+      uuid(), reportId, candidate.memoryId,
+      candidate.signals.relevance, candidate.signals.frequency,
+      candidate.signals.queryDiversity, candidate.signals.recency,
+      candidate.signals.consolidation, candidate.signals.conceptualRichness,
+      candidate.score, isPromoted ? 1 : 0, now,
+    );
   }
 
   // 执行清理动作
   for (const action of actions) {
     try {
-      const result = executeAction(db, action);
+      const result = executeAction(db, action, details);
       promoted += result.promoted;
       archived += result.archived;
       merged += result.merged;
@@ -408,7 +414,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
 
 // ========== Semantic Merge Phase: 语义关联合并 ==========
 
-function runSemanticMergePhase(reportId: string): { session: DreamSession; mergedCount: number } {
+function runSemanticMergePhase(reportId: string, details: DreamReportDetails): { session: DreamSession; mergedCount: number } {
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
@@ -506,6 +512,8 @@ function runSemanticMergePhase(reportId: string): { session: DreamSession; merge
 
         // 归档被合并的记忆
         forgetMemory(relatedId, 'archive');
+        details.merged.push({ memoryId: relatedId, title: related.title, intoId: group.keeper, intoTitle: keeper.title });
+        details.archived.push({ memoryId: relatedId, title: related.title, reason: '语义合并' });
       }
 
       // 智能合并
@@ -854,7 +862,7 @@ function createSnapshots(db: ReturnType<typeof getDatabase>, reportId: string, m
   }
 }
 
-function executeAction(db: ReturnType<typeof getDatabase>, action: ConsolidationAction): { promoted: number; archived: number; merged: number } {
+function executeAction(db: ReturnType<typeof getDatabase>, action: ConsolidationAction, details: DreamReportDetails): { promoted: number; archived: number; merged: number } {
   switch (action.type) {
     case 'deduplicate': {
       const [keeperId, removedId] = action.sourceIds;
@@ -875,13 +883,19 @@ function executeAction(db: ReturnType<typeof getDatabase>, action: Consolidation
       db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, keeperId);
 
       forgetMemory(removedId, 'archive');
+      details.merged.push({ memoryId: removedId, title: removed.title, intoId: keeperId, intoTitle: keeper.title });
+      details.archived.push({ memoryId: removedId, title: removed.title, reason: '重复合并' });
       return { promoted: 0, archived: 0, merged: 1 };
     }
 
     case 'archive_stale':
     case 'archive_flash': {
       for (const id of action.sourceIds) {
+        const mem = getMemory(id);
         forgetMemory(id, 'archive');
+        if (mem) {
+          details.archived.push({ memoryId: id, title: mem.title, reason: action.type === 'archive_stale' ? '过期归档' : '闪念清理' });
+        }
       }
       return { promoted: 0, archived: action.sourceIds.length, merged: 0 };
     }
@@ -1083,6 +1097,7 @@ export function getDreamReport(reportId: string): DreamReport | null {
     createdAt: row.created_at as string,
     completedAt: row.completed_at as string | undefined,
     todoItems: row.todo_items ? JSON.parse(row.todo_items as string) as DreamTodoItem[] : [],
+    details: row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined,
   };
 }
 
@@ -1103,6 +1118,7 @@ export function listDreamReports(limit = 20): DreamReport[] {
     todoItems: row.todo_items ? JSON.parse(row.todo_items as string) as DreamTodoItem[] : [],
     createdAt: row.created_at as string,
     completedAt: row.completed_at as string | undefined,
+    details: row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined,
   }));
 }
 

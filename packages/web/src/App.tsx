@@ -383,7 +383,12 @@ function AppInner() {
 
           {viewMode === 'dream' && (
             <div className="flex-1 overflow-y-auto">
-              <DreamView />
+              <DreamView
+                onMemorySelect={(id) => {
+                  setViewMode('memories');
+                  store.selectMemory(id);
+                }}
+              />
             </div>
           )}
 

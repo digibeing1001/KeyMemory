@@ -630,6 +630,8 @@ export function registerRoutes(app: FastifyInstance): void {
       const report = runDreamCycle();
       if (report.status === 'failed') {
         reply.code(500);
+      } else {
+        updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
       }
       return report;
     } catch (err) {

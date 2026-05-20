@@ -154,6 +154,12 @@ export interface DreamTodoItem {
   reason: string;
 }
 
+export interface DreamReportDetails {
+  promoted: { memoryId: string; title: string; score: number }[];
+  archived: { memoryId: string; title: string; reason: string }[];
+  merged: { memoryId: string; title: string; intoId: string; intoTitle: string }[];
+}
+
 export interface DreamReport {
   id: string;
   sessions: DreamSession[];
@@ -166,6 +172,7 @@ export interface DreamReport {
   completedAt?: string;
   durationMs?: number;
   todoItems: DreamTodoItem[];
+  details?: DreamReportDetails;
 }
 
 export interface DreamSignalEntry {

@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Archive, Play, Settings, Activity, RotateCcw, Clock, CheckCircle, Link, FileSearch, Inbox, AlertTriangle, GitMerge, Sliders } from './Icons';
+import {
+  Archive, Play, Settings, Activity, RotateCcw, Clock, CheckCircle, Link, FileSearch,
+  Inbox, AlertTriangle, GitMerge, Sliders, Eye,
+} from './Icons';
 import {
   listDreamReports,
   getDreamSignals,
@@ -8,9 +11,11 @@ import {
   runDream,
   rollbackDream,
   deleteDreamReport,
+  forgetMemory,
 } from '../lib/api';
 import type { DreamReport, DreamSignalEntry, SchedulerConfig } from '../lib/api';
 import { useToast } from './Toast';
+import ConfirmDialog from './ConfirmDialog';
 
 const PHASE_CONFIG: Record<string, { label: string; icon: typeof Archive; color: string; bg: string; desc: string }> = {
   light: { label: '初步整理', icon: Sliders, color: '#86868B', bg: 'var(--bg-muted)', desc: '去重与筛选' },
@@ -38,7 +43,13 @@ function cronToLabel(cron: string): string {
   return `每天 ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-export default function DreamView() {
+type DetailTab = 'overview' | 'upgrades' | 'archived' | 'merged' | 'todos' | 'signals';
+
+interface DreamViewProps {
+  onMemorySelect?: (id: string) => void;
+}
+
+export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const { toast } = useToast();
   const [reports, setReports] = useState<DreamReport[]>([]);
   const [selectedReport, setSelectedReport] = useState<DreamReport | null>(null);
@@ -51,6 +62,14 @@ export default function DreamView() {
   const [cronHour, setCronHour] = useState(3);
   const [cronMinute, setCronMinute] = useState(0);
   const [animatingCards, setAnimatingCards] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    danger?: boolean;
+    onConfirm: () => void;
+  }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -76,6 +95,7 @@ export default function DreamView() {
       toast(`整理完成：${report.promoted} 条记忆升级`, 'success');
       fetchData();
       setSelectedReport(report);
+      setActiveTab('overview');
     } catch (err) {
       const message = err instanceof Error ? err.message : '未知错误';
       toast(`整理运行失败: ${message}`, 'error');
@@ -87,6 +107,7 @@ export default function DreamView() {
 
   const handleSelectReport = useCallback(async (report: DreamReport) => {
     setSelectedReport(report);
+    setActiveTab('overview');
     setAnimatingCards(new Set([report.id]));
     setTimeout(() => setAnimatingCards(new Set()), 400);
     try {
@@ -100,21 +121,59 @@ export default function DreamView() {
   const handleDeleteReport = useCallback(async (reportId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!confirm('确定要删除这条梦境记录吗？')) return;
-    console.log('[DreamView] Deleting report:', reportId);
-    try {
-      const result = await deleteDreamReport(reportId);
-      console.log('[DreamView] Delete success:', result);
-      toast('梦境记录已删除', 'success');
-      await fetchData();
-      if (selectedReport?.id === reportId) {
-        setSelectedReport(null);
-      }
-    } catch (err) {
-      console.error('[DreamView] Delete report failed:', err);
-      toast('删除失败: ' + ((err as Error).message || '请检查网络'), 'error');
-    }
+    setConfirmDialog({
+      open: true,
+      title: '删除整理记录',
+      message: '确定要删除这条梦境记录吗？此操作不可撤销。',
+      danger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+        try {
+          await deleteDreamReport(reportId);
+          toast('梦境记录已删除', 'success');
+          await fetchData();
+          if (selectedReport?.id === reportId) {
+            setSelectedReport(null);
+          }
+        } catch (err) {
+          toast('删除失败: ' + ((err as Error).message || '请检查网络'), 'error');
+        }
+      },
+    });
   }, [fetchData, selectedReport, toast]);
+
+  const handleRollback = useCallback(async (reportId: string) => {
+    setConfirmDialog({
+      open: true,
+      title: '回滚整理',
+      message: '确定要回滚此次整理吗？所有变更将被恢复。',
+      danger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, open: false }));
+        try {
+          const result = await rollbackDream(reportId);
+          setSelectedReport(result);
+          toast('整理已回滚，所有记忆已恢复', 'success');
+          fetchData();
+          try {
+            const s = await getDreamSignals(result.id);
+            setSignals(s);
+          } catch { /* ignore */ }
+        } catch {
+          toast('回滚失败', 'error');
+        }
+      },
+    });
+  }, [fetchData, toast]);
+
+  const handleArchiveMemory = useCallback(async (memoryId: string) => {
+    try {
+      await forgetMemory(memoryId, 'archive');
+      toast('记忆已归档', 'success');
+    } catch {
+      toast('归档失败', 'error');
+    }
+  }, [toast]);
 
   const handleToggleDreaming = useCallback(async (enabled: boolean) => {
     if (!config) return;
@@ -139,6 +198,28 @@ export default function DreamView() {
     }
   }, [cronHour, cronMinute, toast]);
 
+  const tabConfig: { key: DetailTab; label: string; count: number }[] = selectedReport
+    ? (
+        [
+          { key: 'overview' as DetailTab, label: '概览', count: 0 },
+          { key: 'upgrades' as DetailTab, label: '升级', count: selectedReport.promoted },
+          { key: 'archived' as DetailTab, label: '归档', count: selectedReport.archived },
+          { key: 'merged' as DetailTab, label: '合并', count: selectedReport.merged },
+          { key: 'todos' as DetailTab, label: '待处理', count: selectedReport.todoItems.length },
+          { key: 'signals' as DetailTab, label: '信号', count: signals.length },
+        ] as { key: DetailTab; label: string; count: number }[]
+      ).filter((t) => t.key === 'overview' || t.count > 0)
+    : [];
+
+  const statItems = selectedReport
+    ? [
+        { key: 'upgrades' as DetailTab, label: '升级', value: selectedReport.promoted, icon: '⬆️', accent: true },
+        { key: 'archived' as DetailTab, label: '归档', value: selectedReport.archived, icon: '📦' },
+        { key: 'merged' as DetailTab, label: '合并', value: selectedReport.merged, icon: '🔗' },
+        { key: 'todos' as DetailTab, label: '待处理', value: selectedReport.todoItems.length, icon: '⚠️' },
+      ]
+    : [];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64" style={{ color: 'var(--text-tertiary)' }}>
@@ -150,6 +231,16 @@ export default function DreamView() {
 
   return (
     <div className="px-8 py-6 max-w-5xl">
+      {/* ConfirmDialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        danger={confirmDialog.danger}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
@@ -480,231 +571,411 @@ export default function DreamView() {
             </button>
           </div>
 
-          {/* Phase Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
-            {selectedReport.sessions.map((session, idx) => {
-              const phaseInfo = PHASE_CONFIG[session.phase] || { label: session.phase, icon: Archive, color: '#86868B', bg: 'var(--bg-muted)', desc: '' };
-              const PhaseIcon = phaseInfo.icon;
-              return (
-                <div
-                  key={session.id}
-                  style={{
-                    padding: 18,
-                    borderRadius: 'var(--radius-md)',
-                    border: '0.5px solid var(--border)',
-                    background: phaseInfo.bg,
-                    transition: 'all var(--transition-fast)',
-                    animation: `slide-up 0.4s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.08}s both`,
-                  }}
-                >
-                  <div className="flex items-center gap-2.5 mb-3">
-                    <div
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 8,
-                        background: phaseInfo.color,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#fff',
-                      }}
-                    >
-                      <PhaseIcon size={16} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {phaseInfo.label}
-                      </div>
-                      <div style={{ fontSize: 11, color: phaseInfo.color, fontWeight: 500 }}>
-                        {phaseInfo.desc}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                    {session.summary || (
-                      <span>
-                        处理 <strong style={{ color: 'var(--text-primary)' }}>{session.candidatesProcessed}</strong> 条记忆，
-                        <strong style={{ color: 'var(--success)' }}> {session.candidatesPromoted}</strong> 条提升
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Stats Bar */}
+          {/* Tabs */}
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '14px 18px',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--bg-main)',
-              fontSize: 13,
-              color: 'var(--text-secondary)',
-              marginBottom: signals.length > 0 ? 20 : 0,
+              gap: 4,
+              marginBottom: 20,
+              borderBottom: '0.5px solid var(--border)',
+              paddingBottom: 1,
             }}
           >
-            {[
-              { label: '候选', value: selectedReport.totalCandidates, icon: '📊' },
-              { label: '升级', value: selectedReport.promoted, icon: '⬆️', accent: true },
-              { label: '归档', value: selectedReport.archived, icon: '📦' },
-              { label: '合并', value: selectedReport.merged, icon: '🔗' },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '6px 12px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: stat.accent ? 'rgba(52,199,89,0.08)' : 'transparent',
-                  color: stat.accent ? 'var(--success)' : 'var(--text-secondary)',
-                  fontWeight: stat.accent ? 600 : 500,
-                }}
-              >
-                <span>{stat.icon}</span>
-                <span>{stat.value} {stat.label}</span>
-              </div>
-            ))}
-            <div style={{ flex: 1 }} />
-            {selectedReport.status === 'completed' && (
+            {tabConfig.map((tab) => (
               <button
-                onClick={async () => {
-                  try {
-                    const result = await rollbackDream(selectedReport.id);
-                    setSelectedReport(result);
-                    toast('整理已回滚，所有记忆已恢复', 'success');
-                    fetchData();
-                    try {
-                      const s = await getDreamSignals(result.id);
-                      setSignals(s);
-                    } catch { /* ignore */ }
-                  } catch {
-                    toast('回滚失败', 'error');
-                  }
-                }}
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
                 style={{
-                  padding: '7px 14px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '0.5px solid rgba(255,59,48,0.25)',
-                  background: 'rgba(255,59,48,0.05)',
-                  color: '#FF3B30',
-                  fontSize: 12,
-                  fontWeight: 500,
+                  padding: '8px 14px',
+                  borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+                  border: 'none',
+                  borderBottom: activeTab === tab.key ? '2px solid var(--text-primary)' : '2px solid transparent',
+                  background: 'transparent',
+                  color: activeTab === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                  fontSize: 13,
+                  fontWeight: activeTab === tab.key ? 600 : 500,
                   cursor: 'pointer',
+                  transition: 'all var(--transition-fast)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 5,
-                  transition: 'all var(--transition-fast)',
+                  gap: 6,
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.1)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.05)'; }}
               >
-                <RotateCcw size={13} />
-                回滚此整理
+                {tab.label}
+                {tab.count > 0 && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      background: activeTab === tab.key ? 'var(--text-primary)' : 'var(--bg-muted)',
+                      color: activeTab === tab.key ? '#fff' : 'var(--text-tertiary)',
+                    }}
+                  >
+                    {tab.count}
+                  </span>
+                )}
               </button>
-            )}
+            ))}
           </div>
 
-          {/* Todo Items */}
-          {selectedReport.todoItems && selectedReport.todoItems.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <AlertTriangle size={14} />
-                需要人工干预 ({selectedReport.todoItems.length})
-              </h4>
-              <div style={{ display: 'grid', gap: 8 }}>
-                {selectedReport.todoItems.map((item, idx) => {
-                  const isOrphan = item.type === 'orphan';
-                  const Icon = isOrphan ? Inbox : AlertTriangle;
-                  const color = isOrphan ? '#86868B' : '#F5A623';
-                  const bg = isOrphan ? 'var(--bg-main)' : 'rgba(245,166,35,0.04)';
-                  const borderColor = isOrphan ? 'var(--border)' : 'rgba(245,166,35,0.2)';
+          {/* Tab: Overview */}
+          {activeTab === 'overview' && (
+            <>
+              {/* Phase Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+                {selectedReport.sessions.map((session, idx) => {
+                  const phaseInfo = PHASE_CONFIG[session.phase] || { label: session.phase, icon: Archive, color: '#86868B', bg: 'var(--bg-muted)', desc: '' };
+                  const PhaseIcon = phaseInfo.icon;
                   return (
                     <div
-                      key={item.memoryId}
+                      key={session.id}
                       style={{
-                        padding: '14px 18px',
+                        padding: 18,
                         borderRadius: 'var(--radius-md)',
-                        background: bg,
-                        border: `0.5px solid ${borderColor}`,
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 12,
+                        border: '0.5px solid var(--border)',
+                        background: phaseInfo.bg,
                         transition: 'all var(--transition-fast)',
-                        animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.05}s both`,
+                        animation: `slide-up 0.4s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.08}s both`,
                       }}
                     >
-                      <div
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 7,
-                          background: isOrphan ? 'var(--bg-muted)' : 'rgba(245,166,35,0.1)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: color,
-                          flexShrink: 0,
-                          marginTop: 1,
-                        }}
-                      >
-                        <Icon size={14} />
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 700,
-                              color: '#fff',
-                              background: color,
-                              padding: '2px 8px',
-                              borderRadius: 10,
-                              letterSpacing: '0.02em',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {isOrphan ? '未归类' : '冲突'}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 13,
-                              fontWeight: 600,
-                              color: 'var(--text-primary)',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {item.title}
-                          </span>
+                      <div className="flex items-center gap-2.5 mb-3">
+                        <div
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            background: phaseInfo.color,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                          }}
+                        >
+                          <PhaseIcon size={16} />
                         </div>
-                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
-                          {item.reason}
-                        </p>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {phaseInfo.label}
+                          </div>
+                          <div style={{ fontSize: 11, color: phaseInfo.color, fontWeight: 500 }}>
+                            {phaseInfo.desc}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                        {session.summary || (
+                          <span>
+                            处理 <strong style={{ color: 'var(--text-primary)' }}>{session.candidatesProcessed}</strong> 条记忆，
+                            <strong style={{ color: 'var(--success)' }}> {session.candidatesPromoted}</strong> 条提升
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Stats Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '14px 18px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--bg-main)',
+                  fontSize: 13,
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                {statItems.map((stat) => (
+                  <button
+                    key={stat.key}
+                    onClick={() => setActiveTab(stat.key)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: stat.accent ? 'rgba(52,199,89,0.08)' : 'transparent',
+                      color: stat.accent ? 'var(--success)' : 'var(--text-secondary)',
+                      fontWeight: stat.accent ? 600 : 500,
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = stat.accent ? 'rgba(52,199,89,0.12)' : 'var(--bg-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = stat.accent ? 'rgba(52,199,89,0.08)' : 'transparent'; }}
+                  >
+                    <span>{stat.icon}</span>
+                    <span>{stat.value} {stat.label}</span>
+                  </button>
+                ))}
+                <div style={{ flex: 1 }} />
+                {selectedReport.status === 'completed' && (
+                  <button
+                    onClick={() => handleRollback(selectedReport.id)}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '0.5px solid rgba(255,59,48,0.25)',
+                      background: 'rgba(255,59,48,0.05)',
+                      color: '#FF3B30',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      transition: 'all var(--transition-fast)',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.1)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.05)'; }}
+                  >
+                    <RotateCcw size={13} />
+                    回滚此整理
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Tab: Upgrades */}
+          {activeTab === 'upgrades' && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {selectedReport.details?.promoted && selectedReport.details.promoted.length > 0 ? (
+                selectedReport.details.promoted.map((item, idx) => (
+                  <div
+                    key={item.memoryId}
+                    className="flex items-center justify-between"
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'rgba(52,199,89,0.06)',
+                      border: '0.5px solid rgba(52,199,89,0.15)',
+                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.04}s both`,
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: 'var(--success)', padding: '2px 8px', borderRadius: 10 }}>UP</span>
+                      <button
+                        onClick={() => onMemorySelect?.(item.memoryId)}
+                        style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+                        onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
+                      >
+                        {item.title}
+                      </button>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
+                      评分 <strong style={{ color: 'var(--text-secondary)' }}>{item.score.toFixed(2)}</strong>
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  本次整理没有升级任何记忆
+                </div>
+              )}
             </div>
           )}
 
-          {/* Signals */}
-          {signals.length > 0 && (
-            <div style={{ marginTop: 20 }}>
-              <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Activity size={14} />
-                评分信号
-              </h4>
-              <div style={{ display: 'grid', gap: 6 }}>
-                {signals.slice(0, 10).map((sig, idx) => (
+          {/* Tab: Archived */}
+          {activeTab === 'archived' && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {selectedReport.details?.archived && selectedReport.details.archived.length > 0 ? (
+                selectedReport.details.archived.map((item, idx) => (
+                  <div
+                    key={item.memoryId + idx}
+                    className="flex items-center justify-between"
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-main)',
+                      border: '0.5px solid var(--border)',
+                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.04}s both`,
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', background: 'var(--bg-muted)', padding: '2px 8px', borderRadius: 10 }}>归档</span>
+                      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{item.title}</span>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{item.reason}</span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  本次整理没有归档任何记忆
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab: Merged */}
+          {activeTab === 'merged' && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {selectedReport.details?.merged && selectedReport.details.merged.length > 0 ? (
+                selectedReport.details.merged.map((item, idx) => (
+                  <div
+                    key={item.memoryId + idx}
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-main)',
+                      border: '0.5px solid var(--border)',
+                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.04}s both`,
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#7B61FF', padding: '2px 8px', borderRadius: 10 }}>合并</span>
+                      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{item.title}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6, paddingLeft: 42 }}>
+                      合并到「<span style={{ color: 'var(--text-secondary)' }}>{item.intoTitle}</span>」
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                  本次整理没有合并任何记忆
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab: Todos */}
+          {activeTab === 'todos' && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {selectedReport.todoItems.map((item, idx) => {
+                const isOrphan = item.type === 'orphan';
+                const Icon = isOrphan ? Inbox : AlertTriangle;
+                const color = isOrphan ? '#86868B' : '#F5A623';
+                const bg = isOrphan ? 'var(--bg-main)' : 'rgba(245,166,35,0.04)';
+                const borderColor = isOrphan ? 'var(--border)' : 'rgba(245,166,35,0.2)';
+                return (
+                  <div
+                    key={item.memoryId}
+                    style={{
+                      padding: '14px 18px',
+                      borderRadius: 'var(--radius-md)',
+                      background: bg,
+                      border: `0.5px solid ${borderColor}`,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.05}s both`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 7,
+                        background: isOrphan ? 'var(--bg-muted)' : 'rgba(245,166,35,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: color,
+                        flexShrink: 0,
+                        marginTop: 1,
+                      }}
+                    >
+                      <Icon size={14} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#fff',
+                            background: color,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            letterSpacing: '0.02em',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {isOrphan ? '未归类' : '冲突'}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: 'var(--text-primary)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {item.title}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 10px' }}>
+                        {item.reason}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => onMemorySelect?.(item.memoryId)}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '0.5px solid var(--border)',
+                            background: 'var(--bg-card)',
+                            color: 'var(--text-secondary)',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
+                        >
+                          <Eye size={12} />
+                          查看
+                        </button>
+                        <button
+                          onClick={() => handleArchiveMemory(item.memoryId)}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '0.5px solid rgba(255,59,48,0.2)',
+                            background: 'rgba(255,59,48,0.04)',
+                            color: '#FF3B30',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.08)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.04)'; }}
+                        >
+                          <Archive size={12} />
+                          归档
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Tab: Signals */}
+          {activeTab === 'signals' && (
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+                共 {signals.length} 条评分信号
+              </div>
+              <div style={{ display: 'grid', gap: 6, maxHeight: 480, overflowY: 'auto', paddingRight: 4 }}>
+                {signals.map((sig, idx) => (
                   <div
                     key={sig.memoryId}
                     className="flex items-center justify-between"
@@ -714,7 +985,7 @@ export default function DreamView() {
                       background: sig.promoted ? 'rgba(52,199,89,0.06)' : 'var(--bg-main)',
                       border: sig.promoted ? '0.5px solid rgba(52,199,89,0.15)' : '0.5px solid var(--border)',
                       transition: 'all var(--transition-fast)',
-                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.04}s both`,
+                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.03}s both`,
                     }}
                   >
                     <div className="flex items-center gap-3">
@@ -729,9 +1000,14 @@ export default function DreamView() {
                       }}>
                         {sig.promoted ? 'UP' : '—'}
                       </span>
-                      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>
+                      <button
+                        onClick={() => onMemorySelect?.(sig.memoryId)}
+                        style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+                        onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
+                      >
                         {sig.title}
-                      </span>
+                      </button>
                     </div>
                     <div className="flex items-center gap-5" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                       <span style={{ fontVariantNumeric: 'tabular-nums' }}>评分 <strong style={{ color: 'var(--text-secondary)' }}>{sig.score.toFixed(2)}</strong></span>

@@ -250,6 +250,7 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memories ADD COLUMN source TEXT',
     'ALTER TABLE memories ADD COLUMN source_id TEXT',
     'ALTER TABLE dream_reports ADD COLUMN todo_items TEXT',
+    'ALTER TABLE dream_reports ADD COLUMN details TEXT',
   ];
   for (const stmt of alterStatements) {
     try {
