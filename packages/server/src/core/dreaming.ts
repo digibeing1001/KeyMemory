@@ -1128,17 +1128,26 @@ export function getDreamSignalsForReport(reportId: string): { memoryId: string; 
 
 export function deleteDreamReport(reportId: string): { success: boolean } {
   const db = getDatabase();
+  console.log('[Dream] Deleting report:', reportId);
 
-  // 先删除关联的 dream_signals
-  db.prepare(`DELETE FROM dream_signals WHERE report_id = ?`).run(reportId);
+  try {
+    // 先删除关联的 dream_signals
+    const signalsResult = db.prepare(`DELETE FROM dream_signals WHERE report_id = ?`).run(reportId);
+    console.log('[Dream] Deleted dream_signals:', signalsResult.changes);
 
-  // 删除关联的 consolidation_snapshots
-  db.prepare(`DELETE FROM consolidation_snapshots WHERE plan_id = ?`).run(reportId);
+    // 删除关联的 consolidation_snapshots
+    const snapshotsResult = db.prepare(`DELETE FROM consolidation_snapshots WHERE plan_id = ?`).run(reportId);
+    console.log('[Dream] Deleted consolidation_snapshots:', snapshotsResult.changes);
 
-  // 删除报告本身
-  const result = db.prepare(`DELETE FROM dream_reports WHERE id = ?`).run(reportId);
+    // 删除报告本身
+    const result = db.prepare(`DELETE FROM dream_reports WHERE id = ?`).run(reportId);
+    console.log('[Dream] Deleted dream_reports:', result.changes);
 
-  return { success: result.changes > 0 };
+    return { success: result.changes > 0 };
+  } catch (err) {
+    console.error('[Dream] Delete failed:', (err as Error).message);
+    throw err;
+  }
 }
 
 export function formatDreamReport(report: DreamReport): string {

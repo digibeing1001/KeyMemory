@@ -211,7 +211,13 @@ export async function rollbackDream(reportId: string): Promise<DreamReport> {
 }
 
 export async function deleteDreamReport(reportId: string): Promise<{ success: boolean }> {
-  return request('/dream/reports/' + reportId, { method: 'DELETE' });
+  console.log('[API] DELETE /dream/reports/' + reportId);
+  const result = await request<{ success: boolean }>('/dream/reports/' + reportId, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  console.log('[API] Delete result:', result);
+  return result;
 }
 
 export async function getSchedulerConfig(): Promise<SchedulerConfig> {

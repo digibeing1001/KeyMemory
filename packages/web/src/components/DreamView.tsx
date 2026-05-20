@@ -101,15 +101,17 @@ export default function DreamView() {
     e.stopPropagation();
     e.preventDefault();
     if (!confirm('确定要删除这条梦境记录吗？')) return;
+    console.log('[DreamView] Deleting report:', reportId);
     try {
-      await deleteDreamReport(reportId);
+      const result = await deleteDreamReport(reportId);
+      console.log('[DreamView] Delete success:', result);
       toast('梦境记录已删除', 'success');
-      fetchData();
+      await fetchData();
       if (selectedReport?.id === reportId) {
         setSelectedReport(null);
       }
     } catch (err) {
-      console.error('Delete report failed:', err);
+      console.error('[DreamView] Delete report failed:', err);
       toast('删除失败: ' + ((err as Error).message || '请检查网络'), 'error');
     }
   }, [fetchData, selectedReport, toast]);
@@ -809,8 +811,6 @@ export default function DreamView() {
                       e.currentTarget.style.transform = 'translateY(-1px)';
                       e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
                     }
-                    const deleteBtn = e.currentTarget.querySelector('button');
-                    if (deleteBtn) deleteBtn.style.opacity = '1';
                   }}
                   onMouseLeave={(e) => {
                     if (!isSelected) {
@@ -819,8 +819,6 @@ export default function DreamView() {
                       e.currentTarget.style.transform = 'translateY(0)';
                       e.currentTarget.style.boxShadow = 'none';
                     }
-                    const deleteBtn = e.currentTarget.querySelector('button');
-                    if (deleteBtn) deleteBtn.style.opacity = '0.5';
                   }}
                 >
                   <div className="flex items-center gap-4">
@@ -880,18 +878,25 @@ export default function DreamView() {
                     <button
                       onClick={(e) => handleDeleteReport(report.id, e)}
                       style={{
-                        padding: '4px 8px',
+                        padding: '4px 10px',
                         borderRadius: 'var(--radius-sm)',
-                        border: 'none',
+                        border: '1px solid #FF3B30',
                         background: 'transparent',
-                        color: 'var(--text-tertiary)',
+                        color: '#FF3B30',
                         fontSize: 12,
+                        fontWeight: 500,
                         cursor: 'pointer',
-                        opacity: 0.5,
+                        opacity: 0.6,
                         transition: 'all var(--transition-fast)',
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = '#FF3B30'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                        e.currentTarget.style.background = 'rgba(255,59,48,0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.6';
+                        e.currentTarget.style.background = 'transparent';
+                      }}
                     >
                       删除
                     </button>
