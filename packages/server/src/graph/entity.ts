@@ -265,6 +265,61 @@ export function createRelation(sourceId: string, targetId: string, relationType:
   return { id, sourceId, targetId, relationType, strength, createdAt: now };
 }
 
+export function findRelatedMemories(memoryId: string, relationType?: string): { memoryId: string; title: string; layer: string; relationType: string; strength: number }[] {
+  const db = getDatabase();
+  const conditions = ['(r.source_id = ? OR r.target_id = ?)'];
+  const params: (string | number)[] = [memoryId, memoryId];
+
+  if (relationType) {
+    conditions.push('r.relation_type = ?');
+    params.push(relationType);
+  }
+
+  const rows = db.prepare(`
+    SELECT r.source_id, r.target_id, r.relation_type, r.strength, m.id as mid, m.title, m.layer
+    FROM relations r
+    LEFT JOIN memories m ON (m.id = r.source_id OR m.id = r.target_id) AND m.id != ?
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY r.strength DESC
+  `).all(memoryId, ...params) as { source_id: string; target_id: string; relation_type: string; strength: number; mid: string; title: string; layer: string }[];
+
+  return rows.map(r => ({
+    memoryId: r.mid,
+    title: r.title,
+    layer: r.layer,
+    relationType: r.relation_type,
+    strength: r.strength,
+  })).filter(r => r.memoryId);
+}
+
+export function autoAssociate(sourceMemoryId: string, content: string, title: string): void {
+  const db = getDatabase();
+
+  // 1. 查找内容中提到的现有项目名称，建立 part_of 关系
+  const projects = extractProjects(content);
+  for (const projectName of projects) {
+    const projectMem = db.prepare(`SELECT id FROM memories WHERE project = ? AND layer = 'project' AND status = 'active' LIMIT 1`).get(projectName) as { id: string } | undefined;
+    if (projectMem && projectMem.id !== sourceMemoryId) {
+      try {
+        createRelation(sourceMemoryId, projectMem.id, 'part_of', 0.9);
+      } catch { /* 忽略重复关联 */ }
+    }
+  }
+
+  // 2. 查找标题/内容中提到的其他活跃记忆标题，建立 relates_to 关系
+  const words = title.split(/\s+/).filter(w => w.length >= 4);
+  for (const word of words.slice(0, 3)) {
+    const matches = db.prepare(`SELECT id FROM memories WHERE status = 'active' AND id != ? AND (title LIKE ? OR content LIKE ?) LIMIT 3`).all(
+      sourceMemoryId, `%${word}%`, `%${word}%`
+    ) as { id: string }[];
+    for (const m of matches) {
+      try {
+        createRelation(sourceMemoryId, m.id, 'relates_to', 0.6);
+      } catch { /* 忽略重复关联 */ }
+    }
+  }
+}
+
 export function listEntities(type?: EntityType): Entity[] {
   const db = getDatabase();
   const query = type 

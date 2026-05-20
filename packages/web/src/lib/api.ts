@@ -237,6 +237,30 @@ export async function deleteDreamReport(reportId: string): Promise<{ success: bo
   return result;
 }
 
+export interface RelatedMemory {
+  memoryId: string;
+  title: string;
+  layer: string;
+  relationType: string;
+  strength: number;
+}
+
+export async function getRelatedMemories(memoryId: string, type?: string): Promise<RelatedMemory[]> {
+  const qs = type ? `?type=${type}` : '';
+  return request(`/memories/${memoryId}/related${qs}`);
+}
+
+export async function relateMemory(memoryId: string, targetId: string, relationType: string, strength?: number): Promise<unknown> {
+  return request(`/memories/${memoryId}/relate`, {
+    method: 'POST',
+    body: JSON.stringify({ targetId, relationType, strength }),
+  });
+}
+
+export async function getTagNamespaces(): Promise<Record<string, string[]>> {
+  return request('/tags/namespaces');
+}
+
 export async function getSchedulerConfig(): Promise<SchedulerConfig> {
   return request('/scheduler/config');
 }

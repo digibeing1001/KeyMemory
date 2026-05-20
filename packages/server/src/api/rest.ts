@@ -4,7 +4,7 @@ import { moveLayer, getLayerStats } from '../core/layer.js';
 import { searchHybrid, ensureEmbedding, findDuplicateMemories } from '../core/query.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from '../core/evolution.js';
-import { processContent, listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
+import { processContent, listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity, findRelatedMemories, autoAssociate, createRelation } from '../graph/entity.js';
 import { getVersions, diffVersions, rollbackToVersion } from '../core/provenance.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDecay } from '../core/forgetting.js';
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
@@ -54,6 +54,8 @@ export function registerRoutes(app: FastifyInstance): void {
     }
     const mem = createMemory(input);
     ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
+    // 自动建立语义关联
+    autoAssociate(mem.id, mem.content, mem.title);
     reply.code(201);
     return mem;
   });
@@ -700,6 +702,52 @@ export function registerRoutes(app: FastifyInstance): void {
       return { error: 'Memory not found' };
     }
     return { success: true };
+  });
+
+  app.post('/api/memories/:id/relate', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { targetId, relationType, strength } = request.body as { targetId: string; relationType: string; strength?: number };
+    if (!targetId || !relationType) {
+      reply.code(400);
+      return { error: 'targetId and relationType are required' };
+    }
+    const validTypes = ['part_of', 'derived_from', 'relates_to', 'supersedes', 'references'];
+    if (!validTypes.includes(relationType)) {
+      reply.code(400);
+      return { error: `relationType must be one of: ${validTypes.join(', ')}` };
+    }
+    try {
+      const relation = createRelation(id, targetId, relationType, strength ?? 1.0);
+      return relation;
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.get('/api/memories/:id/related', async (request) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as Record<string, string>;
+    return findRelatedMemories(id, query.type);
+  });
+
+  app.get('/api/tags/namespaces', async () => {
+    const db = getDatabase();
+    const rows = db.prepare(`SELECT tags FROM memories WHERE status = 'active' AND tags IS NOT NULL`).all() as { tags: string }[];
+    const namespaces = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const tags: string[] = JSON.parse(row.tags);
+      for (const tag of tags) {
+        if (tag.includes(':')) {
+          const [ns, value] = tag.split(':', 2);
+          if (!namespaces.has(ns)) namespaces.set(ns, new Set());
+          namespaces.get(ns)!.add(value);
+        }
+      }
+    }
+    return Object.fromEntries(
+      Array.from(namespaces.entries()).map(([k, v]) => [k, Array.from(v).sort()])
+    );
   });
 
   app.get('/api/scheduler/config', async () => {

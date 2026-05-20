@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { LAYERS, LAYER_CONFIG } from '@keymemory/shared';
 import type { Memory, Layer } from '@keymemory/shared';
-import { Edit, Archive, Trash, Tag, ChevronRight } from '../components/Icons';
+import { Edit, Archive, Trash, Tag, ChevronRight, Link } from '../components/Icons';
 import MarkdownEditor from '../components/MarkdownEditor';
 import MarkdownRenderer from '../components/MarkdownRenderer';
+import { getRelatedMemories } from '../lib/api';
+import type { RelatedMemory } from '../lib/api';
 
 interface EditorProps {
   memory: Memory | null;
@@ -46,9 +48,13 @@ export default function Editor({
 }: EditorProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [metadataExpanded, setMetadataExpanded] = useState(false);
+  const [relatedMemories, setRelatedMemories] = useState<RelatedMemory[]>([]);
 
   useEffect(() => {
     setIsEditing(false);
+    if (memory?.id) {
+      getRelatedMemories(memory.id).then(setRelatedMemories).catch(() => setRelatedMemories([]));
+    }
   }, [memory?.id, isCreating]);
 
   if (isCreating) {
@@ -173,11 +179,26 @@ export default function Editor({
               <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>·</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Tag size={11} style={{ color: 'var(--text-muted)' }} />
-                {memory.tags.map((tag) => (
-                  <span key={tag} className="tag-pill">
-                    {tag}
-                  </span>
-                ))}
+                {memory.tags.map((tag) => {
+                  const isNamespaced = tag.includes(':');
+                  const nsColor = isNamespaced
+                    ? tag.startsWith('type:') ? '#2eaadc'
+                    : tag.startsWith('project:') ? '#9b59b6'
+                    : tag.startsWith('domain:') ? '#4dab7a'
+                    : tag.startsWith('status:') ? '#e8913a'
+                    : tag.startsWith('source:') ? '#6b6b6b'
+                    : 'var(--text-secondary)'
+                    : 'var(--text-secondary)';
+                  return (
+                    <span
+                      key={tag}
+                      className="tag-pill"
+                      style={isNamespaced ? { background: `${nsColor}15`, color: nsColor, border: `0.5px solid ${nsColor}30` } : undefined}
+                    >
+                      {tag}
+                    </span>
+                  );
+                })}
               </span>
             </>
           )}
@@ -225,6 +246,38 @@ export default function Editor({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {relatedMemories.length > 0 && (
+            <div className="mt-10 pt-6" style={{ borderTop: '1px solid var(--border)' }}>
+              <p className="mb-3 text-xs font-semibold uppercase" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+                关联记忆
+              </p>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {relatedMemories.map((rel) => (
+                  <div
+                    key={rel.memoryId}
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '0.5px solid var(--border)',
+                      background: 'var(--bg-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <Link size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{rel.title}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {rel.relationType} · {rel.layer}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

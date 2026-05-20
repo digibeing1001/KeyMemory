@@ -235,6 +235,9 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_dream_signals_memory ON dream_signals(memory_id);
     CREATE INDEX IF NOT EXISTS idx_query_logs_memory ON query_logs(memory_id);
     CREATE INDEX IF NOT EXISTS idx_query_logs_created ON query_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
+    CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
+    CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_id);
   `);
 
   const alterStatements = [
