@@ -4,7 +4,7 @@ import { getMemory, updateMemory, recordHit } from './atom.js';
 import { getDatabase } from '../db/sqlite.js';
 
 export function canMoveToLayer(from: Layer, to: Layer): boolean {
-  const validLayers: Layer[] = ['flash', 'short', 'long', 'project', 'entity'];
+  const validLayers: Layer[] = ['flash', 'short', 'long', 'entity'];
   return validLayers.includes(from) && validLayers.includes(to);
 }
 
@@ -30,9 +30,7 @@ export function checkFlashToShortPromotions(): string[] {
       AND (
         m.hit_count >= 2
         OR m.id IN (
-          SELECT me.memory_id FROM memory_entities me
-          UNION
-          SELECT m2.id FROM memories m2 WHERE m2.project IS NOT NULL AND m2.id = m.id
+          SELECT me.memory_id FROM memory_entities me WHERE me.memory_id = m.id
         )
       )
   `).all(`-${threshold}`) as { id: string }[];

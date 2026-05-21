@@ -25,13 +25,13 @@ interface UseMemoryStoreReturn {
   selectMemory: (id: string) => void;
   createNew: () => void;
   cancelCreate: () => void;
-  save: (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => Promise<void>;
+  save: (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => Promise<void>;
   deleteMemory: (id: string) => Promise<void>;
   archiveMemory: (id: string) => Promise<void>;
   moveLayer: (id: string, layer: Layer) => Promise<void>;
   search: (query: string) => Promise<void>;
   clearSearch: () => void;
-  setActiveProject: (project: string | null) => void;
+  setActiveProject: (projectId: string | null) => void;
   refresh: () => void;
   loadMore: () => void;
 }
@@ -89,7 +89,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     try {
       const list = await api.listMemories({
         layer: selectedLayer ?? undefined,
-        project: activeProject ?? undefined,
+        projectId: activeProject ?? undefined,
         status: 'active',
         limit: PAGE_SIZE,
         offset: 0,
@@ -113,7 +113,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
       const currentOffset = memories.length;
       const list = await api.listMemories({
         layer: selectedLayer ?? undefined,
-        project: activeProject ?? undefined,
+        projectId: activeProject ?? undefined,
         status: 'active',
         limit: PAGE_SIZE,
         offset: currentOffset,
@@ -185,7 +185,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     setIsCreating(false);
   }, []);
 
-  const save = useCallback(async (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
+  const save = useCallback(async (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
     updateLoading(1);
     try {
       if (selectedMemory) {
@@ -242,7 +242,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     setSearchQuery(query);
     updateLoading(1);
     try {
-      const results = await api.searchMemories(query, selectedLayer ?? undefined);
+      const results = await api.searchMemories(query, selectedLayer ?? undefined, activeProject ?? undefined);
       if (mountedRef.current) setMemories(results.map(r => r.memory));
     } catch (err) {
       toast('搜索失败: ' + ((err as Error).message || '请检查网络'), 'error');
@@ -250,15 +250,15 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     } finally {
       updateLoading(-1);
     }
-  }, [selectedLayer, toast, updateLoading]);
+  }, [selectedLayer, activeProject, toast, updateLoading]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery(null);
     fetchMemories();
   }, [fetchMemories]);
 
-  const setActiveProject = useCallback((project: string | null) => {
-    setActiveProjectState(project);
+  const setActiveProject = useCallback((projectId: string | null) => {
+    setActiveProjectState(projectId);
   }, []);
 
   const refresh = useCallback(() => {

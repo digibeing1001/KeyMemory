@@ -1,4 +1,4 @@
-import type { Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version, SearchResult } from '@keymemory/shared';
+import type { Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version, SearchResult, Project } from '@keymemory/shared';
 
 const BASE = '/api';
 
@@ -23,14 +23,14 @@ export async function getHealth(): Promise<HealthReport & { status: string; time
 
 export async function listMemories(params?: {
   layer?: Layer;
-  project?: string;
+  projectId?: string;
   status?: string;
   limit?: number;
   offset?: number;
 }): Promise<Memory[]> {
   const sp = new URLSearchParams();
   if (params?.layer) sp.set('layer', params.layer);
-  if (params?.project) sp.set('project', params.project);
+  if (params?.projectId) sp.set('projectId', params.projectId);
   if (params?.status) sp.set('status', params.status);
   if (params?.limit) sp.set('limit', String(params.limit));
   if (params?.offset) sp.set('offset', String(params.offset));
@@ -62,10 +62,11 @@ export async function moveLayer(id: string, layer: Layer, reason?: string): Prom
   });
 }
 
-export async function searchMemories(query: string, layer?: Layer, limit?: number): Promise<SearchResult[]> {
+export async function searchMemories(query: string, layer?: Layer, projectId?: string, limit?: number): Promise<SearchResult[]> {
   const sp = new URLSearchParams();
   sp.set('q', query);
   if (layer) sp.set('layer', layer);
+  if (projectId) sp.set('projectId', projectId);
   if (limit) sp.set('limit', String(limit));
   return request(`/memories/search?${sp.toString()}`);
 }
@@ -76,6 +77,10 @@ export async function getVersions(memoryId: string): Promise<Version[]> {
 
 export async function getLayerStats(): Promise<Record<Layer, { count: number; active: number }>> {
   return request('/layers/stats');
+}
+
+export async function listProjects(): Promise<Project[]> {
+  return request('/projects');
 }
 
 export async function forgetMemory(id: string, method: 'archive' | 'decay' | 'delete' = 'archive'): Promise<{ success: boolean }> {
@@ -90,7 +95,7 @@ export interface GraphNode {
   title: string;
   layer: string;
   tags?: string[];
-  project?: string;
+  projectId?: string;
 }
 
 export interface GraphEdge {

@@ -18,7 +18,6 @@ const LAYER_COLORS: Record<Layer, string> = {
   flash: 'var(--layer-flash)',
   short: 'var(--layer-short)',
   long: 'var(--layer-long)',
-  project: 'var(--layer-project)',
   entity: 'var(--layer-entity)',
 };
 
@@ -26,7 +25,6 @@ const LAYER_ICONS: Record<Layer, React.FC<IconProps>> = {
   flash: Flash,
   short: Clock,
   long: Anchor,
-  project: Folder,
   entity: User,
 };
 

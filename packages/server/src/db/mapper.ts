@@ -6,7 +6,7 @@ export function rowToMemory(row: Record<string, unknown>): Memory {
     title: row.title as string,
     content: row.content as string,
     layer: row.layer as Layer,
-    project: (row.project as string) || undefined,
+    projectId: (row.project_id as string) || '',
     agentSpace: (row.agent_space as string) || 'global',
     ownerAgentId: (row.owner_agent_id as string) || undefined,
     confidence: row.confidence as number,

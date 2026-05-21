@@ -1,4 +1,4 @@
-export type Layer = 'flash' | 'short' | 'long' | 'project' | 'entity';
+export type Layer = 'flash' | 'short' | 'long' | 'entity';
 export type MemoryStatus = 'active' | 'archived' | 'decayed' | 'deleted';
 export type EntityType = 'person' | 'tool' | 'concept' | 'organization' | 'location' | 'event' | 'time' | 'project';
 export type ChangeType = 'create' | 'update' | 'layer_move' | 'merge' | 'restore';
@@ -6,12 +6,24 @@ export type EvolutionTaskType = 'merge' | 'archive' | 'solidify' | 'conflict' | 
 export type IsolationMode = 'isolated' | 'shared' | 'hybrid' | 'project';
 export type ForgetMethod = 'archive' | 'decay' | 'delete';
 
+export interface Project {
+  id: string;
+  parentId: string | null;
+  name: string;
+  description?: string;
+  path: string;
+  depth: number;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface Memory {
   id: string;
   title: string;
   content: string;
   layer: Layer;
-  project?: string;
+  projectId: string;
   agentSpace: string;
   ownerAgentId?: string;
   confidence: number;
@@ -67,6 +79,16 @@ export interface SelfCheckResult {
   action: 'auto_record' | 'suggest' | 'ignore';
 }
 
+export interface ProjectSuggestion {
+  id: string;
+  projectIds: string[];
+  suggestedParentName: string;
+  reason: string;
+  confidence: number;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: string;
+}
+
 export interface EvolutionTask {
   id: string;
   taskType: EvolutionTaskType;
@@ -96,7 +118,7 @@ export interface CreateMemoryInput {
   title: string;
   content: string;
   layer: Layer;
-  project?: string;
+  projectId?: string;
   agentSpace?: string;
   ownerAgentId?: string;
   tags?: string[];
@@ -109,7 +131,7 @@ export interface UpdateMemoryInput {
   title?: string;
   content?: string;
   layer?: Layer;
-  project?: string;
+  projectId?: string;
   confidence?: number;
   tags?: string[];
   source?: string;
@@ -119,7 +141,7 @@ export interface UpdateMemoryInput {
 export interface SearchQuery {
   q: string;
   layer?: Layer;
-  project?: string;
+  projectId?: string;
   status?: MemoryStatus;
   limit?: number;
   offset?: number;
@@ -146,7 +168,7 @@ export interface ConsolidationSnapshot {
   status: MemoryStatus;
   tags?: string[];
   metadata?: Record<string, unknown>;
-  project?: string;
+  projectId: string;
   agentSpace: string;
   confidence: number;
   decayFactor: number;

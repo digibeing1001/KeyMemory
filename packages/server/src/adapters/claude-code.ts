@@ -5,6 +5,7 @@ import type { MemoryAdapter } from './base.js';
 import type { Memory, Layer, SearchResult } from '@keymemory/shared';
 import { createMemory, listMemories } from '../core/atom.js';
 import { searchHybrid } from '../core/query.js';
+import { getDatabase } from '../db/sqlite.js';
 
 const CLAUDE_DIR = '.claude';
 const CLAUDE_MD = 'CLAUDE.md';
@@ -24,7 +25,7 @@ export const claudeCodeAdapter: MemoryAdapter = {
     return null;
   },
 
-  async write(data: { title: string; content: string; layer: Layer; project?: string }): Promise<Memory> {
+  async write(data: { title: string; content: string; layer: Layer; projectId?: string }): Promise<Memory> {
     const mem = createMemory(data);
     await syncToClaudeMd();
     return mem;
@@ -40,9 +41,8 @@ export const claudeCodeAdapter: MemoryAdapter = {
 };
 
 export async function syncToClaudeMd(): Promise<void> {
+  const db = getDatabase();
   const longMemories = listMemories({ layer: 'long', status: 'active', limit: 50 });
-  const projectMemories = listMemories({ status: 'active', limit: 100 })
-    .filter(m => m.project);
 
   const sections: string[] = ['# KeyMemory Sync', ''];
 
@@ -54,10 +54,15 @@ export async function syncToClaudeMd(): Promise<void> {
     sections.push('');
   }
 
-  const projects = [...new Set(projectMemories.map(m => m.project!).filter(Boolean))];
-  for (const project of projects) {
-    const pMems = projectMemories.filter(m => m.project === project);
-    sections.push(`## Project: ${project}`);
+  const projectRows = db.prepare(`
+    SELECT p.id, p.name FROM projects p
+    WHERE p.id IN (SELECT DISTINCT project_id FROM memories WHERE status = 'active')
+  `).all() as { id: string; name: string }[];
+
+  for (const project of projectRows) {
+    const pMems = listMemories({ projectId: project.id, status: 'active', limit: 50 });
+    if (pMems.length === 0) continue;
+    sections.push(`## Project: ${project.name}`);
     for (const m of pMems) {
       sections.push(`- **${m.title}**: ${m.content.slice(0, 200)}`);
     }

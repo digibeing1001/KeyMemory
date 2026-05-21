@@ -3,19 +3,25 @@ import { v4 as uuid } from 'uuid';
 import type { Memory, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
-import { extractEntities, extractProjects, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
+import { extractEntities, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
 
 export function createMemory(input: CreateMemoryInput): Memory {
   const db = getDatabase();
   const now = new Date().toISOString();
   const id = uuid();
 
+  let projectId = input.projectId;
+  if (!projectId) {
+    const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
+    projectId = rootProject?.id ?? '';
+  }
+
   const mem: Memory = {
     id,
     title: input.title,
     content: input.content,
     layer: input.layer,
-    project: input.project,
+    projectId,
     agentSpace: input.agentSpace ?? 'global',
     ownerAgentId: input.ownerAgentId,
     confidence: 1.0,
@@ -32,14 +38,14 @@ export function createMemory(input: CreateMemoryInput): Memory {
 
   return db.transaction(() => {
     db.prepare(`
-      INSERT INTO memories (id, title, content, layer, project, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
-      VALUES (@id, @title, @content, @layer, @project, @agentSpace, @ownerAgentId, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @metadata, @source, @sourceId)
+      INSERT INTO memories (id, title, content, layer, project_id, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
+      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @ownerAgentId, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @metadata, @source, @sourceId)
     `).run({
       id: mem.id,
       title: mem.title,
       content: mem.content,
       layer: mem.layer,
-      project: mem.project ?? null,
+      projectId: mem.projectId,
       agentSpace: mem.agentSpace,
       ownerAgentId: mem.ownerAgentId ?? null,
       confidence: mem.confidence,
@@ -54,6 +60,7 @@ export function createMemory(input: CreateMemoryInput): Memory {
       sourceId: mem.sourceId ?? null,
     });
 
+    const projectName = mem.projectId ? (db.prepare('SELECT name FROM projects WHERE id = ?').get(mem.projectId) as { name: string } | undefined)?.name || '' : '';
     db.prepare(`
       INSERT INTO memories_fts (rowid, title, content, project)
       VALUES ((SELECT rowid FROM memories WHERE id = @id), @title, @content, @project)
@@ -61,7 +68,7 @@ export function createMemory(input: CreateMemoryInput): Memory {
       id: mem.id,
       title: mem.title,
       content: `${mem.content}${mem.tags && mem.tags.length > 0 ? ' ' + mem.tags.join(' ') : ''}`,
-      project: mem.project ?? '',
+      project: projectName,
     });
 
     db.prepare(`
@@ -78,17 +85,7 @@ export function createMemory(input: CreateMemoryInput): Memory {
     const entities = extractEntities(mem.content);
     for (const ext of entities) {
       const entity = ensureEntity(ext.name, ext.type);
-      linkMemoryEntity(mem.id, entity.id);
-    }
-
-    const projects = extractProjects(mem.content);
-    if (projects.length > 0 && !mem.project) {
-      db.prepare(`UPDATE memories SET project = ?, updated_at = ? WHERE id = ?`).run(
-        projects[0],
-        now,
-        mem.id
-      );
-      mem.project = projects[0];
+      linkMemoryEntity(mem.id, entity.id, mem.projectId);
     }
 
     return mem;
@@ -102,7 +99,7 @@ export function getMemory(id: string): Memory | null {
   return rowToMemory(row);
 }
 
-export function listMemories(options?: { layer?: Layer; project?: string; status?: MemoryStatus; agentSpaces?: string[]; limit?: number; offset?: number }): Memory[] {
+export function listMemories(options?: { layer?: Layer; projectId?: string; status?: MemoryStatus; agentSpaces?: string[]; limit?: number; offset?: number }): Memory[] {
   const db = getDatabase();
   const conditions: string[] = [];
   const params: Record<string, unknown> = {};
@@ -111,9 +108,9 @@ export function listMemories(options?: { layer?: Layer; project?: string; status
     conditions.push('layer = @layer');
     params.layer = options.layer;
   }
-  if (options?.project) {
-    conditions.push('project = @project');
-    params.project = options.project;
+  if (options?.projectId) {
+    conditions.push('project_id = @projectId');
+    params.projectId = options.projectId;
   }
   if (options?.status) {
     conditions.push('status = @status');
@@ -159,9 +156,9 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
     updates.push('layer = @layer');
     params.layer = input.layer;
   }
-  if (input.project !== undefined) {
-    updates.push('project = @project');
-    params.project = input.project;
+  if (input.projectId !== undefined) {
+    updates.push('project_id = @projectId');
+    params.projectId = input.projectId;
   }
   if (input.confidence !== undefined) {
     updates.push('confidence = @confidence');
@@ -186,6 +183,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
 
     if (input.title !== undefined || input.content !== undefined) {
       const updated = getMemory(id)!;
+      const updatedProjectName = updated.projectId ? (db.prepare('SELECT name FROM projects WHERE id = ?').get(updated.projectId) as { name: string } | undefined)?.name || '' : '';
       db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
       db.prepare(`
         INSERT INTO memories_fts (rowid, title, content, project)
@@ -194,7 +192,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
         id,
         title: updated.title,
         content: `${updated.content}${updated.tags && updated.tags.length > 0 ? ' ' + updated.tags.join(' ') : ''}`,
-        project: updated.project ?? '',
+        project: updatedProjectName,
       });
     }
 
@@ -381,7 +379,7 @@ export function importMemories(jsonString: string): { success: number; failed: n
         title: mem.title,
         content: mem.content,
         layer: mem.layer,
-        project: mem.project,
+        projectId: mem.projectId,
         tags: mem.tags,
         metadata: mem.metadata,
         source: mem.source,

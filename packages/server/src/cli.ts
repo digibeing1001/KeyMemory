@@ -141,14 +141,14 @@ program
   .description('Create a new memory')
   .requiredOption('-t, --title <title>', 'memory title')
   .requiredOption('-c, --content <content>', 'memory content')
-  .requiredOption('-l, --layer <layer>', 'memory layer: flash|short|long|project|entity')
-  .option('-p, --project <project>', 'associated project')
+  .requiredOption('-l, --layer <layer>', 'memory layer: flash|short|long|entity')
+  .option('-p, --projectId <projectId>', 'associated project ID')
   .option('--tags <tags>', 'comma-separated tags')
   .option('--metadata <json>', 'JSON metadata or key:val pairs')
   .option('--source <source>', 'memory source identifier')
   .option('--source-id <sourceId>', 'source system ID')
   .action(async (opts) => {
-    const validLayers: Layer[] = ['flash', 'short', 'long', 'project', 'entity'];
+    const validLayers: Layer[] = ['flash', 'short', 'long', 'entity'];
     if (!validLayers.includes(opts.layer as Layer)) {
       printError(`Invalid layer: ${opts.layer}. Must be one of: ${validLayers.join(', ')}`);
     }
@@ -160,7 +160,7 @@ program
       title: opts.title,
       content: opts.content,
       layer: opts.layer as Layer,
-      project: opts.project,
+      projectId: opts.projectId,
       tags,
       metadata,
       source: opts.source,
@@ -189,7 +189,7 @@ program
   .option('-t, --title <title>', 'new title')
   .option('-c, --content <content>', 'new content')
   .option('-l, --layer <layer>', 'new layer')
-  .option('-p, --project <project>', 'new project')
+  .option('-p, --projectId <projectId>', 'new project ID')
   .option('--tags <tags>', 'new comma-separated tags')
   .option('--metadata <json>', 'new JSON metadata')
   .option('--reason <reason>', 'change reason')
@@ -198,7 +198,7 @@ program
     if (opts.title !== undefined) updateData.title = opts.title;
     if (opts.content !== undefined) updateData.content = opts.content;
     if (opts.layer !== undefined) updateData.layer = opts.layer;
-    if (opts.project !== undefined) updateData.project = opts.project;
+    if (opts.projectId !== undefined) updateData.projectId = opts.projectId;
     if (opts.tags !== undefined) updateData.tags = parseTags(opts.tags);
     if (opts.metadata !== undefined) updateData.metadata = parseMetadata(opts.metadata);
 
@@ -253,13 +253,13 @@ program
   .command('list')
   .description('List recent memories')
   .option('-l, --layer <layer>', 'filter by layer')
-  .option('-p, --project <project>', 'filter by project')
+  .option('-p, --projectId <projectId>', 'filter by project ID')
   .option('-s, --status <status>', 'filter by status', 'active')
   .option('-n, --limit <number>', 'max results', '20')
   .action((opts) => {
     const mems = listMemories({
       layer: opts.layer as Layer | undefined,
-      project: opts.project,
+      projectId: opts.projectId,
       status: opts.status as MemoryStatus | undefined,
       limit: parseInt(opts.limit, 10),
     });
@@ -273,12 +273,12 @@ program
   .description('Auto-evaluate and record memory from content')
   .requiredOption('-c, --content <content>', 'content to evaluate')
   .option('--agent-id <agentId>', 'agent identifier')
-  .option('--project <project>', 'current project')
+  .option('--projectId <projectId>', 'current project ID')
   .action(async (opts) => {
     const result = await autoRemember({
       content: opts.content,
       agentId: opts.agentId,
-      currentProject: opts.project,
+      currentProjectId: opts.projectId,
     });
 
     const format: OutputFormat = program.opts().format || 'json';
@@ -410,7 +410,7 @@ program
   .requiredOption('-l, --layer <layer>', 'target layer')
   .option('--reason <reason>', 'reason for layer move')
   .action((id, opts) => {
-    const validLayers: Layer[] = ['flash', 'short', 'long', 'project', 'entity'];
+    const validLayers: Layer[] = ['flash', 'short', 'long', 'entity'];
     if (!validLayers.includes(opts.layer as Layer)) {
       printError(`Invalid layer: ${opts.layer}. Must be one of: ${validLayers.join(', ')}`);
     }

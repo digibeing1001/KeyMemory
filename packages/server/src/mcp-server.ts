@@ -88,8 +88,8 @@ async function handleRequest(request: any) {
               properties: {
                 title: { type: 'string', description: '简洁明了的标题' },
                 content: { type: 'string', description: '完整的记忆内容，支持 Markdown 格式' },
-                layer: { type: 'string', enum: ['flash', 'short', 'long', 'project', 'entity'], description: '记忆层级：flash(临时), short(几天), long(长期), project(项目), entity(实体)' },
-                project: { type: 'string', description: '关联的项目名称（可选）' },
+                layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: '记忆层级：flash(临时), short(几天), long(长期), project(项目), entity(实体)' },
+                projectId: { type: 'string', description: '关联的项目ID（可选）' },
                 tags: { type: 'array', items: { type: 'string' }, description: '标签列表，帮助分类和检索（必填推荐）' },
                 metadata: { type: 'object', description: '结构化元数据。推荐字段：timeline(时间线), entities(涉及实体), context(场景), category(分类), importance(重要程度)' },
                 source: { type: 'string', description: '记忆来源标识（如 conversation, notionclaw, hindsight）' },
@@ -124,7 +124,7 @@ async function handleRequest(request: any) {
             inputSchema: {
               type: 'object',
               properties: {
-                layer: { type: 'string', enum: ['flash', 'short', 'long', 'project', 'entity'], description: '按层级筛选' },
+                layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: '按层级筛选' },
                 limit: { type: 'number', description: '返回数量（默认20）' },
               },
             },
@@ -147,7 +147,7 @@ async function handleRequest(request: any) {
                 id: { type: 'string', description: '要更新的记忆 ID' },
                 title: { type: 'string', description: '新的标题（可选）' },
                 content: { type: 'string', description: '新的内容（可选）' },
-                layer: { type: 'string', enum: ['flash', 'short', 'long', 'project', 'entity'], description: '新的层级（可选）' },
+                layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: '新的层级（可选）' },
                 project: { type: 'string', description: '新的关联项目（可选）' },
                 tags: { type: 'array', items: { type: 'string' }, description: '新的标签列表（可选）' },
                 metadata: { type: 'object', description: '新的元数据（可选）' },
@@ -182,7 +182,7 @@ async function handleRequest(request: any) {
                     properties: {
                       title: { type: 'string', description: '记忆标题' },
                       content: { type: 'string', description: '记忆完整内容' },
-                      layer: { type: 'string', enum: ['flash', 'short', 'long', 'project', 'entity'], description: '记忆层级。不指定时自动推断' },
+                      layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: '记忆层级。不指定时自动推断' },
                       project: { type: 'string', description: '关联项目名' },
                       tags: { type: 'array', items: { type: 'string' }, description: '标签列表' },
                       metadata: { type: 'object', description: '任意结构化元数据（时间线、实体、上下文、原始字段等）' },
@@ -213,7 +213,7 @@ async function handleRequest(request: any) {
             title: args.title,
             content: args.content,
             layer: args.layer,
-            project: args.project,
+            projectId: args.projectId,
             tags,
             metadata: args.metadata,
             source: args.source,
@@ -353,7 +353,7 @@ async function handleRequest(request: any) {
           const result = await autoRemember({
             content: args.content,
             agentId: args.agentId,
-            currentProject: args.currentProject,
+            currentProjectId: args.currentProject,
           });
           if (result.recorded) {
             return {
@@ -366,7 +366,7 @@ async function handleRequest(request: any) {
         }
 
         case 'memory_import': {
-          const items = args.memories as Array<{ title: string; content: string; layer?: string; project?: string; tags?: string[]; metadata?: Record<string, unknown>; source?: string; sourceId?: string }>;
+          const items = args.memories as Array<{ title: string; content: string; layer?: string; projectId?: string; tags?: string[]; metadata?: Record<string, unknown>; source?: string; sourceId?: string }>;
           const autoLayer = args.autoLayer !== false;
           const stripPrefixes = args.stripPrefixes !== false;
 
@@ -416,7 +416,7 @@ async function handleRequest(request: any) {
             }
 
             const layer = item.layer || (autoLayer ? inferLayer(title, content, item.metadata) : 'short');
-            const validLayers: Layer[] = ['flash', 'short', 'long', 'project', 'entity'];
+            const validLayers: Layer[] = ['flash', 'short', 'long', 'entity'];
             const safeLayer = validLayers.includes(layer as Layer) ? (layer as Layer) : 'short';
             layerCounts[layer] = (layerCounts[layer] || 0) + 1;
 
@@ -424,7 +424,7 @@ async function handleRequest(request: any) {
               title: title.trim(),
               content: content.trim(),
               layer: safeLayer,
-              project: item.project,
+              projectId: item.projectId,
               tags: item.tags,
               metadata: item.metadata,
               source: item.source,
@@ -501,13 +501,13 @@ async function handleRequest(request: any) {
       const promptName = params?.name;
       if (promptName === 'memory_context') {
         const query = params?.arguments?.query;
-        const project = params?.arguments?.project;
+        const projectId = params?.arguments?.projectId;
         let contextText = '';
         if (query) {
           const results = await searchHybrid(query, { limit: 5 });
           contextText = results.map(r => `- [${r.memory.layer}] ${r.memory.title}: ${r.memory.content.slice(0, 200)}`).join('\n');
         } else {
-          const mems = listMemories({ project, limit: 5 });
+          const mems = listMemories({ projectId, limit: 5 });
           contextText = mems.map(m => `- [${m.layer}] ${m.title}: ${m.content.slice(0, 200)}`).join('\n');
         }
         return {

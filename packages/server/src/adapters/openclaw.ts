@@ -10,7 +10,7 @@ export const openClawAdapter: MemoryAdapter = {
     return getMemory(id);
   },
 
-  async write(data: { title: string; content: string; layer: Layer; project?: string }): Promise<Memory> {
+  async write(data: { title: string; content: string; layer: Layer; projectId?: string }): Promise<Memory> {
     return createMemory(data);
   },
 
@@ -32,8 +32,8 @@ export const MCP_TOOLS = [
       properties: {
         title: { type: 'string' },
         content: { type: 'string' },
-        layer: { type: 'string', enum: ['flash', 'short', 'long', 'project', 'entity'] },
-        project: { type: 'string' },
+        layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'] },
+        projectId: { type: 'string' },
       },
       required: ['title', 'content', 'layer'],
     },
@@ -45,7 +45,7 @@ export const MCP_TOOLS = [
       type: 'object',
       properties: {
         query: { type: 'string' },
-        layer: { type: 'string', enum: ['flash', 'short', 'long', 'project', 'entity'] },
+        layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'] },
         limit: { type: 'number' },
       },
       required: ['query'],

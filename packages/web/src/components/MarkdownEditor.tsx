@@ -4,7 +4,7 @@ import type { Layer, Memory } from '@keymemory/shared';
 
 interface MarkdownEditorProps {
   memory?: Memory | null;
-  onSave: (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => void;
+  onSave: (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => void;
   onCancel: () => void;
   loading?: boolean;
 }
@@ -13,7 +13,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [layer, setLayer] = useState<Layer>('flash');
-  const [project, setProject] = useState('');
+  const [projectId, setProjectId] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [source, setSource] = useState('');
   const [metadataInput, setMetadataInput] = useState('');
@@ -23,7 +23,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
       setTitle(memory.title);
       setContent(memory.content);
       setLayer(memory.layer);
-      setProject(memory.project || '');
+      setProjectId(memory.projectId || '');
       setTagsInput(memory.tags?.join(', ') || '');
       setSource(memory.source || '');
       setMetadataInput(memory.metadata ? JSON.stringify(memory.metadata, null, 2) : '');
@@ -31,7 +31,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
       setTitle('');
       setContent('');
       setLayer('flash');
-      setProject('');
+      setProjectId('');
       setTagsInput('');
       setSource('');
       setMetadataInput('');
@@ -55,7 +55,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
       title: title.trim(),
       content: content.trim(),
       layer,
-      project: project.trim() || undefined,
+      projectId: projectId.trim() || undefined,
       tags,
       source: source.trim() || undefined,
       metadata,
@@ -112,11 +112,11 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
           </div>
 
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>项目</label>
+            <label style={labelStyle}>项目ID</label>
             <input
               type="text"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
               placeholder="可选..."
               style={inputStyle}
             />

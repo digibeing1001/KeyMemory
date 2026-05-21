@@ -25,7 +25,7 @@ export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapte
       return mem;
     },
 
-    async write(data: { title: string; content: string; layer: Layer; project?: string }): Promise<Memory> {
+    async write(data: { title: string; content: string; layer: Layer; projectId?: string }): Promise<Memory> {
       const decision = routeMemory(data.content, data.layer, ctx);
 
       const writeData = {
@@ -66,7 +66,7 @@ export function buildHermesSystemPrompt(memories: Memory[]): string {
   if (memories.length === 0) return '';
 
   const lines = memories.map(m => {
-    const prefix = m.project ? `[${m.project}]` : `[${m.layer}]`;
+    const prefix = `[${m.layer}]`;
     return `- ${prefix} ${m.title}: ${m.content.slice(0, 200)}`;
   });
 

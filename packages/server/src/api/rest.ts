@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createMemory, getMemory, listMemories, updateMemory, deleteMemory, recordHit, listVersions, getVersion, revertToVersion, batchCreateMemories, batchUpdateMemories, batchDeleteMemories, exportMemoriesAsJson, importMemories, listRecycleBin, restoreFromRecycleBin, permanentlyDeleteMemory } from '../core/atom.js';
 import { moveLayer, getLayerStats } from '../core/layer.js';
+import { createProject, getProject, listProjects, updateProject, deleteProject, moveProject, getProjectPath, getProjectDescendants, getProjectMemories, listProjectSuggestions, acceptProjectSuggestion, rejectProjectSuggestion } from '../core/project.js';
 import { searchHybrid, ensureEmbedding, findDuplicateMemories } from '../core/query.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from '../core/evolution.js';
@@ -18,6 +19,16 @@ import { getDatabase } from '../db/sqlite.js';
 import { autoRemember } from '../core/auto.js';
 import { extractTags } from '../core/auto.js';
 import type { CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
+
+function safeParseTags(tags: string | null): string[] {
+  if (!tags) return [];
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export function registerRoutes(app: FastifyInstance): void {
   const apiKey = process.env.KEYMEMORY_API_KEY;
@@ -64,7 +75,7 @@ export function registerRoutes(app: FastifyInstance): void {
     const query = request.query as Record<string, string>;
     return listMemories({
       layer: query.layer as Layer | undefined,
-      project: query.project,
+      projectId: query.projectId,
       status: query.status as MemoryStatus | undefined,
       limit: query.limit ? parseInt(query.limit, 10) : undefined,
       offset: query.offset ? parseInt(query.offset, 10) : undefined,
@@ -138,6 +149,7 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!q) return [];
     return searchHybrid(q, {
       layer: query.layer,
+      projectId: query.projectId,
       status: query.status,
       limit: query.limit ?? 20,
     });
@@ -327,7 +339,7 @@ export function registerRoutes(app: FastifyInstance): void {
       conversationRound?: number;
     };
     if (!content) return { error: 'content is required' };
-    return autoRemember({ content, source, agentId, isolationMode, currentProject, conversationRound });
+    return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound });
   });
 
   app.get('/api/agents', async () => {
@@ -361,8 +373,11 @@ export function registerRoutes(app: FastifyInstance): void {
     const db = getDatabase();
 
     const rows = db.prepare(`
-      SELECT id, title, layer, tags, project FROM memories WHERE status = 'active'
-    `).all() as { id: string; title: string; layer: string; tags: string | null; project: string | null }[];
+      SELECT m.id, m.title, m.layer, m.tags, p.name as project_name
+      FROM memories m
+      LEFT JOIN projects p ON m.project_id = p.id
+      WHERE m.status = 'active'
+    `).all() as { id: string; title: string; layer: string; tags: string | null; project_name: string | null }[];
 
     const entityRows = db.prepare(`
       SELECT me.memory_id, me.entity_id, e.name as entity_name
@@ -375,8 +390,8 @@ export function registerRoutes(app: FastifyInstance): void {
       id: r.id,
       title: r.title,
       layer: r.layer,
-      tags: r.tags ? JSON.parse(r.tags) : [],
-      project: r.project,
+      tags: safeParseTags(r.tags),
+      project: r.project_name,
     }));
 
     const memoryMap = new Map<string, typeof nodes[0]>();
@@ -386,7 +401,7 @@ export function registerRoutes(app: FastifyInstance): void {
 
     const tagToMemories = new Map<string, string[]>();
     for (const r of rows) {
-      const tags: string[] = r.tags ? JSON.parse(r.tags) : [];
+      const tags: string[] = safeParseTags(r.tags);
       for (const tag of tags) {
         if (!tagToMemories.has(tag)) tagToMemories.set(tag, []);
         tagToMemories.get(tag)!.push(r.id);
@@ -395,9 +410,9 @@ export function registerRoutes(app: FastifyInstance): void {
 
     const projectToMemories = new Map<string, string[]>();
     for (const r of rows) {
-      if (r.project) {
-        if (!projectToMemories.has(r.project)) projectToMemories.set(r.project, []);
-        projectToMemories.get(r.project)!.push(r.id);
+      if (r.project_name) {
+        if (!projectToMemories.has(r.project_name)) projectToMemories.set(r.project_name, []);
+        projectToMemories.get(r.project_name)!.push(r.id);
       }
     }
 
@@ -464,14 +479,17 @@ export function registerRoutes(app: FastifyInstance): void {
     const db = getDatabase();
 
     const rows = db.prepare(`
-      SELECT tags, layer, project FROM memories WHERE status = 'active'
-    `).all() as { tags: string | null; layer: string; project: string | null }[];
+      SELECT m.tags, m.layer, p.name as project_name
+      FROM memories m
+      LEFT JOIN projects p ON m.project_id = p.id
+      WHERE m.status = 'active'
+    `).all() as { tags: string | null; layer: string; project_name: string | null }[];
 
     const totalMemories = rows.length;
 
     const tagData = new Map<string, { count: number; layers: Record<string, number> }>();
     for (const r of rows) {
-      const tags: string[] = r.tags ? JSON.parse(r.tags) : [];
+      const tags: string[] = safeParseTags(r.tags);
       for (const tag of tags) {
         const existing = tagData.get(tag);
         if (existing) {
@@ -489,8 +507,8 @@ export function registerRoutes(app: FastifyInstance): void {
 
     const projectData = new Map<string, number>();
     for (const r of rows) {
-      if (r.project) {
-        projectData.set(r.project, (projectData.get(r.project) || 0) + 1);
+      if (r.project_name) {
+        projectData.set(r.project_name, (projectData.get(r.project_name) || 0) + 1);
       }
     }
 
@@ -677,6 +695,33 @@ export function registerRoutes(app: FastifyInstance): void {
     return { success: true };
   });
 
+  // Project Suggestion routes
+  app.get('/api/project-suggestions', async (request) => {
+    const query = request.query as Record<string, string>;
+    return listProjectSuggestions(query.status as 'pending' | 'accepted' | 'rejected' | undefined);
+  });
+
+  app.post('/api/project-suggestions/:id/accept', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { customName?: string };
+    const result = acceptProjectSuggestion(id, body?.customName);
+    if (!result.success) {
+      reply.code(400);
+      return { error: result.error };
+    }
+    return result;
+  });
+
+  app.post('/api/project-suggestions/:id/reject', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const ok = rejectProjectSuggestion(id);
+    if (!ok) {
+      reply.code(400);
+      return { error: 'Suggestion not found or already processed' };
+    }
+    return { success: true };
+  });
+
   app.get('/api/recycle-bin', async (request) => {
     const query = request.query as Record<string, string>;
     return listRecycleBin({
@@ -738,7 +783,7 @@ export function registerRoutes(app: FastifyInstance): void {
     const rows = db.prepare(`SELECT tags FROM memories WHERE status = 'active' AND tags IS NOT NULL`).all() as { tags: string }[];
     const namespaces = new Map<string, Set<string>>();
     for (const row of rows) {
-      const tags: string[] = JSON.parse(row.tags);
+      const tags: string[] = safeParseTags(row.tags);
       for (const tag of tags) {
         if (tag.includes(':')) {
           const [ns, value] = tag.split(':', 2);
@@ -750,6 +795,92 @@ export function registerRoutes(app: FastifyInstance): void {
     return Object.fromEntries(
       Array.from(namespaces.entries()).map(([k, v]) => [k, Array.from(v).sort()])
     );
+  });
+
+  // Project routes
+  app.get('/api/projects', async () => {
+    return listProjects();
+  });
+
+  app.post('/api/projects', async (request, reply) => {
+    const input = request.body as { name: string; parentId?: string | null; description?: string };
+    if (!input.name) {
+      reply.code(400);
+      return { error: 'Project name is required' };
+    }
+    const project = createProject(input);
+    reply.code(201);
+    return project;
+  });
+
+  app.get('/api/projects/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const project = getProject(id);
+    if (!project) {
+      reply.code(404);
+      return { error: 'Project not found' };
+    }
+    return project;
+  });
+
+  app.put('/api/projects/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const input = request.body as { name?: string; description?: string };
+    const project = updateProject(id, input);
+    if (!project) {
+      reply.code(404);
+      return { error: 'Project not found' };
+    }
+    return project;
+  });
+
+  app.delete('/api/projects/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as Record<string, string>;
+    const strategy = query.strategy === 'promote' ? 'promote' : 'cascade';
+    const ok = deleteProject(id, strategy);
+    if (!ok) {
+      reply.code(404);
+      return { error: 'Project not found' };
+    }
+    return { success: true };
+  });
+
+  app.post('/api/projects/:id/move', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { parentId } = request.body as { parentId?: string | null };
+    const project = moveProject(id, parentId ?? null);
+    if (!project) {
+      reply.code(400);
+      return { error: 'Invalid move' };
+    }
+    return project;
+  });
+
+  app.get('/api/projects/:id/children', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return listProjects(id);
+  });
+
+  app.get('/api/projects/:id/descendants', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return getProjectDescendants(id);
+  });
+
+  app.get('/api/projects/:id/path', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return getProjectPath(id);
+  });
+
+  app.get('/api/projects/:id/memories', async (request) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as Record<string, string>;
+    return getProjectMemories(id, {
+      layer: query.layer,
+      includeDescendants: query.includeDescendants === 'true',
+      limit: query.limit ? parseInt(query.limit, 10) : undefined,
+      offset: query.offset ? parseInt(query.offset, 10) : undefined,
+    });
   });
 
   app.get('/api/scheduler/config', async () => {

@@ -110,7 +110,7 @@ export async function injectContext(options: { project?: string; query?: string;
   const limit = options.limit ?? 5;
 
   if (options.project) {
-    const projectMems = listMemories({ project: options.project, status: 'active', limit });
+    const projectMems = listMemories({ projectId: options.project, status: 'active', limit });
     if (projectMems.length > 0) return projectMems;
   }
 

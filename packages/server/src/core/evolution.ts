@@ -101,7 +101,6 @@ async function detectOrphans(): Promise<EvolutionTask[]> {
     SELECT m.id, m.title FROM memories m
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
-      AND m.project IS NULL
       AND m.layer NOT IN ('flash')
   `).all() as { id: string; title: string }[];
 

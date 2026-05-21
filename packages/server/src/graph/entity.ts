@@ -222,11 +222,19 @@ export function ensureEntity(name: string, type: EntityType): Entity {
   return { id, name, type, createdAt: now, updatedAt: now };
 }
 
-export function linkMemoryEntity(memoryId: string, entityId: string): void {
+export function linkMemoryEntity(memoryId: string, entityId: string, projectId?: string): void {
   const db = getDatabase();
-  db.prepare(`
-    INSERT OR IGNORE INTO memory_entities (memory_id, entity_id) VALUES (?, ?)
-  `).run(memoryId, entityId);
+  if (projectId) {
+    db.prepare(`
+      INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, project_id) VALUES (?, ?, ?)
+    `).run(memoryId, entityId, projectId);
+  } else {
+    // Fallback: try to get project_id from memory
+    const mem = db.prepare('SELECT project_id FROM memories WHERE id = ?').get(memoryId) as { project_id: string } | undefined;
+    db.prepare(`
+      INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, project_id) VALUES (?, ?, ?)
+    `).run(memoryId, entityId, mem?.project_id ?? '');
+  }
 }
 
 export function processContent(memoryId: string, content: string): { entities: Entity[]; projects: string[] } {
@@ -239,14 +247,6 @@ export function processContent(memoryId: string, content: string): { entities: E
     const entity = ensureEntity(ext.name, ext.type);
     linkMemoryEntity(memoryId, entity.id);
     entities.push(entity);
-  }
-
-  if (projects.length > 0) {
-    db.prepare(`UPDATE memories SET project = ?, updated_at = ? WHERE id = ?`).run(
-      projects[0],
-      new Date().toISOString(),
-      memoryId
-    );
   }
 
   return { entities, projects };
@@ -295,18 +295,7 @@ export function findRelatedMemories(memoryId: string, relationType?: string): { 
 export function autoAssociate(sourceMemoryId: string, content: string, title: string): void {
   const db = getDatabase();
 
-  // 1. 查找内容中提到的现有项目名称，建立 part_of 关系
-  const projects = extractProjects(content);
-  for (const projectName of projects) {
-    const projectMem = db.prepare(`SELECT id FROM memories WHERE project = ? AND layer = 'project' AND status = 'active' LIMIT 1`).get(projectName) as { id: string } | undefined;
-    if (projectMem && projectMem.id !== sourceMemoryId) {
-      try {
-        createRelation(sourceMemoryId, projectMem.id, 'part_of', 0.9);
-      } catch { /* 忽略重复关联 */ }
-    }
-  }
-
-  // 2. 查找标题/内容中提到的其他活跃记忆标题，建立 relates_to 关系
+  // 查找标题/内容中提到的其他活跃记忆标题，建立 relates_to 关系
   const words = title.split(/\s+/).filter(w => w.length >= 4);
   for (const word of words.slice(0, 3)) {
     const matches = db.prepare(`SELECT id FROM memories WHERE status = 'active' AND id != ? AND (title LIKE ? OR content LIKE ?) LIMIT 3`).all(

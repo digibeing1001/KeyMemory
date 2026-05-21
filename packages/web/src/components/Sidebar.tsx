@@ -1,6 +1,7 @@
 import type { Layer } from '@keymemory/shared';
 import { LAYER_CONFIG, LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, Folder, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun } from './Icons';
+import ProjectTree from './ProjectTree';
 
 type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'recycle';
 
@@ -15,13 +16,14 @@ interface SidebarProps {
   onViewModeChange: (mode: ViewMode) => void;
   isDark: boolean;
   onToggleTheme: () => void;
+  activeProjectId: string | null;
+  onSelectProject: (projectId: string | null) => void;
 }
 
 const LAYER_ICONS: Record<Layer, typeof Flash> = {
   flash: Flash,
   short: Clock,
   long: Anchor,
-  project: Folder,
   entity: User,
 };
 
@@ -29,7 +31,6 @@ const LAYER_ICON_COLORS: Record<Layer, string> = {
   flash: 'var(--layer-flash)',
   short: 'var(--layer-short)',
   long: 'var(--layer-long)',
-  project: 'var(--layer-project)',
   entity: 'var(--layer-entity)',
 };
 
@@ -58,6 +59,8 @@ export default function Sidebar({
   onViewModeChange,
   isDark,
   onToggleTheme,
+  activeProjectId,
+  onSelectProject,
 }: SidebarProps) {
   return (
     <aside
@@ -143,6 +146,16 @@ export default function Sidebar({
           height: 1,
           background: 'var(--border)',
           margin: '8px 16px',
+        }}
+      />
+
+      <ProjectTree activeProjectId={activeProjectId} onSelectProject={onSelectProject} />
+
+      <div
+        style={{
+          height: 1,
+          background: 'var(--border)',
+          margin: '0 16px 8px',
         }}
       />
 

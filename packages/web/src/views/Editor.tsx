@@ -22,7 +22,6 @@ const LAYER_COLORS: Record<Layer, string> = {
   flash: '#e8913a',
   short: '#2eaadc',
   long: '#4dab7a',
-  project: '#9b59b6',
   entity: '#e15759',
 };
 
@@ -161,9 +160,9 @@ export default function Editor({
           >
             {config.label}
           </span>
-          {memory.project && (
+          {memory.projectId && (
             <span className="tag-pill" style={{ color: 'var(--layer-project)', background: 'rgba(155,89,182,0.1)' }}>
-              {memory.project}
+              {memory.projectId}
             </span>
           )}
           <span className="tag-pill">

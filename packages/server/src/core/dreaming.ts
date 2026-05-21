@@ -27,6 +27,9 @@ export function runDreamCycle(): DreamReport {
   const details: DreamReportDetails = { promoted: [], archived: [], merged: [] };
 
   const savepointName = `sp_${reportId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  if (!/^sp_[a-zA-Z0-9_]+$/.test(savepointName)) {
+    throw new Error('Invalid savepoint name');
+  }
 
   try {
     db.exec(`SAVEPOINT ${savepointName}`);
@@ -56,6 +59,11 @@ export function runDreamCycle(): DreamReport {
     sessions.push(semanticResult.session);
     merged += semanticResult.mergedCount;
     totalCandidates += semanticResult.session.candidatesProcessed;
+
+    // Phase 5: Project Clustering - 项目聚类建议
+    const clusteringResult = runProjectClusteringPhase(reportId);
+    sessions.push(clusteringResult.session);
+    totalCandidates += clusteringResult.session.candidatesProcessed;
 
     db.exec(`RELEASE SAVEPOINT ${savepointName}`);
 
@@ -239,12 +247,12 @@ function runRemPhase(reportId: string): { session: DreamSession } {
   const lookback = DREAM_THRESHOLDS.lookbackDays;
 
   const shortTermMemories = db.prepare(`
-    SELECT m.id, m.title, m.content, m.tags, m.hit_count, m.project
+    SELECT m.id, m.title, m.content, m.tags, m.hit_count, m.project_id
     FROM memories m
     WHERE m.status = 'active'
       AND m.layer = 'short'
       AND m.created_at >= datetime('now', ? || ' days')
-  `).all(`-${lookback}`) as { id: string; title: string; content: string; tags: string | null; hit_count: number; project: string | null }[];
+  `).all(`-${lookback}`) as { id: string; title: string; content: string; tags: string | null; hit_count: number; project_id: string }[];
 
   // 分析标签频率
   const tagFrequency = new Map<string, number>();
@@ -432,19 +440,23 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
       ORDER BY m.created_at DESC
       LIMIT 150
     `).all() as { id: string; title: string; embedding: Buffer }[];
-  } catch {
-    // 如果没有嵌入表或数据，跳过此阶段
-    const session: DreamSession = {
-      id: sessionId,
-      phase: 'deep',
-      candidatesProcessed: 0,
-      candidatesPromoted: 0,
-      signals: { skipped: 1 },
-      startedAt: now,
-      completedAt: new Date().toISOString(),
-      summary: '语义合并：跳过（无嵌入数据）',
-    };
-    return { session, mergedCount: 0 };
+  } catch (err) {
+    const msg = (err as Error).message || '';
+    // 仅对无表/无数据错误跳过，其他数据库错误应抛出
+    if (msg.includes('no such table') || msg.includes('SQLITE_ERROR')) {
+      const session: DreamSession = {
+        id: sessionId,
+        phase: 'deep',
+        candidatesProcessed: 0,
+        candidatesPromoted: 0,
+        signals: { skipped: 1 },
+        startedAt: now,
+        completedAt: new Date().toISOString(),
+        summary: '语义合并：跳过（无嵌入数据）',
+      };
+      return { session, mergedCount: 0 };
+    }
+    throw err;
   }
 
   if (memories.length < 2) {
@@ -759,7 +771,6 @@ function detectOrphanMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem
     SELECT m.id, m.title, m.layer FROM memories m
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
-      AND m.project IS NULL
     LIMIT 20
   `).all() as { id: string; title: string; layer: string }[];
 
@@ -853,7 +864,7 @@ function createSnapshots(db: ReturnType<typeof getDatabase>, reportId: string, m
       mem.status,
       mem.tags ? JSON.stringify(mem.tags) : null,
       mem.metadata ? JSON.stringify(mem.metadata) : null,
-      mem.project ?? null,
+      mem.projectId,
       mem.agentSpace,
       mem.confidence,
       mem.decayFactor,
@@ -910,27 +921,29 @@ function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
 
   const memories = db.prepare(`
     SELECT m.id, m.title, m.content, m.layer, m.tags, m.hit_count, m.created_at,
-           m.confidence, m.decay_factor, m.project
+           m.confidence, m.decay_factor, m.project_id
     FROM memories m
     WHERE m.status = 'active'
       AND m.layer IN ('short', 'long')
       AND m.created_at >= datetime('now', ? || ' days')
-  `).all(`-${lookback}`) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; confidence: number; decay_factor: number; project: string | null }[];
+  `).all(`-${lookback}`) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; confidence: number; decay_factor: number; project_id: string }[];
 
   // 批量查询各记忆的唯一查询数
   const uniqueQueryMap = new Map<string, number>();
-  try {
-    const queryRows = db.prepare(`
-      SELECT memory_id, COUNT(DISTINCT query) as unique_count
-      FROM query_logs
-      WHERE memory_id IN (${memories.map(() => '?').join(',')})
-      GROUP BY memory_id
-    `).all(...memories.map(m => m.id)) as { memory_id: string; unique_count: number }[];
-    for (const row of queryRows) {
-      uniqueQueryMap.set(row.memory_id, row.unique_count);
+  if (memories.length > 0) {
+    try {
+      const queryRows = db.prepare(`
+        SELECT memory_id, COUNT(DISTINCT query) as unique_count
+        FROM query_logs
+        WHERE memory_id IN (${memories.map(() => '?').join(',')})
+        GROUP BY memory_id
+      `).all(...memories.map(m => m.id)) as { memory_id: string; unique_count: number }[];
+      for (const row of queryRows) {
+        uniqueQueryMap.set(row.memory_id, row.unique_count);
+      }
+    } catch {
+      // query_logs 表可能不存在，忽略
     }
-  } catch {
-    // query_logs 表可能不存在，忽略
   }
 
   const candidates: DreamCandidate[] = [];
@@ -1040,14 +1053,14 @@ export function rollbackDream(reportId: string): DreamReport {
     if (!existing) {
       const now = new Date().toISOString();
       db.prepare(`
-        INSERT INTO memories (id, title, content, layer, project, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
+        INSERT INTO memories (id, title, content, layer, project_id, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, ?, ?, ?, ?)
       `).run(
         memId,
         snap.title as string,
         snap.content as string,
         snap.layer as string,
-        snap.project as string | null,
+        snap.project_id as string,
         snap.agent_space as string,
         null,
         snap.confidence as number,
@@ -1182,6 +1195,170 @@ export function deleteDreamReport(reportId: string): { success: boolean } {
   }
 }
 
+function runProjectClusteringPhase(reportId: string): { session: DreamSession; suggestionsCreated: number } {
+  const db = getDatabase();
+  const sessionId = uuid();
+  const now = new Date().toISOString();
+  let suggestionsCreated = 0;
+
+  try {
+    // 获取所有活跃项目（排除根级"未分类"）
+    const projects = db.prepare(`
+      SELECT id, name, path FROM projects
+      WHERE (parent_id IS NOT NULL OR name != '未分类') AND depth <= 2
+    `).all() as { id: string; name: string; path: string }[];
+
+    if (projects.length < 2) {
+      return {
+        session: {
+          id: sessionId,
+          phase: 'deep',
+          candidatesProcessed: 0,
+          candidatesPromoted: 0,
+          signals: { skipped: 1 },
+          startedAt: now,
+          completedAt: new Date().toISOString(),
+          summary: '项目聚类：项目数量不足，跳过',
+        },
+        suggestionsCreated: 0,
+      };
+    }
+
+    // 1. 计算项目间的共享实体
+    const projectEntityMap = new Map<string, Set<string>>();
+    for (const project of projects) {
+      const entities = db.prepare(`
+        SELECT DISTINCT entity_id FROM memory_entities
+        WHERE project_id = ?
+      `).all(project.id) as { entity_id: string }[];
+      projectEntityMap.set(project.id, new Set(entities.map(e => e.entity_id)));
+    }
+
+    // 2. 计算项目间的 Jaccard 相似度
+    const projectPairs: { projectA: string; projectB: string; sharedEntities: number; jaccard: number }[] = [];
+    for (let i = 0; i < projects.length; i++) {
+      const entitiesA = projectEntityMap.get(projects[i].id) ?? new Set();
+      if (entitiesA.size === 0) continue;
+
+      for (let j = i + 1; j < projects.length; j++) {
+        const entitiesB = projectEntityMap.get(projects[j].id) ?? new Set();
+        if (entitiesB.size === 0) continue;
+
+        const intersection = new Set([...entitiesA].filter(x => entitiesB.has(x)));
+        const union = new Set([...entitiesA, ...entitiesB]);
+
+        if (intersection.size >= 1) {
+          projectPairs.push({
+            projectA: projects[i].id,
+            projectB: projects[j].id,
+            sharedEntities: intersection.size,
+            jaccard: intersection.size / union.size,
+          });
+        }
+      }
+    }
+
+    // 3. 对高相似度的项目对生成建议
+    const existingSuggestions = db.prepare(`
+      SELECT project_ids FROM project_suggestions WHERE status = 'pending'
+    `).all() as { project_ids: string }[];
+
+    const existingPairs = new Set<string>();
+    for (const s of existingSuggestions) {
+      const ids = JSON.parse(s.project_ids) as string[];
+      if (ids.length >= 2) {
+        existingPairs.add(ids.sort().join(','));
+      }
+    }
+
+    for (const pair of projectPairs) {
+      if (pair.jaccard < 0.15 && pair.sharedEntities < 2) continue;
+
+      const pairKey = [pair.projectA, pair.projectB].sort().join(',');
+      if (existingPairs.has(pairKey)) continue;
+
+      const projectA = projects.find(p => p.id === pair.projectA)!;
+      const projectB = projects.find(p => p.id === pair.projectB)!;
+
+      // 生成建议的父项目名称
+      const suggestedName = suggestParentName(projectA.name, projectB.name);
+
+      db.prepare(`
+        INSERT INTO project_suggestions (id, project_ids, suggested_parent_name, reason, confidence, status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?)
+      `).run(
+        uuid(),
+        JSON.stringify([pair.projectA, pair.projectB]),
+        suggestedName,
+        `项目「${projectA.name}」与「${projectB.name}」共享 ${pair.sharedEntities} 个实体，语义关联度 ${(pair.jaccard * 100).toFixed(0)}%，建议归入同一父项目`,
+        Math.min(0.95, pair.jaccard + 0.3),
+        now,
+      );
+
+      suggestionsCreated++;
+    }
+
+    const session: DreamSession = {
+      id: sessionId,
+      phase: 'deep',
+      candidatesProcessed: projects.length,
+      candidatesPromoted: suggestionsCreated,
+      signals: {
+        projectsScanned: projects.length,
+        pairsFound: projectPairs.length,
+        suggestionsCreated,
+      },
+      startedAt: now,
+      completedAt: new Date().toISOString(),
+      summary: `项目聚类：扫描${projects.length}个项目，发现${projectPairs.length}对关联，生成${suggestionsCreated}条建议`,
+    };
+
+    return { session, suggestionsCreated };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error('[Dream] Project clustering failed:', errorMessage);
+
+    return {
+      session: {
+        id: sessionId,
+        phase: 'deep',
+        candidatesProcessed: 0,
+        candidatesPromoted: 0,
+        signals: { error: 1 },
+        startedAt: now,
+        completedAt: new Date().toISOString(),
+        summary: `项目聚类失败：${errorMessage}`,
+      },
+      suggestionsCreated: 0,
+    };
+  }
+}
+
+function suggestParentName(nameA: string, nameB: string): string {
+  // 简单的名称生成：找共同前缀，或使用通用名称
+  const commonPrefix = findCommonPrefix(nameA, nameB);
+  if (commonPrefix.length >= 2) {
+    return commonPrefix + '相关';
+  }
+  // 如果两个名称有包含关系
+  if (nameA.includes(nameB) || nameB.includes(nameA)) {
+    return nameA.length > nameB.length ? nameA : nameB;
+  }
+  return `${nameA}/${nameB}`;
+}
+
+function findCommonPrefix(a: string, b: string): string {
+  let prefix = '';
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] === b[i]) {
+      prefix += a[i];
+    } else {
+      break;
+    }
+  }
+  return prefix;
+}
+
 export function formatDreamReport(report: DreamReport): string {
   const lines: string[] = [];
   lines.push(`整理报告 #${report.id.slice(0, 8)}`);
@@ -1190,7 +1367,7 @@ export function formatDreamReport(report: DreamReport): string {
   lines.push('');
 
   for (const session of report.sessions) {
-    const phaseLabel = session.phase === 'light' ? '初步整理' : session.phase === 'rem' ? '关联分析' : '深度整理/语义合并';
+    const phaseLabel = session.phase === 'light' ? '初步整理' : session.phase === 'rem' ? '关联分析' : session.phase === 'deep' && session.summary?.includes('项目聚类') ? '项目聚类' : '深度整理/语义合并';
     lines.push(`${phaseLabel}: ${session.summary || `${session.candidatesProcessed}条处理，${session.candidatesPromoted}条提升`}`);
   }
 

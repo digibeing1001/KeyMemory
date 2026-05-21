@@ -3,13 +3,14 @@ import { createMemory, getMemory } from './atom.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
 import { searchHybrid } from './query.js';
+import { getDatabase } from '../db/sqlite.js';
 
 interface AutoRememberInput {
   content: string;
   source?: string;
   agentId?: string;
   isolationMode?: import('@keymemory/shared').IsolationMode;
-  currentProject?: string;
+  currentProjectId?: string;
   conversationRound?: number;
 }
 
@@ -48,9 +49,9 @@ function detectContentType(content: string): { isProject: boolean; isEntity: boo
 function suggestLayer(content: string, evaluation: SelfCheckResult): Layer {
   const signals = detectContentType(content);
 
-  // 优先级 1：项目层 - 含项目产出特征且提及项目名称
+  // 优先级 1：长期记忆 - 含项目产出特征且提及项目名称
   if (signals.isProject && extractProjects(content).length > 0) {
-    return 'project';
+    return 'long';
   }
 
   // 优先级 2：实体层 - 含人物/组织档案特征
@@ -226,13 +227,13 @@ export function extractTags(content: string): string[] {
 }
 
 export async function autoRemember(input: AutoRememberInput): Promise<AutoRememberResult> {
-  const { content, source, agentId, isolationMode, currentProject, conversationRound } = input;
+  const { content, source, agentId, isolationMode, currentProjectId, conversationRound } = input;
 
   if (!content || content.trim().length < 10) {
     return { recorded: false, reason: '内容过短，不值得记录' };
   }
 
-  const evaluation = await evaluate(content, { currentProject, conversationRound });
+  const evaluation = await evaluate(content, { currentProject: currentProjectId, conversationRound });
 
   if (evaluation.action === 'ignore') {
     return { recorded: false, reason: 'SelfCheck 评估为忽略', evaluation };
@@ -245,7 +246,22 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   const layer = suggestLayer(content, evaluation);
   const title = extractTitle(content);
   const projects = extractProjects(content);
-  const project = projects[0] || currentProject;
+  const projectName = projects[0] || currentProjectId;
+
+  // Look up project ID from name, fallback to uncategorized root
+  const db = getDatabase();
+  let projectId = '';
+  if (projectName) {
+    const projectRow = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: string } | undefined;
+    if (projectRow) {
+      projectId = projectRow.id;
+    }
+  }
+  if (!projectId) {
+    const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
+    projectId = rootProject?.id ?? '';
+  }
+
   const tags = extractTags(content);
 
   const entities = extractEntities(content);
@@ -254,13 +270,13 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     importance: layer === 'long' ? 'high' : layer === 'short' ? 'medium' : 'low',
   };
   if (entities.length > 0) metadata.entities = entities;
-  if (currentProject) metadata.project = currentProject;
+  if (currentProjectId) metadata.projectId = currentProjectId;
 
   const mem = createMemory({
     title,
     content: content.trim(),
     layer,
-    project,
+    projectId,
     agentSpace: isolationMode === 'isolated' && agentId ? `agent:${agentId}` : 'global',
     ownerAgentId: agentId,
     tags,

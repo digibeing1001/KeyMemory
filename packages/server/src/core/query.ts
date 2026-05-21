@@ -45,7 +45,7 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
   `).run(memoryId, embeddingToBuffer(vector), now);
 }
 
-export async function searchFulltext(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; limit?: number }): Promise<SearchResult[]> {
+export async function searchFulltext(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; projectId?: string; limit?: number }): Promise<SearchResult[]> {
   const db = getDatabase();
   const conditions = ["m.status = 'active'"];
   const params: Record<string, unknown> = { limit: options?.limit ?? 20 };
@@ -53,6 +53,11 @@ export async function searchFulltext(query: string, options?: { layer?: Layer; s
   if (options?.layer) {
     conditions.push('m.layer = @layer');
     params.layer = options.layer;
+  }
+
+  if (options?.projectId) {
+    conditions.push('m.project_id = @projectId');
+    params.projectId = options.projectId;
   }
 
   if (options?.agentSpaces && options.agentSpaces.length > 0) {
@@ -104,7 +109,7 @@ export async function searchFulltext(query: string, options?: { layer?: Layer; s
   }
 }
 
-export async function searchSemantic(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; limit?: number }): Promise<SearchResult[]> {
+export async function searchSemantic(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; projectId?: string; limit?: number }): Promise<SearchResult[]> {
   if (!isEmbeddingAvailable()) {
     return [];
   }
@@ -115,15 +120,20 @@ export async function searchSemantic(query: string, options?: { layer?: Layer; s
   }
 
   const db = getDatabase();
-  const conditions = ["status = 'active'"];
+  const conditions = ["m.status = 'active'"];
   const params: Record<string, unknown> = {};
   if (options?.layer) {
-    conditions.push('layer = @layer');
+    conditions.push('m.layer = @layer');
     params.layer = options.layer;
   }
 
+  if (options?.projectId) {
+    conditions.push('m.project_id = @projectId');
+    params.projectId = options.projectId;
+  }
+
   if (options?.agentSpaces && options.agentSpaces.length > 0) {
-    conditions.push(`agent_space IN (${options.agentSpaces.map((_, i) => `@agentSpace${i}`).join(', ')})`);
+    conditions.push(`m.agent_space IN (${options.agentSpaces.map((_, i) => `@agentSpace${i}`).join(', ')})`);
     options.agentSpaces.forEach((space, i) => {
       params[`agentSpace${i}`] = space;
     });
@@ -198,7 +208,7 @@ export async function findDuplicateMemories(threshold: number = 0.9, limit: numb
   return duplicates.slice(0, limit);
 }
 
-export async function searchHybrid(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; limit?: number }): Promise<SearchResult[]> {
+export async function searchHybrid(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; projectId?: string; limit?: number }): Promise<SearchResult[]> {
   const limit = options?.limit ?? 20;
 
   const [fulltextResults, semanticResults] = await Promise.all([

@@ -74,7 +74,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>, adapt
         source: args.source as string | undefined,
         agentId: args.agentId as string | undefined,
         isolationMode: args.isolationMode as IsolationMode | undefined,
-        currentProject: args.currentProject as string | undefined,
+        currentProjectId: args.currentProject as string | undefined,
         conversationRound: args.conversationRound as number | undefined,
       });
     default:
@@ -170,15 +170,15 @@ export function registerMCPRoutes(app: FastifyInstance): void {
 
       if (promptName === 'memory_context') {
         const args = (params.arguments ?? {}) as Record<string, string>;
-        const project = args.project;
+        const projectId = args.projectId;
         const query = args.query;
 
         let contextText = '';
         if (query) {
           const results = await searchHybrid(query, { limit: 5 });
           contextText = results.map(r => `- [${r.memory.layer}] ${r.memory.title}: ${r.memory.content.slice(0, 200)}`).join('\n');
-        } else if (project) {
-          const mems = listMemories({ project, status: 'active', limit: 5 });
+        } else if (projectId) {
+          const mems = listMemories({ projectId, status: 'active', limit: 5 });
           contextText = mems.map(m => `- [${m.layer}] ${m.title}: ${m.content.slice(0, 200)}`).join('\n');
         }
 

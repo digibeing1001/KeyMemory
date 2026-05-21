@@ -144,7 +144,7 @@ function AppInner() {
     store.selectLayer(layer);
   };
 
-  const handleSave = async (data: { title: string; content: string; layer: Layer; project?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
+  const handleSave = async (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
     try {
       await store.save(data);
       toast(store.selectedMemory ? '已更新' : '已创建', 'success');
@@ -153,6 +153,14 @@ function AppInner() {
     } catch {
       toast('保存失败', 'error');
     }
+  };
+
+  const handleProjectSelect = (projectId: string | null) => {
+    setIsSearchMode(false);
+    setSearchResults([]);
+    setSearchInput('');
+    setViewMode('memories');
+    store.setActiveProject(projectId);
   };
 
   const handleDelete = (id: string) => {
@@ -212,6 +220,8 @@ function AppInner() {
         onViewModeChange={setViewMode}
         isDark={isDark}
         onToggleTheme={() => setIsDark((d) => !d)}
+        activeProjectId={store.activeProject}
+        onSelectProject={handleProjectSelect}
       />
 
       <div className="flex flex-col flex-1" style={{ marginLeft: 240 }}>

@@ -39,12 +39,25 @@ export function initDatabase(): Database.Database {
 
 function runMigrations(db: Database.Database): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      parent_id TEXT,
+      name TEXT NOT NULL,
+      description TEXT,
+      path TEXT NOT NULL,
+      depth INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      metadata TEXT,
+      FOREIGN KEY (parent_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       content TEXT NOT NULL,
       layer TEXT NOT NULL,
-      project TEXT,
+      project_id TEXT NOT NULL,
       agent_space TEXT DEFAULT 'global',
       owner_agent_id TEXT,
       confidence REAL DEFAULT 1.0,
@@ -57,7 +70,8 @@ function runMigrations(db: Database.Database): void {
       tags TEXT,
       metadata TEXT,
       source TEXT,
-      source_id TEXT
+      source_id TEXT,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -90,9 +104,12 @@ function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS memory_entities (
       memory_id TEXT NOT NULL,
       entity_id TEXT NOT NULL,
-      PRIMARY KEY (memory_id, entity_id),
+      project_id TEXT NOT NULL,
+      context TEXT,
+      PRIMARY KEY (memory_id, entity_id, project_id),
       FOREIGN KEY (memory_id) REFERENCES memories(id),
-      FOREIGN KEY (entity_id) REFERENCES entities(id)
+      FOREIGN KEY (entity_id) REFERENCES entities(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id)
     );
 
     CREATE TABLE IF NOT EXISTS versions (
@@ -203,6 +220,16 @@ function runMigrations(db: Database.Database): void {
       FOREIGN KEY (report_id) REFERENCES dream_reports(id)
     );
 
+    CREATE TABLE IF NOT EXISTS project_suggestions (
+      id TEXT PRIMARY KEY,
+      project_ids TEXT NOT NULL,
+      suggested_parent_name TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      confidence REAL DEFAULT 0.0,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS scheduler_config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -222,7 +249,6 @@ function runMigrations(db: Database.Database): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_memories_layer ON memories(layer);
     CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status);
-    CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
     CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
     CREATE INDEX IF NOT EXISTS idx_versions_memory_id ON versions(memory_id);
     CREATE INDEX IF NOT EXISTS idx_evolution_tasks_status ON evolution_tasks(status);
@@ -251,14 +277,102 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memories ADD COLUMN source_id TEXT',
     'ALTER TABLE dream_reports ADD COLUMN todo_items TEXT',
     'ALTER TABLE dream_reports ADD COLUMN details TEXT',
+    'ALTER TABLE memories ADD COLUMN project_id TEXT',
+    'ALTER TABLE memory_entities ADD COLUMN project_id TEXT',
+    'ALTER TABLE memory_entities ADD COLUMN context TEXT',
+    'ALTER TABLE consolidation_snapshots ADD COLUMN project_id TEXT',
   ];
   for (const stmt of alterStatements) {
     try {
       db.exec(stmt);
-    } catch {}
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (!msg.includes('duplicate column')) {
+        console.error('[Migration] Unexpected error:', msg);
+      }
+    }
   }
 
+  // Migrate existing data: convert project strings to project_ids
+  migrateProjectData(db);
+
+  // Create indexes for new columns (must run after ALTER TABLE)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_memories_project_id ON memories(project_id);
+    CREATE INDEX IF NOT EXISTS idx_projects_parent ON projects(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
+    CREATE INDEX IF NOT EXISTS idx_memory_entities_project ON memory_entities(project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_suggestions_status ON project_suggestions(status);
+  `);
+
   ensureWelcomeMemory(db);
+}
+
+function migrateProjectData(db: Database.Database): void {
+  // Check if migration already done using a dedicated marker
+  const marker = db.prepare("SELECT value FROM scheduler_config WHERE key = 'migration_v1_done'").get() as { value: string } | undefined;
+  if (marker?.value === 'true') return;
+
+  const now = new Date().toISOString();
+
+  db.transaction(() => {
+    // 1. Create default root project "未分类"
+    const uncategorizedId = uuidv4();
+    db.prepare(`
+      INSERT OR IGNORE INTO projects (id, parent_id, name, path, depth, created_at, updated_at)
+      VALUES (@id, NULL, '未分类', '未分类', 0, @createdAt, @updatedAt)
+    `).run({ id: uncategorizedId, createdAt: now, updatedAt: now });
+
+    // 2. Extract unique project names from existing memories and create projects
+    const projectNames = db.prepare("SELECT DISTINCT project FROM memories WHERE project IS NOT NULL AND project != ''").all() as { project: string }[];
+    const projectMap = new Map<string, string>();
+    projectMap.set('未分类', uncategorizedId);
+
+    for (const row of projectNames) {
+      const projectId = uuidv4();
+      db.prepare(`
+        INSERT INTO projects (id, parent_id, name, path, depth, created_at, updated_at)
+        VALUES (@id, NULL, @name, @path, 0, @createdAt, @updatedAt)
+      `).run({ id: projectId, name: row.project, path: row.project, createdAt: now, updatedAt: now });
+      projectMap.set(row.project, projectId);
+    }
+
+    // 3. Update memories: set project_id based on old project string
+    db.prepare(`
+      UPDATE memories SET project_id = @uncategorizedId WHERE project IS NULL OR project = ''
+    `).run({ uncategorizedId });
+
+    for (const [name, id] of projectMap) {
+      if (name === '未分类') continue;
+      db.prepare(`
+        UPDATE memories SET project_id = @projectId WHERE project = @projectName
+      `).run({ projectId: id, projectName: name });
+    }
+
+    // 4. Convert layer='project' memories to layer='long'
+    db.prepare("UPDATE memories SET layer = 'long' WHERE layer = 'project'").run();
+
+    // 5. Update memory_entities: set project_id from associated memory
+    db.prepare(`
+      UPDATE memory_entities
+      SET project_id = (
+        SELECT project_id FROM memories WHERE memories.id = memory_entities.memory_id
+      )
+      WHERE project_id IS NULL
+    `).run();
+
+    // 6. Update consolidation_snapshots
+    db.prepare(`
+      UPDATE consolidation_snapshots
+      SET project_id = COALESCE(project, ''),
+        agent_space = COALESCE(agent_space, 'global')
+      WHERE project_id IS NULL
+    `).run();
+
+    // Mark migration complete
+    db.prepare("INSERT OR REPLACE INTO scheduler_config (key, value, updated_at) VALUES ('migration_v1_done', 'true', ?)")
+      .run(new Date().toISOString());
+  })();
 }
 
 function ensureWelcomeMemory(db: Database.Database): void {
@@ -266,50 +380,65 @@ function ensureWelcomeMemory(db: Database.Database): void {
   const existing = db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active'").get(WELCOME_SOURCE_ID);
   if (existing) return;
 
+  // Get or create default root project
+  let rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
+  if (!rootProject) {
+    const now = new Date().toISOString();
+    const rootId = uuidv4();
+    db.prepare(`
+      INSERT INTO projects (id, parent_id, name, path, depth, created_at, updated_at)
+      VALUES (@id, NULL, '未分类', '未分类', 0, @createdAt, @updatedAt)
+    `).run({ id: rootId, createdAt: now, updatedAt: now });
+    rootProject = { id: rootId };
+  }
+
   const id = uuidv4();
   const now = new Date().toISOString();
   const title = '欢迎使用 KeyMemory';
   const content = `## 关于 KeyMemory
 
-KeyMemory 是一个五层记忆系统，帮助 AI Agent 拥有持久化的记忆能力。
+KeyMemory 是一个以项目为核心的记忆系统，帮助 AI Agent 拥有持久化的记忆能力。
 
-### 五层记忆模型
+### 项目化记忆架构
+
+以项目为纲，记忆归于具体项目之下。项目可嵌套层级，如：
+
+- 事业
+  - 创业
+    - 门店A
+    - 门店B
+  - 职场
+- 家庭
+  - 恋爱
+
+每个项目下分四层记忆：
 
 | 层级 | 名称 | 用途 |
 |------|------|------|
 | 闪念 | flash | 灵感、想法、临时笔记 |
 | 短期 | short | 近期任务、待办事项 |
 | 长期 | long | 知识、经验、学习笔记 |
-| 项目 | project | 项目相关的会议、决策、进展 |
 | 人事物 | entity | 人物、组织、关键对象 |
 
 ### 核心功能
 
-- **记忆存储**：支持五个层级，每条记忆自动提取标签
+- **项目树**：以项目为核心组织记忆，支持父子层级
 - **语义搜索**：基于内容相似度搜索相关记忆
 - **星云图**：可视化记忆之间的关联网络
-- **标签云**：直观展示记忆内容的分布
-- **时间线**：按时间追溯记忆的创建与更新
+- **梦境建议**：系统自动识别项目关联，建议上层聚类
 - **MCP 接口**：AI Agent 通过标准协议读写记忆
-
-### 使用方式
-
-1. 在侧边栏切换层级筛选记忆
-2. 点击记忆卡片查看详情
-3. 使用搜索框进行语义搜索
-4. 切换到星云图查看记忆关联
-5. 切换到标签云浏览内容分布
 
 > 这是一条系统介绍记忆，安装后自动创建。`;
   const tags = JSON.stringify(['KeyMemory', '介绍', '使用指南']);
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO memories (id, title, content, layer, agent_space, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, source, source_id)
-      VALUES (@id, @title, @content, @layer, @agentSpace, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @source, @sourceId)
+      INSERT INTO memories (id, title, content, layer, project_id, agent_space, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, source, source_id)
+      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @source, @sourceId)
     `).run({
       id, title, content,
       layer: 'long',
+      projectId: rootProject.id,
       agentSpace: 'global',
       confidence: 1.0,
       hitCount: 0,
