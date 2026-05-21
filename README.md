@@ -1,72 +1,106 @@
 # KeyMemory
 
-AI Agent 的长期记忆层。
+以项目为骨架的记忆系统。
 
-不是聊天记录的堆砌，而是让 Agent 真正记住你说过的话、做过的决定、积累的经验。
+不是给记忆打标签，而是让记忆长在项目树上。你提到 `[[项目名称]]`，它就自动归类；项目多了，它会建议哪些该归到一起。
 
-## 是什么
+## 核心设计
 
-KeyMemory 是一个本地运行的记忆系统，通过 MCP 协议接入 Claude、Hermes、OpenClaw 等 Agent。它用五层模型管理信息生命周期，配合语义搜索，让 Agent 在每次对话时都能拿到真正相关的上下文。
+### 项目树：记忆的导航系统
 
-## 五层记忆
+所有记忆都挂在项目下。项目支持无限层级，像文件夹一样组织，但比文件夹聪明——它会自己建议合并。
 
-| 层级 | 名称 | 保留策略 |
-|------|------|----------|
-| L1 | 闪念 Flash | 7 天无访问则衰减 |
-| L2 | 短期 Short | 30 天衰减，命中 3 次升级为长期 |
-| L3 | 长期 Long | 永久保留 |
-| L4 | 项目 Project | 按项目隔离，项目存续期间保留 |
-| L5 | 实体 Entity | 人物、工具、概念的关系图谱，永久保留 |
+```
+未分类
+├── 前端重构
+│   ├── 组件库升级
+│   └── 性能优化
+├── 团队管理
+│   └── 新人培养
+└── 知识库
+    └── React 最佳实践
+```
 
-## 核心能力
+- 写记忆时用 `[[项目名称]]` 语法直接归类
+- 没有指定项目的记忆自动归入"未分类"
+- 浏览时左侧项目树实时导航，点击即筛选
+- 支持查看项目及其所有子项目的记忆
 
-- **混合搜索** — SQLite FTS5 全文 + ONNX 语义嵌入，RRF 融合排序
-- **自动记忆** — Agent 传入对话内容，SelfCheck 自动评估是否值得记录、该放哪一层
-- **自动衰减** — 闪念和短期记忆按访问频率自然遗忘，长期记忆不受影响
-- **版本溯源** — 每条记忆的每次修改都有完整历史，支持 diff 和回滚
-- **健康监测** — 实时报告重复率、孤立率、冲突率
+### 梦境周期：自动整理引擎
 
-## 一分钟启动
+系统会定期运行一个五阶段的整理周期，不需要你动手：
+
+| 阶段 | 做什么 |
+|------|--------|
+| Light | 扫描近期记忆，合并重复内容 |
+| REM | 分析主题频率，自动补全缺失标签 |
+| Deep | 评分升级高质量记忆，归档过期内容，检测孤儿记忆和矛盾表述 |
+| Semantic | 基于语义相似度关联合并相关记忆 |
+| **Project Clustering** | **计算项目间共享实体的相似度，建议项目归并** |
+
+所有整理操作都有快照，随时可以回滚。
+
+### 实体图谱：自动提取的关系网
+
+从记忆内容中自动提取实体（`@人名` `#概念` `[[项目]]` 等），建立记忆与实体的关联。项目聚类正是基于这些共享实体计算相似度。
+
+### 混合搜索
+
+SQLite FTS5 全文搜索 + ONNX 本地语义嵌入，RRF 融合排序。支持按项目作用域搜索。
+
+## 记忆的生命周期
+
+记忆除了挂在项目树上，还有四层生命周期：
+
+| 层级 | 策略 |
+|------|------|
+| 闪念 | 7 天未访问则衰减 |
+| 短期 | 30 天衰减，命中多次升级为长期 |
+| 长期 | 永久保留 |
+| 实体 | 人物/工具/概念档案，永久保留 |
+
+自动记忆时，SelfCheck 评估内容价值，结合内容类型自动选择层级。
+
+## 快速开始
 
 ```bash
-# 克隆
 git clone https://github.com/digibeing1001/KeyMemory.git
 cd KeyMemory
-
-# 安装 & 构建
 pnpm install
 pnpm build
-
-# 配置 MCP（Claude Desktop / Hermes / OpenClaw）
-# 编辑你的 mcpServers 配置，添加：
-#   "keymemory": {
-#     "command": "node",
-#     "args": ["./packages/server/dist/mcp-server.js"]
-#   }
-# 之后 Agent 启动时自动拉起，Web UI 在 3210 端口可用
 ```
+
+配置 MCP（Claude Desktop / Hermes / OpenClaw）：
+
+```json
+{
+  "mcpServers": {
+    "keymemory": {
+      "command": "node",
+      "args": ["./packages/server/dist/mcp-server.js"]
+    }
+  }
+}
+```
+
+Agent 启动后自动可用，Web 管理界面在 `http://127.0.0.1:3210`。
 
 ## Agent 如何使用
 
-Agent 通过 MCP 工具与 KeyMemory 交互：
-
 | 工具 | 用途 |
 |------|------|
-| `memory_create` | 写入一条记忆 |
-| `memory_search` | 搜索相关记忆 |
-| `memory_read` | 读取单条完整内容 |
-| `memory_auto_remember` | 传入对话，自动评估并记录 |
-| `memory_import` | 批量导入（支持 Notion/Obsidian/JSON 等） |
-
-Agent 启动后自动可用，无需手动操作。
+| `memory_create` | 写入记忆，可用 `[[项目]]` 语法指定归属 |
+| `memory_search` | 混合搜索，可按项目筛选 |
+| `memory_auto_remember` | 传入对话内容，自动评估→提取实体→归类项目→记录 |
+| `memory_import` | 批量导入，支持从 Notion/Obsidian/JSON 等迁移 |
 
 ## 技术栈
 
 - **前端**：React + Vite + Tailwind
 - **后端**：Fastify + better-sqlite3
-- **嵌入**：ONNX Runtime + all-MiniLM-L6-v2（内置，无需下载）
+- **嵌入**：ONNX Runtime + all-MiniLM-L6-v2（内置）
 - **搜索**：SQLite FTS5 + 向量语义搜索
-- **协议**：MCP (Model Context Protocol)
+- **协议**：MCP
 
 ## License
 
