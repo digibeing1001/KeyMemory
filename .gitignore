@@ -8,5 +8,6 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+*.tsbuildinfo
 onnx-models/
 !packages/server/models/

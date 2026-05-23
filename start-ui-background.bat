@@ -11,6 +11,6 @@ node start-ui.js --background
 
 echo.
 echo 服务已在后台启动
-echo   - Web UI: http://localhost:5173
+echo   - Web UI: http://127.0.0.1:3210
 echo.
 pause

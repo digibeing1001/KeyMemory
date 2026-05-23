@@ -1,6 +1,7 @@
 {
   "name": "keymemory-mcp",
   "version": "0.1.0",
+  "private": true,
   "description": "KeyMemory - 个人记忆系统 MCP 服务器",
   "keywords": [
     "mcp",
@@ -18,8 +19,7 @@
   "bin": {
     "keymemory": "./dist/cli.js",
     "keymemory-mcp": "./dist/mcp-server.js",
-    "keymemory-setup": "./dist/setup.js",
-    "keymemory-ui": "../../bin/keymemory-ui.js"
+    "keymemory-setup": "./dist/setup.js"
   },
   "files": [
     "dist",
