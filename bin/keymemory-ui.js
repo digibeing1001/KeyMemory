@@ -44,7 +44,7 @@ if (WSL && ON_WIN_FS) {
   console.log('    \x1b[36mgit clone https://github.com/digibeing1001/KeyMemory.git ' + linuxDir + '\x1b[0m');
   console.log('    \x1b[36mcd ' + linuxDir + '\x1b[0m');
   console.log('    \x1b[36mpnpm install && pnpm build\x1b[0m');
-  console.log('    \x1b[36mkeymemory-ui\x1b[0m');
+  console.log('    \x1b[36mkeymemory dashboard\x1b[0m');
   console.log('');
   console.log('  \x1b[2m推荐方案:\x1b[0m 在 Linux 文件系统上克隆项目');
   console.log('');

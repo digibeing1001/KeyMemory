@@ -44,6 +44,7 @@ function showHelp() {
   console.log('');
   console.log('  \x1b[1m命令:\x1b[0m');
   console.log('    \x1b[36mupdate\x1b[0m      更新 KeyMemory 到最新版本');
+  console.log('    \x1b[36mdashboard\x1b[0m   启动 Web UI 服务');
   console.log('    \x1b[36mui\x1b[0m          启动 Web UI 服务 (别名: dashboard)');
   console.log('    \x1b[36mstatus\x1b[0m      查看系统健康状态');
   console.log('    \x1b[36mversion\x1b[0m     显示当前版本');
@@ -55,7 +56,7 @@ function showHelp() {
   console.log('  \x1b[1m示例:\x1b[0m');
   console.log('    keymemory update');
   console.log('    keymemory update --stash');
-  console.log('    keymemory ui');
+  console.log('    keymemory dashboard');
   console.log('    keymemory status');
   console.log('');
 }
@@ -182,7 +183,7 @@ function doUpdate() {
   console.log('');
   console.log('  \x1b[1m下一步:\x1b[0m');
   console.log('    1. 重启 Claude Desktop');
-  console.log('    2. 运行 \x1b[36mkeymemory ui\x1b[0m 启动服务');
+  console.log('    2. 运行 \x1b[36mkeymemory dashboard\x1b[0m 启动服务');
   console.log('');
 }
 
@@ -242,7 +243,7 @@ function doStatus() {
   req.on('error', () => {
     console.log('  \x1b[1mServer 状态:\x1b[0m \x1b[31m✗ 未运行\x1b[0m');
     console.log('    \x1b[2mKeyMemory Server 没有在 ' + PORT + ' 端口运行\x1b[0m');
-    console.log('    \x1b[2m运行 \x1b[36mkeymemory ui\x1b[0m \x1b[2m启动服务\x1b[0m');
+    console.log('    \x1b[2m运行 \x1b[36mkeymemory dashboard\x1b[0m \x1b[2m启动服务\x1b[0m');
     console.log('');
     checkScheduler();
   });
@@ -287,7 +288,7 @@ function doStatus() {
     console.log('');
     console.log('  \x1b[1m建议:\x1b[0m');
     console.log('    1. 如需自动梦境，确保 Server 常驻运行');
-    console.log('    2. 运行 \x1b[36mkeymemory ui\x1b[0m 启动 Web UI 并常驻');
+    console.log('    2. 运行 \x1b[36mkeymemory dashboard\x1b[0m 启动 Web UI 并常驻');
     console.log('    3. 或使用 \x1b[36mnode packages/server/dist/cli.js dream\x1b[0m 手动运行梦境');
     console.log('');
   }
@@ -300,8 +301,8 @@ switch (command) {
   case 'update':
     doUpdate();
     break;
-  case 'ui':
   case 'dashboard':
+  case 'ui':
     doUi();
     break;
   case 'version':

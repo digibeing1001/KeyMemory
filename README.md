@@ -23,21 +23,22 @@ npm install -g pnpm
 ```bash
 git clone https://github.com/digibeing1001/KeyMemory.git
 cd KeyMemory
-pnpm install
-pnpm build
+pnpm setup
 ```
+
+安装完成后，重新打开终端即可使用 `keymemory update` 和 `keymemory dashboard`。
 
 Windows 用户也可以直接运行：
 
 ```bat
 setup-hermes.bat
-start-ui.bat
+keymemory dashboard
 ```
 
 ### 启动 Web UI
 
 ```bash
-pnpm start:ui
+keymemory dashboard
 ```
 
 启动后访问：
@@ -46,7 +47,7 @@ pnpm start:ui
 http://127.0.0.1:3210
 ```
 
-首次启动如果还没有构建产物，`start-ui.js` 会自动执行构建。
+首次启动如果还没有构建产物，`keymemory dashboard` 会自动执行构建。
 
 ## MCP 配置
 
@@ -80,9 +81,9 @@ http://127.0.0.1:3210
 
 ```bash
 pnpm build                 # 构建 shared/server/web
-pnpm start:ui              # 启动 Web UI 和 MCP 服务
+keymemory dashboard        # 启动 Web UI
 pnpm start:mcp             # 只启动 MCP 服务
-pnpm update                # 从 GitHub 拉取更新并重新构建
+keymemory update           # 从 GitHub 拉取更新并重新构建
 pnpm install-memory        # 安装默认记忆系统配置
 ```
 
@@ -91,9 +92,9 @@ Windows 批处理入口：
 ```text
 setup-hermes.bat           # 生成 Claude Desktop/Hermes 配置
 start-hermes.bat           # 启动 Hermes 相关服务
-start-ui.bat               # 前台启动 Web UI
-start-ui-background.bat    # 后台启动 Web UI
-update-keymemory.bat       # git pull 后重新构建
+start-ui.bat               # 旧入口：前台启动 Web UI（推荐 keymemory dashboard）
+start-ui-background.bat    # 旧入口：后台启动 Web UI（推荐 keymemory dashboard）
+update-keymemory.bat       # 旧入口：git pull 后重新构建（推荐 keymemory update）
 install-default-memory.bat # 设置默认记忆系统
 ```
 
