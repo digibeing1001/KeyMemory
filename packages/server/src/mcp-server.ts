@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { stdin, stdout, stderr } from 'process';
+import { inspect } from 'util';
 import { createMemory, getMemory, listMemories, deleteMemory, updateMemory } from './core/atom.js';
 import { searchHybrid, ensureEmbedding } from './core/query.js';
 import { initDatabase } from './db/sqlite.js';
@@ -9,19 +10,57 @@ import { getLayerStats } from './core/layer.js';
 import type { Layer } from '@keymemory/shared';
 import { runDailyInspection } from './core/evolution.js';
 import { applyDecay } from './core/forgetting.js';
-import { startScheduler } from './core/scheduler.js';
+import { startScheduler, stopScheduler } from './core/scheduler.js';
+
+function formatLogArg(arg: unknown): string {
+  if (arg instanceof Error) return arg.stack || arg.message;
+  if (typeof arg === 'string') return arg;
+  return inspect(arg, { depth: 4, colors: false, breakLength: Infinity });
+}
+
+function writeLog(level: string, args: unknown[]): void {
+  stderr.write(`[KeyMemory ${level}] ${args.map(formatLogArg).join(' ')}\n`);
+}
+
+console.log = (...args: unknown[]) => writeLog('info', args);
+console.warn = (...args: unknown[]) => writeLog('warn', args);
+console.error = (...args: unknown[]) => writeLog('error', args);
+
+const launchedByKeyMemoryLauncher = process.env.KEYMEMORY_STDIO === '1';
+
+function shutdown(exitCode = 0): void {
+  try {
+    if (!launchedByKeyMemoryLauncher) stopScheduler();
+  } finally {
+    process.exit(exitCode);
+  }
+}
+
+process.once('SIGINT', () => shutdown(0));
+process.once('SIGTERM', () => shutdown(0));
+process.once('uncaughtException', (err) => {
+  writeLog('fatal', ['Uncaught exception:', err]);
+  shutdown(1);
+});
+process.on('unhandledRejection', (reason) => {
+  writeLog('error', ['Unhandled rejection:', reason]);
+});
 
 initDatabase();
 
 initEmbedding().catch(() => {});
 
-setInterval(async () => {
-  try { await runDailyInspection(); applyDecay(); } catch {}
-}, 86400000);
+if (launchedByKeyMemoryLauncher) {
+  console.log('stdio MCP mode: background REST server and scheduler disabled');
+} else {
+  setInterval(async () => {
+    try { await runDailyInspection(); applyDecay(); } catch {}
+  }, 86400000);
 
-startScheduler();
+  startScheduler();
 
-startRestServerInBackground();
+  startRestServerInBackground();
+}
 
 async function startRestServerInBackground() {
   try {
@@ -549,3 +588,5 @@ stdin.on('data', (data) => {
     }
   }
 });
+
+stdin.on('end', () => shutdown(0));

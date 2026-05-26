@@ -27,6 +27,7 @@ pnpm setup
 ```
 
 安装完成后，重新打开终端即可使用 `keymemory update` 和 `keymemory dashboard`。
+如果 MCP 工具不可用，先运行 `keymemory doctor` 检查路径、构建产物和服务状态。
 
 Windows 用户也可以直接运行：
 
@@ -51,37 +52,27 @@ http://127.0.0.1:3210
 
 ## MCP 配置
 
-推荐使用绝对路径配置 MCP，避免不同客户端的工作目录不一致。
+推荐使用稳定启动器配置 MCP，避免直接指向 `packages/server/dist/mcp-server.js`。启动器会检查构建产物、记录启动日志，并避免 MCP stdout 被日志污染。
 
 ```json
 {
   "mcpServers": {
     "keymemory": {
       "command": "node",
-      "args": ["C:/path/to/KeyMemory/packages/server/dist/mcp-server.js"]
+      "args": ["C:/path/to/KeyMemory/bin/keymemory-mcp.js"]
     }
   }
 }
 ```
 
-如果你在 KeyMemory 仓库根目录内启动客户端，也可以使用相对路径：
-
-```json
-{
-  "mcpServers": {
-    "keymemory": {
-      "command": "node",
-      "args": ["./packages/server/dist/mcp-server.js"]
-    }
-  }
-}
-```
+MCP 启动日志默认写入 `~/.keymemory/logs/mcp.log`。若工具不可用，运行 `keymemory doctor`。
 
 ## 常用命令
 
 ```bash
 pnpm build                 # 构建 shared/server/web
 keymemory dashboard        # 启动 Web UI
+keymemory doctor           # 诊断 MCP/Web UI 配置和健康状态
 pnpm start:mcp             # 只启动 MCP 服务
 keymemory update           # 从 GitHub 拉取更新并重新构建
 pnpm install-memory        # 安装默认记忆系统配置

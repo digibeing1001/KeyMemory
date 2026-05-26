@@ -30,16 +30,21 @@ if (!modelReady) {
 }
 
 const configPath = path.join(os.homedir(), 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
+const mcpLauncherPath = path.join(projectPath, 'bin', 'keymemory-mcp.js');
 const mcpServerPath = path.join(projectPath, 'packages', 'server', 'dist', 'mcp-server.js');
 
 console.log(`\n📂 项目路径: ${projectPath}`);
+console.log(`📂 MCP 启动器: ${mcpLauncherPath}`);
 console.log(`📂 MCP 服务: ${mcpServerPath}`);
 console.log(`📂 目标配置: ${configPath}`);
 
-if (!fs.existsSync(mcpServerPath)) {
-  console.log('\n❌ 错误：找不到 mcp-server.js');
-  console.log('   请先运行: pnpm build');
+if (!fs.existsSync(mcpLauncherPath)) {
+  console.log('\n❌ 错误：找不到 keymemory-mcp.js');
   process.exit(1);
+}
+
+if (!fs.existsSync(mcpServerPath)) {
+  console.log('\n⚠️  找不到 mcp-server.js。配置仍会写入启动器，但请运行: pnpm build');
 }
 
 let config = {};
@@ -58,7 +63,7 @@ if (!config.mcpServers) {
 
 config.mcpServers.keymemory = {
   command: 'node',
-  args: [mcpServerPath],
+  args: [mcpLauncherPath],
 };
 
 const configDir = path.dirname(configPath);
@@ -74,6 +79,7 @@ console.log(JSON.stringify(config, null, 2));
 
 console.log('\n🚀 下一步：');
 console.log('1. 重启 Claude Desktop');
-console.log('2. 运行 start-hermes.bat 启动服务');
-console.log('3. 对 Hermes 说："帮我记住..."');
+console.log('2. 如需 Web UI，运行 keymemory dashboard');
+console.log('3. 如需排查，运行 keymemory doctor');
+console.log('4. 对 Hermes 说："帮我记住..."');
 console.log('\n💡 详细使用说明请查看 HERMES_QUICKSTART.md');

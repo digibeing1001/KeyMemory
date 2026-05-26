@@ -6,6 +6,7 @@
   "homepage": "https://github.com/your-username/keymemory",
   "bin": {
     "keymemory": "./bin/keymemory.js",
+    "keymemory-mcp": "./bin/keymemory-mcp.js",
     "keymemory-ui": "./bin/keymemory-ui.js"
   },
   "scripts": {
@@ -14,7 +15,7 @@
     "dev:web": "pnpm --filter @keymemory/web run dev",
     "dev:cli": "pnpm --filter keymemory-mcp run dev:cli",
     "cli": "pnpm --filter keymemory-mcp run cli",
-    "start:mcp": "pnpm --filter keymemory-mcp run start:mcp",
+    "start:mcp": "node bin/keymemory-mcp.js",
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",

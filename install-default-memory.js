@@ -6,6 +6,7 @@ const os = require('os');
 const readline = require('readline');
 
 const projectPath = process.cwd();
+const mcpLauncherPath = path.join(projectPath, 'bin', 'keymemory-mcp.js');
 const mcpServerPath = path.join(projectPath, 'packages', 'server', 'dist', 'mcp-server.js');
 
 const CLAUDE_MD_CONTENT = `# KeyMemory - Default Memory System
@@ -46,7 +47,7 @@ function question(prompt) {
 function getMcpServerConfig() {
   return {
     command: 'node',
-    args: [mcpServerPath],
+    args: [mcpLauncherPath],
   };
 }
 
@@ -252,13 +253,17 @@ async function main() {
   console.log('🧠 KeyMemory 默认记忆系统安装器');
   console.log('='.repeat(40));
 
-  if (!fs.existsSync(mcpServerPath)) {
-    console.log('\n❌ 错误：找不到 MCP 服务器');
-    console.log('   请先运行: pnpm build');
+  if (!fs.existsSync(mcpLauncherPath)) {
+    console.log('\n❌ 错误：找不到 MCP 启动器');
     process.exit(1);
   }
 
+  if (!fs.existsSync(mcpServerPath)) {
+    console.log('\n⚠️  找不到 MCP 构建产物。配置仍会写入启动器，但请运行: pnpm build');
+  }
+
   console.log(`\n📂 项目路径: ${projectPath}`);
+  console.log(`📂 MCP 启动器: ${mcpLauncherPath}`);
   console.log(`📂 MCP 服务: ${mcpServerPath}`);
 
   const detected = [];

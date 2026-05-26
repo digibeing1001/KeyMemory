@@ -83,6 +83,7 @@ console.log('  \x1b[1m启动方式:\x1b[0m');
 console.log('');
 console.log('    \x1b[36mkeymemory dashboard\x1b[0m  一键启动 Web UI');
 console.log('    \x1b[36mkeymemory update\x1b[0m     更新 KeyMemory');
+console.log('    \x1b[36mkeymemory doctor\x1b[0m     诊断 MCP/Web UI 状态');
 console.log('    \x1b[36mpnpm start:ui\x1b[0m        从项目目录启动');
 console.log('');
 console.log('  \x1b[2m⚠ 新终端窗口需要重新打开才能使用 keymemory 命令\x1b[0m');

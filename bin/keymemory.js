@@ -45,6 +45,8 @@ function showHelp() {
   console.log('  \x1b[1m命令:\x1b[0m');
   console.log('    \x1b[36mupdate\x1b[0m      更新 KeyMemory 到最新版本');
   console.log('    \x1b[36mdashboard\x1b[0m   启动 Web UI 服务');
+  console.log('    \x1b[36mdoctor\x1b[0m      诊断 MCP/Web UI 配置与健康');
+  console.log('    \x1b[36mmcp\x1b[0m         启动 MCP server (供 Agent 配置使用)');
   console.log('    \x1b[36mui\x1b[0m          启动 Web UI 服务 (别名: dashboard)');
   console.log('    \x1b[36mstatus\x1b[0m      查看系统健康状态');
   console.log('    \x1b[36mversion\x1b[0m     显示当前版本');
@@ -57,6 +59,7 @@ function showHelp() {
   console.log('    keymemory update');
   console.log('    keymemory update --stash');
   console.log('    keymemory dashboard');
+  console.log('    keymemory doctor');
   console.log('    keymemory status');
   console.log('');
 }
@@ -191,6 +194,14 @@ function doUi() {
   require('./keymemory-ui');
 }
 
+function doDoctor() {
+  require('./keymemory-doctor.js');
+}
+
+function doMcp() {
+  require('./keymemory-mcp.js');
+}
+
 function doStatus() {
   const http = require('http');
   const fs = require('fs');
@@ -304,6 +315,12 @@ switch (command) {
   case 'dashboard':
   case 'ui':
     doUi();
+    break;
+  case 'doctor':
+    doDoctor();
+    break;
+  case 'mcp':
+    doMcp();
     break;
   case 'version':
   case '-v':
