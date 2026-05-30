@@ -1,25 +1,24 @@
 # KeyMemory
 
-KeyMemory is a local-first memory layer for coding and work agents. It connects to tools such as Claude Code, Hermes, OpenClaw, Codex, and other MCP-compatible agents, then stores project memory that the agent can retrieve during long-running work.
+KeyMemory 是一个本地优先的 Agent 记忆底座。它可以接入 Claude Code、Hermes、OpenClaw、Codex 以及其他 MCP 兼容 Agent，用来保存用户与 Agent 长期协作时产生的项目记忆，并在后续任务中把关键上下文重新提供给 Agent。
 
-It is designed for users who already work with agents every day and need the agent to remember project decisions, preferences, constraints, tasks, procedures, and old context without mixing unrelated projects together.
+它不是一个简单的笔记库。KeyMemory 的核心目标是：让 Agent 记住项目、决策、偏好、约束、流程、任务和旧上下文，同时避免不同项目的记忆混在一起。
 
-## What It Does
+## 核心能力
 
-- Stores agent-user interaction memory in a local SQLite database.
-- Organizes memories into a nested project tree.
-- Lets agents retrieve a compact context pack before doing project work.
-- Runs a "dream" consolidation cycle to merge duplicates, connect related memories, supersede stale guidance, and suggest project reorganization.
-- Imports existing local memories from Codex, Claude Code, Hermes, OpenClaw, Cursor, Gemini, Mem0/OpenMemory-style folders, Markdown, JSON, JSONL/NDJSON, and plain text.
-- Creates safety backups before write imports and destructive restore operations.
-- Redacts common secrets before storage, search indexing, embeddings, and versions.
-- Runs on Windows, Linux, macOS, and Windows WSL.
+- 本地 SQLite 存储，默认数据不出本机。
+- 以项目树组织记忆，项目下还能继续创建子项目。
+- 支持 `[[项目/子项目]]` 和自然语言项目提示自动归类。
+- 为 Agent 生成紧凑的 `memory_context_pack`，适合长期项目上下文注入。
+- 支持梦境整理：合并重复记忆、关联相关记忆、替换过时记忆、归档低价值记忆，并提出项目整理建议。
+- 支持一键迁移旧记忆：Codex、Claude Code、Hermes、OpenClaw、Cursor、Gemini、Mem0/OpenMemory 风格目录，以及 Markdown、JSON、JSONL/NDJSON、纯文本文件。
+- 写入式迁移前自动创建可携备份；恢复前也会先备份现库。
+- 写入、索引、嵌入、版本记录前会脱敏常见密钥和凭证。
+- 支持 Windows、Linux、macOS、Windows WSL。
 
-## Current Release Model
+## 当前分发方式
 
-KeyMemory is currently distributed from source through this repository. The root package is intentionally `private: true`; do not install it as a published npm package yet.
-
-Recommended flow:
+当前推荐从 GitHub 源码仓库安装。仓库根包保持 `private: true`，暂不作为公开 npm 包发布。
 
 ```bash
 git clone https://github.com/digibeing1001/KeyMemory.git
@@ -28,36 +27,37 @@ pnpm setup
 keymemory doctor
 ```
 
-Requirements:
+环境要求：
 
-- Node.js 20 or newer
+- Node.js 20 或更高版本
 - pnpm
 - Git
 
-## First Run
+## 首次使用
 
-Use onboarding first. It previews old memories, estimates the import result, and prints agent config snippets without writing anything.
+先运行预览，不写入任何记忆：
 
 ```bash
 keymemory onboard
 ```
 
-If the preview looks right, apply the migration:
+预览确认无误后，再执行真实迁移：
 
 ```bash
 keymemory onboard --yes --run-dream --agent-target all
 ```
 
-This will:
+它会完成：
 
-- discover old local memory sources
-- create a portable backup before writing
-- import and normalize old memories
-- infer project paths and memory kinds
-- optionally run dream consolidation
-- print config snippets for supported agents
+- 发现旧记忆来源
+- 估算迁移结果
+- 写入前创建备份
+- 导入并规范化旧记忆
+- 推断项目路径和记忆类型
+- 可选运行梦境整理
+- 输出 Agent 接入配置片段
 
-Useful options:
+常用选项：
 
 ```bash
 keymemory onboard --root <workspace>
@@ -68,46 +68,52 @@ keymemory onboard --agent-target hermes
 keymemory onboard --agent-target openclaw
 ```
 
-## Start The UI
+## 启动 Web UI
 
 ```bash
 keymemory dashboard
 ```
 
-Open:
+浏览器打开：
 
 ```text
 http://127.0.0.1:3210
 ```
 
-The UI includes:
+Web UI 包含：
 
-- memory editor
-- project tree
-- search
-- tag cloud
-- dream reports and scheduler
-- migration import page
-- project organization suggestions
-- recycle bin
+- 记忆编辑器
+- 项目树
+- 搜索
+- 标签云
+- 梦境报告与调度
+- 迁移导入
+- 项目整理建议
+- 回收站
 
-By default the server binds only to `127.0.0.1`. To expose it to a LAN or public host, set `KEYMEMORY_API_KEY` first. Protected REST and HTTP MCP routes then require:
+默认只监听 `127.0.0.1`。如果要开放到局域网或公网，必须先设置：
+
+```bash
+KEYMEMORY_API_KEY=<your-key>
+```
+
+受保护的 REST / HTTP MCP 请求需要携带：
 
 ```text
 Authorization: Bearer <key>
 ```
 
-or:
+或：
 
 ```text
 x-api-key: <key>
 ```
 
-Browser CORS for non-loopback origins must be explicitly allowed through `KEYMEMORY_ALLOWED_ORIGINS`.
+浏览器跨域访问还需要显式设置 `KEYMEMORY_ALLOWED_ORIGINS`。
 
-## Connect Agents
+## 接入 Agent
 
-Generate config snippets:
+生成配置片段：
 
 ```bash
 keymemory agent-config all
@@ -115,74 +121,74 @@ keymemory agent-config codex --format compact
 keymemory agent-config openclaw --format json
 ```
 
-Supported targets:
+支持目标：
 
-- `generic`: any MCP-compatible agent
+- `generic`：任意 MCP 兼容 Agent
 - `claude-desktop`
 - `claude-code`
 - `hermes`
 - `openclaw`
 - `codex`
 
-Use the launcher path from the generated snippet:
+推荐使用生成结果里的启动器路径：
 
 ```text
 bin/keymemory-mcp.js
 ```
 
-The launcher checks build output, writes logs to `~/.keymemory/logs/mcp.log`, and keeps MCP stdout clean for JSON-RPC.
+启动器会检查构建产物，把日志写到 `~/.keymemory/logs/mcp.log`，并保持 MCP stdout 干净，避免污染 JSON-RPC。
 
-After connecting, ask the agent to call:
+接入后，建议让 Agent 在长期任务前调用：
 
-- `memory_context_pack` before long-running project work
-- `memory_auto_remember` after important decisions, user preferences, or project updates
+- `memory_context_pack`：读取项目上下文包
+- `memory_auto_remember`：在重要偏好、决策、约束、任务变化后自动记忆
 
-Main MCP tools:
+主要 MCP 工具：
 
-| Tool | Purpose |
+| 工具 | 用途 |
 | --- | --- |
-| `memory_create` | Create a memory. |
-| `memory_search` | Search memory with project, descendant, kind, and superseded filters. |
-| `memory_context_pack` | Build a compact grouped context pack for an agent. |
-| `memory_auto_remember` | Evaluate and store important conversation content. |
-| `memory_migration_discover` | Discover old local memory sources. |
-| `memory_migration_import` | Import and reorganize old memory files or folders. |
-| `memory_backup_create` | Create a portable backup before migration or dream consolidation. |
-| `memory_backup_inspect` | Inspect backup structure and checksums. |
-| `memory_backup_restore_dry_run` | Verify backup restore readiness without writing data. |
-| `memory_relate` | Link memories with relations such as `relates_to` or `supersedes`. |
-| `memory_related` | List memories related to a given memory. |
-| `memory_project_suggestions` | List dream-created project organization suggestions. |
-| `memory_project_suggestion_accept` | Accept a project organization suggestion. |
-| `memory_project_suggestion_reject` | Reject a project organization suggestion. |
+| `memory_create` | 创建记忆 |
+| `memory_search` | 按项目、子项目、类型、是否包含被替代记忆搜索 |
+| `memory_context_pack` | 生成分组上下文包 |
+| `memory_auto_remember` | 评估并保存重要对话内容 |
+| `memory_migration_discover` | 发现旧记忆来源 |
+| `memory_migration_import` | 导入并重组旧记忆 |
+| `memory_backup_create` | 迁移或梦境前创建备份 |
+| `memory_backup_inspect` | 检查备份结构与 checksum |
+| `memory_backup_restore_dry_run` | 验证备份是否可恢复 |
+| `memory_relate` | 创建 `relates_to`、`supersedes` 等记忆关系 |
+| `memory_related` | 查看相关记忆 |
+| `memory_project_suggestions` | 查看梦境生成的项目整理建议 |
+| `memory_project_suggestion_accept` | 接受项目整理建议 |
+| `memory_project_suggestion_reject` | 拒绝项目整理建议 |
 
-## One-Click Migration
+## 一键迁移旧记忆
 
-Discover local memory sources:
+发现本机旧记忆：
 
 ```bash
 keymemory migrate-discover
 ```
 
-Preview an import:
+预览单个文件或目录：
 
 ```bash
 keymemory migrate <file-or-directory> --dry-run
 ```
 
-Import one path:
+导入单个文件或目录：
 
 ```bash
 keymemory migrate <file-or-directory> --source codex --run-dream
 ```
 
-Import discovered sources:
+导入自动发现的来源：
 
 ```bash
 keymemory migrate-auto --run-dream
 ```
 
-Supported formats:
+支持格式：
 
 - `.json`
 - `.jsonl`
@@ -191,50 +197,50 @@ Supported formats:
 - `.markdown`
 - `.txt`
 
-When old memories do not contain explicit project markers, KeyMemory tries to route them from:
+如果旧记忆没有写明项目，KeyMemory 会尝试从这些信息推断：
 
-- structured metadata such as `workspace`, `cwd`, `repoPath`, or `projectPath`
-- discovered source defaults such as `Workspaces/<workspace>/Claude Code`
-- relative folder paths such as `Agent Writer Dashboard/Frontend`
+- `workspace`、`cwd`、`repoPath`、`projectPath` 等结构化字段
+- 发现来源默认路径，例如 `Workspaces/<workspace>/Claude Code`
+- 文件相对目录，例如 `Agent Writer Dashboard/Frontend`
 
-## Project Memory
+## 项目记忆
 
-Every memory belongs to a project. Projects can be nested.
+每条记忆都属于一个项目。项目可以嵌套。
 
-You can route a memory explicitly:
+显式指定项目：
 
 ```text
 [[KeyMemory/Release/Migration]]
 ```
 
-Or with a natural-language project hint:
+自然语言提示：
 
 ```text
 项目路径: KeyMemory/Release/Migration
 ```
 
-Project-scoped retrieval includes descendants by default, so an agent working inside `KeyMemory/Release` can retrieve memories from `KeyMemory/Release/Migration`.
+项目检索默认包含子项目。因此 Agent 在 `KeyMemory/Release` 下工作时，也能读到 `KeyMemory/Release/Migration` 的相关记忆。
 
-## Dream Consolidation
+## 梦境整理
 
-Dream cycles keep memory usable as it grows.
+梦境用于定期整理越来越多、越来越杂的记忆。
 
-They can:
+它可以：
 
-- merge duplicate memories
-- archive stale or flash memories
-- create `supersedes` links when new guidance replaces old guidance
-- create `relates_to` links between related memories
-- suggest project-tree reorganization
-- produce reports that can be rolled back
+- 合并重复记忆
+- 归档过期或低价值闪念
+- 在新记忆替代旧记忆时创建 `supersedes` 关系
+- 在相关记忆之间创建 `relates_to` 关系
+- 给出项目树整理建议
+- 生成可回滚报告
 
-Run manually:
+手动运行：
 
 ```bash
 keymemory dream
 ```
 
-Configure the scheduler:
+查看或修改调度：
 
 ```bash
 keymemory scheduler
@@ -243,41 +249,41 @@ keymemory scheduler --disable
 keymemory scheduler --enable
 ```
 
-Only daily 5-field cron values are accepted:
+当前只接受每日 5 字段 cron：
 
 ```text
 M H * * *
 ```
 
-## Backup And Restore
+## 备份与恢复
 
-Create a portable backup:
+创建备份：
 
 ```bash
 keymemory backup-create ./keymemory-backup.json
 ```
 
-Inspect it:
+检查备份：
 
 ```bash
 keymemory backup-inspect ./keymemory-backup.json
 ```
 
-Verify restore readiness without writing:
+仅验证恢复，不写入：
 
 ```bash
 keymemory backup-restore ./keymemory-backup.json --dry-run
 ```
 
-Restore with replace:
+替换恢复：
 
 ```bash
 keymemory backup-restore ./keymemory-backup.json --replace
 ```
 
-`--replace` creates a pre-restore backup first, then restores transactionally and rebuilds FTS.
+`--replace` 会先创建 pre-restore 备份，再事务式恢复并重建 FTS。
 
-## Common Commands
+## 常用命令
 
 ```bash
 keymemory doctor
@@ -292,7 +298,7 @@ keymemory scheduler
 keymemory update
 ```
 
-Developer and release checks:
+开发与发布检查：
 
 ```bash
 pnpm typecheck
@@ -305,42 +311,42 @@ pnpm perf:memory
 pnpm release:check
 ```
 
-## Release Quality
+## 发布质量
 
-The release gate is:
+发布闸门：
 
 ```bash
 pnpm release:check
 ```
 
-It verifies:
+它会验证：
 
-- TypeScript typecheck
-- production build
-- doctor capability smoke
-- long-term memory eval
-- performance budget
+- TypeScript 类型检查
+- 生产构建
+- doctor 能力冒烟
+- 长期记忆评测
+- 性能预算
 - fresh database smoke
 - stdio MCP smoke
 - launcher smoke
-- migration, backup, relation, scheduler, auth, and project-organization coverage
+- 迁移、备份、关系、调度、认证、项目整理覆盖
 
-Current verified gate: `pnpm release:check` passed on 2026-05-31.
+当前已验证：`pnpm release:check` 于 2026-05-31 通过。
 
-Known non-blocker: `keymemory doctor` may warn when `KEYMEMORY_MCP_CONFIG` is not set. That only means it could not inspect an external agent config file; the local MCP launcher still works.
+已知非阻塞项：`keymemory doctor` 在未设置 `KEYMEMORY_MCP_CONFIG` 时会提示 warning。这只表示它无法检查外部 Agent 配置文件，不影响本地 MCP launcher 使用。
 
-## Documentation
+## 文档
 
-- [Migration Guide](MIGRATION_GUIDE.md)
-- [Agent Configuration](docs/agent-configuration.md)
+- [迁移指南](MIGRATION_GUIDE.md)
+- [Agent 配置](docs/agent-configuration.md)
 - [Agent Context Pack](docs/agent-context-pack.md)
-- [Backup And Recovery](docs/backup-and-recovery.md)
-- [Memory Relations](docs/memory-relations.md)
-- [Privacy And Safety](docs/privacy-and-safety.md)
-- [Performance](docs/performance.md)
-- [Release Readiness](docs/release-readiness.md)
-- [Product Release Audit](docs/product-release-audit.md)
-- [Research And Product Upgrade](docs/research-and-product-upgrade.md)
+- [备份与恢复](docs/backup-and-recovery.md)
+- [记忆关系](docs/memory-relations.md)
+- [隐私与安全](docs/privacy-and-safety.md)
+- [性能预算](docs/performance.md)
+- [发布就绪检查](docs/release-readiness.md)
+- [产品发布审计](docs/product-release-audit.md)
+- [研究与产品升级](docs/research-and-product-upgrade.md)
 
 ## License
 
