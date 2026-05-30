@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
+const CLI_ENTRY = path.join(ROOT, 'packages', 'server', 'dist', 'cli.js');
 
 function run(cmd, options = {}) {
   try {
@@ -49,6 +50,10 @@ function showHelp() {
   console.log('    \x1b[36mmcp\x1b[0m         启动 MCP server (供 Agent 配置使用)');
   console.log('    \x1b[36mui\x1b[0m          启动 Web UI 服务 (别名: dashboard)');
   console.log('    \x1b[36mstatus\x1b[0m      查看系统健康状态');
+  console.log('    \x1b[36mcontext\x1b[0m     生成 Agent 上下文包 (透传 server CLI)');
+  console.log('    \x1b[36mmigrate-auto\x1b[0m 一键迁移旧记忆 (透传 server CLI)');
+  console.log('    \x1b[36monboard\x1b[0m     首次入门：迁移预览/导入 + Agent 配置 (透传 server CLI)');
+  console.log('    \x1b[36mbackup-create\x1b[0m 创建可携备份 (透传 server CLI)');
   console.log('    \x1b[36mversion\x1b[0m     显示当前版本');
   console.log('    \x1b[36mhelp\x1b[0m        显示帮助信息');
   console.log('');
@@ -60,6 +65,10 @@ function showHelp() {
   console.log('    keymemory update --stash');
   console.log('    keymemory dashboard');
   console.log('    keymemory doctor');
+  console.log('    keymemory context "当前任务" --project "KeyMemory/发布"');
+  console.log('    keymemory onboard --yes --run-dream');
+  console.log('    keymemory backup-create ./keymemory-backup.json');
+  console.log('    keymemory backup-restore ./keymemory-backup.json --dry-run');
   console.log('    keymemory status');
   console.log('');
 }
@@ -202,6 +211,27 @@ function doMcp() {
   require('./keymemory-mcp.js');
 }
 
+function ensureCliBuilt() {
+  if (fs.existsSync(CLI_ENTRY)) return;
+  console.log('');
+  console.log('  \x1b[33m⚠ CLI 构建产物不存在，正在执行 pnpm build...\x1b[0m');
+  run('pnpm build');
+}
+
+function doCliPassthrough(args) {
+  ensureCliBuilt();
+  const result = spawnSync(process.execPath, [CLI_ENTRY, ...args], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: process.env,
+  });
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+  process.exit(result.status ?? 0);
+}
+
 function doStatus() {
   const http = require('http');
   const fs = require('fs');
@@ -327,13 +357,16 @@ switch (command) {
   case '--version':
     showVersion();
     break;
+  case 'status':
+    doStatus();
+    break;
   case 'help':
   case '-h':
   case '--help':
-  default:
-    if (command && command !== 'help' && command !== '-h' && command !== '--help') {
-      console.log(`\x1b[31m未知命令: ${command}\x1b[0m`);
-    }
+  case undefined:
     showHelp();
+    break;
+  default:
+    doCliPassthrough(process.argv.slice(2));
     break;
 }

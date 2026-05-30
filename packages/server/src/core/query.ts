@@ -6,6 +6,17 @@ import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, EMBEDDIN
 import { recordHit } from './atom.js';
 import { rowToMemory } from '../db/mapper.js';
 
+type SearchOptions = {
+  layer?: Layer;
+  status?: MemoryStatus;
+  agentSpaces?: string[];
+  projectId?: string;
+  includeDescendants?: boolean;
+  includeSuperseded?: boolean;
+  memoryKind?: string;
+  limit?: number;
+};
+
 function logQuery(query: string, memoryId: string, matchType: string): void {
   try {
     const db = getDatabase();
@@ -16,6 +27,52 @@ function logQuery(query: string, memoryId: string, matchType: string): void {
     `).run(uuid(), query.trim().slice(0, 200), memoryId, matchType, now);
   } catch {
     // 查询日志失败不应影响搜索功能
+  }
+}
+
+function addSearchFilters(conditions: string[], params: Record<string, unknown>, options?: SearchOptions): void {
+  if (options?.layer) {
+    conditions.push('m.layer = @layer');
+    params.layer = options.layer;
+  }
+
+  if (options?.projectId) {
+    params.projectId = options.projectId;
+    if (options.includeDescendants === false) {
+      conditions.push('m.project_id = @projectId');
+    } else {
+      conditions.push(`m.project_id IN (
+        SELECT child.id
+        FROM projects child
+        JOIN projects root ON root.id = @projectId
+        WHERE child.id = root.id OR child.path LIKE root.path || '/%'
+      )`);
+    }
+  }
+
+  if (options?.memoryKind) {
+    conditions.push("(m.tags LIKE @memoryKindTag OR m.metadata LIKE @memoryKindMeta)");
+    params.memoryKindTag = `%kind:${options.memoryKind}%`;
+    params.memoryKindMeta = `%"memoryKind":"${options.memoryKind}"%`;
+  }
+
+  const activeSearch = (options?.status ?? 'active') === 'active';
+  if (activeSearch && options?.includeSuperseded !== true) {
+    conditions.push(`NOT EXISTS (
+      SELECT 1
+      FROM memory_relations r
+      JOIN memories source ON source.id = r.source_memory_id
+      WHERE r.target_memory_id = m.id
+        AND r.relation_type = 'supersedes'
+        AND source.status = 'active'
+    )`);
+  }
+
+  if (options?.agentSpaces && options.agentSpaces.length > 0) {
+    conditions.push(`m.agent_space IN (${options.agentSpaces.map((_, i) => `@agentSpace${i}`).join(', ')})`);
+    options.agentSpaces.forEach((space, i) => {
+      params[`agentSpace${i}`] = space;
+    });
   }
 }
 
@@ -45,27 +102,13 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
   `).run(memoryId, embeddingToBuffer(vector), now);
 }
 
-export async function searchFulltext(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; projectId?: string; limit?: number }): Promise<SearchResult[]> {
+export async function searchFulltext(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   const db = getDatabase();
-  const conditions = ["m.status = 'active'"];
+  const conditions = [options?.status ? 'm.status = @status' : "m.status = 'active'"];
   const params: Record<string, unknown> = { limit: options?.limit ?? 20 };
+  if (options?.status) params.status = options.status;
 
-  if (options?.layer) {
-    conditions.push('m.layer = @layer');
-    params.layer = options.layer;
-  }
-
-  if (options?.projectId) {
-    conditions.push('m.project_id = @projectId');
-    params.projectId = options.projectId;
-  }
-
-  if (options?.agentSpaces && options.agentSpaces.length > 0) {
-    conditions.push(`m.agent_space IN (${options.agentSpaces.map((_, i) => `@agentSpace${i}`).join(', ')})`);
-    options.agentSpaces.forEach((space, i) => {
-      params[`agentSpace${i}`] = space;
-    });
-  }
+  addSearchFilters(conditions, params, options);
 
   let matchQuery = query;
   const hasWildcard = query.includes('*') || query.includes('?');
@@ -103,13 +146,57 @@ export async function searchFulltext(query: string, options?: { layer?: Layer; s
       logQuery(query, r.memory.id, 'fulltext');
     }
 
-    return results;
+    if (results.length > 0) return results;
+    return searchLikeFallback(query, conditions, params);
   } catch {
-    return [];
+    return searchLikeFallback(query, conditions, params);
   }
 }
 
-export async function searchSemantic(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; projectId?: string; limit?: number }): Promise<SearchResult[]> {
+function searchLikeFallback(query: string, conditions: string[], params: Record<string, unknown>): SearchResult[] {
+  const db = getDatabase();
+  const terms = query
+    .split(/[\s,，。；;]+/)
+    .map(t => t.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  if (terms.length === 0) return [];
+
+  const likeConditions = terms.map((_, i) => `(
+    m.title LIKE @like${i}
+    OR m.content LIKE @like${i}
+    OR m.tags LIKE @like${i}
+    OR m.metadata LIKE @like${i}
+    OR p.name LIKE @like${i}
+    OR p.path LIKE @like${i}
+  )`);
+  const likeParams = { ...params };
+  terms.forEach((term, i) => {
+    likeParams[`like${i}`] = `%${term}%`;
+  });
+
+  const rows = db.prepare(`
+    SELECT m.*
+    FROM memories m
+    LEFT JOIN projects p ON p.id = m.project_id
+    WHERE ${conditions.join(' AND ')}
+      AND (${likeConditions.join(' OR ')})
+    ORDER BY m.updated_at DESC
+    LIMIT @limit
+  `).all(likeParams) as Record<string, unknown>[];
+
+  const results = rows.map(r => ({
+    memory: rowToMemory(r),
+    score: 0.01,
+    matchType: 'fulltext' as const,
+  }));
+  for (const r of results) {
+    logQuery(query, r.memory.id, 'like');
+  }
+  return results;
+}
+
+export async function searchSemantic(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   if (!isEmbeddingAvailable()) {
     return [];
   }
@@ -120,24 +207,10 @@ export async function searchSemantic(query: string, options?: { layer?: Layer; s
   }
 
   const db = getDatabase();
-  const conditions = ["m.status = 'active'"];
+  const conditions = [options?.status ? 'm.status = @status' : "m.status = 'active'"];
   const params: Record<string, unknown> = {};
-  if (options?.layer) {
-    conditions.push('m.layer = @layer');
-    params.layer = options.layer;
-  }
-
-  if (options?.projectId) {
-    conditions.push('m.project_id = @projectId');
-    params.projectId = options.projectId;
-  }
-
-  if (options?.agentSpaces && options.agentSpaces.length > 0) {
-    conditions.push(`m.agent_space IN (${options.agentSpaces.map((_, i) => `@agentSpace${i}`).join(', ')})`);
-    options.agentSpaces.forEach((space, i) => {
-      params[`agentSpace${i}`] = space;
-    });
-  }
+  if (options?.status) params.status = options.status;
+  addSearchFilters(conditions, params, options);
 
   const rows = db.prepare(`
     SELECT m.*, e.embedding
@@ -208,7 +281,14 @@ export async function findDuplicateMemories(threshold: number = 0.9, limit: numb
   return duplicates.slice(0, limit);
 }
 
-export async function searchHybrid(query: string, options?: { layer?: Layer; status?: MemoryStatus; agentSpaces?: string[]; projectId?: string; limit?: number }): Promise<SearchResult[]> {
+function productionRankBoost(memory: SearchResult['memory']): number {
+  const hitBoost = Math.min(0.006, Math.log1p(memory.hitCount) * 0.0015);
+  const confidenceBoost = Math.max(0, Math.min(memory.confidence, 1)) * 0.003;
+  const longBoost = memory.layer === 'long' || memory.layer === 'entity' ? 0.002 : 0;
+  return hitBoost + confidenceBoost + longBoost;
+}
+
+export async function searchHybrid(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   const limit = options?.limit ?? 20;
 
   const [fulltextResults, semanticResults] = await Promise.all([
@@ -236,6 +316,7 @@ export async function searchHybrid(query: string, options?: { layer?: Layer; sta
     let score = 0;
     if (data.fulltextRank) score += SEARCH_WEIGHTS.fulltext / (k + data.fulltextRank);
     if (data.semanticRank) score += SEARCH_WEIGHTS.semantic / (k + data.semanticRank);
+    score += productionRankBoost(data.memory);
     return {
       memory: data.memory,
       score,

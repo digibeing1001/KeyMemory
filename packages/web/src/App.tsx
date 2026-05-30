@@ -2,31 +2,34 @@ import { useState, useEffect } from 'react';
 import type { Layer, SearchResult, HealthReport, Memory } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
-import { Search, Close } from './components/Icons';
+import { Search, Close, Key } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
 import NebulaGraph from './components/NebulaGraph';
 import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
+import MigrationView from './components/MigrationView';
+import ProjectSuggestionsView from './components/ProjectSuggestionsView';
 import Editor from './views/Editor';
-import { getHealth, getMemoryConnections, getTagCloud, getAgents, searchMemories, listRecycleBin, restoreFromRecycleBin, permanentlyDeleteMemory } from './lib/api';
+import { getHealth, getMemoryConnections, getTagCloud, getAgents, searchMemories, listRecycleBin, restoreFromRecycleBin, permanentlyDeleteMemory, setStoredApiKey, clearStoredApiKey } from './lib/api';
 import type { MemoryGraphData, TagCloudData, AgentInfo } from './lib/api';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'recycle';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle';
 
 function AppInner() {
   const store = useMemoryStore();
   const { toast } = useToast();
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
     const saved = localStorage.getItem('keymemory_view_mode');
-    if (saved === 'memories' || saved === 'nebula' || saved === 'tags' || saved === 'dream' || saved === 'recycle') {
+    if (saved === 'memories' || saved === 'nebula' || saved === 'tags' || saved === 'dream' || saved === 'migration' || saved === 'organize' || saved === 'recycle') {
       return saved;
     }
     return 'memories';
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
+  const [projectRefreshToken, setProjectRefreshToken] = useState(0);
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('keymemory_theme');
     if (saved === 'dark' || saved === 'light') return saved === 'dark';
@@ -50,6 +53,8 @@ function AppInner() {
   const [tagCloudData, setTagCloudData] = useState<TagCloudData | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [authLocked, setAuthLocked] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
 
   useEffect(() => {
     getHealth()
@@ -59,6 +64,32 @@ function AppInner() {
       .then(setAgents)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const onUnauthorized = () => setAuthLocked(true);
+    window.addEventListener('keymemory:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('keymemory:unauthorized', onUnauthorized);
+  }, []);
+
+  const submitApiKey = (event: React.FormEvent) => {
+    event.preventDefault();
+    setStoredApiKey(apiKeyInput);
+    setApiKeyInput('');
+    setAuthLocked(false);
+    store.refresh();
+    getHealth()
+      .then((res) => setHealthReport(res as unknown as HealthReport))
+      .catch(() => {});
+    getAgents()
+      .then(setAgents)
+      .catch(() => {});
+  };
+
+  const resetApiKey = () => {
+    clearStoredApiKey();
+    setApiKeyInput('');
+    setAuthLocked(true);
+  };
 
   useEffect(() => {
     if (viewMode === 'nebula' && !graphData) {
@@ -163,6 +194,13 @@ function AppInner() {
     store.setActiveProject(projectId);
   };
 
+  const handleProjectChanged = () => {
+    setProjectRefreshToken((value) => value + 1);
+    setGraphData(null);
+    setTagCloudData(null);
+    store.refresh();
+  };
+
   const handleDelete = (id: string) => {
     store.deleteMemory(id).then(() => {
       toast('已删除', 'success');
@@ -222,6 +260,7 @@ function AppInner() {
         onToggleTheme={() => setIsDark((d) => !d)}
         activeProjectId={store.activeProject}
         onSelectProject={handleProjectSelect}
+        projectRefreshToken={projectRefreshToken}
       />
 
       <div className="flex flex-col flex-1" style={{ marginLeft: 240 }}>
@@ -402,6 +441,26 @@ function AppInner() {
             </div>
           )}
 
+          {viewMode === 'migration' && (
+            <div className="flex-1 overflow-y-auto">
+              <MigrationView
+                onImported={() => {
+                  handleProjectChanged();
+                }}
+                onToast={toast}
+              />
+            </div>
+          )}
+
+          {viewMode === 'organize' && (
+            <div className="flex-1 overflow-y-auto">
+              <ProjectSuggestionsView
+                onChanged={handleProjectChanged}
+                onToast={toast}
+              />
+            </div>
+          )}
+
           {viewMode === 'recycle' && (
             <div className="flex-1 overflow-y-auto px-8 py-6">
               <div className="flex items-center justify-between mb-8">
@@ -508,6 +567,65 @@ function AppInner() {
           )}
         </div>
       </div>
+
+      {authLocked && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            background: 'rgba(0, 0, 0, 0.32)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <form
+            onSubmit={submitApiKey}
+            style={{
+              width: 'min(420px, 100%)',
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-lg)',
+              padding: 20,
+              boxShadow: '0 18px 50px rgba(0, 0, 0, 0.18)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <Key size={18} style={{ color: 'var(--accent)' }} />
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+                API Key
+              </h2>
+            </div>
+            <input
+              type="password"
+              value={apiKeyInput}
+              onChange={(event) => setApiKeyInput(event.target.value)}
+              autoFocus
+              placeholder="KEYMEMORY_API_KEY"
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-primary)',
+                padding: '9px 10px',
+                fontSize: 13,
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button type="button" className="btn" onClick={resetApiKey}>
+                清除
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={!apiKeyInput.trim()}>
+                <Key size={14} />
+                解锁
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

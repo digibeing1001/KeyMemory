@@ -4,6 +4,8 @@ import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
 import { searchHybrid } from './query.js';
 import { getDatabase } from '../db/sqlite.js';
+import { ensureProjectPath, resolveProjectRef } from './project.js';
+import { extractProjectPathFromContent } from './memory-schema.js';
 
 interface AutoRememberInput {
   content: string;
@@ -246,20 +248,25 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   const layer = suggestLayer(content, evaluation);
   const title = extractTitle(content);
   const projects = extractProjects(content);
+  const inferredProjectPath = extractProjectPathFromContent(content);
   const projectName = projects[0] || currentProjectId;
 
   // Look up project ID from name, fallback to uncategorized root
   const db = getDatabase();
-  let projectId = '';
+  let projectId: string | undefined;
+  let projectPath: string | undefined = projects[0] || inferredProjectPath;
   if (projectName) {
-    const projectRow = db.prepare('SELECT id FROM projects WHERE name = ?').get(projectName) as { id: string } | undefined;
-    if (projectRow) {
-      projectId = projectRow.id;
-    }
+    const project = projects[0] ? ensureProjectPath(projects[0]) : resolveProjectRef(projectName);
+    projectId = project?.id;
+    projectPath = project?.path ?? projectPath;
+  } else if (inferredProjectPath) {
+    const project = ensureProjectPath(inferredProjectPath);
+    projectId = project?.id;
+    projectPath = project?.path ?? inferredProjectPath;
   }
-  if (!projectId) {
+  if (!projectId && !projectPath) {
     const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
-    projectId = rootProject?.id ?? '';
+    projectId = rootProject?.id;
   }
 
   const tags = extractTags(content);
@@ -271,12 +278,14 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   };
   if (entities.length > 0) metadata.entities = entities;
   if (currentProjectId) metadata.projectId = currentProjectId;
+  if (projectPath) metadata.projectPath = projectPath;
 
   const mem = createMemory({
     title,
     content: content.trim(),
     layer,
     projectId,
+    projectPath,
     agentSpace: isolationMode === 'isolated' && agentId ? `agent:${agentId}` : 'global',
     ownerAgentId: agentId,
     tags,

@@ -2,6 +2,7 @@ import type { MemoryAdapter } from './base.js';
 import type { Memory, Layer, SearchResult } from '@keymemory/shared';
 import { createMemory, getMemory, deleteMemory } from '../core/atom.js';
 import { searchHybrid } from '../core/query.js';
+import type { MemorySearchOptions } from './base.js';
 
 export const openClawAdapter: MemoryAdapter = {
   name: 'openclaw',
@@ -14,8 +15,15 @@ export const openClawAdapter: MemoryAdapter = {
     return createMemory(data);
   },
 
-  async search(query: string, options?: { layer?: Layer; limit?: number }): Promise<SearchResult[]> {
-    return searchHybrid(query, { layer: options?.layer, limit: options?.limit });
+  async search(query: string, options?: MemorySearchOptions): Promise<SearchResult[]> {
+    return searchHybrid(query, {
+      layer: options?.layer,
+      limit: options?.limit,
+      projectId: options?.projectId,
+      includeDescendants: options?.includeDescendants,
+      includeSuperseded: options?.includeSuperseded,
+      memoryKind: options?.memoryKind,
+    });
   },
 
   async delete(id: string): Promise<boolean> {
@@ -45,8 +53,12 @@ export const MCP_TOOLS = [
       type: 'object',
       properties: {
         query: { type: 'string' },
+        projectId: { type: 'string' },
+        includeDescendants: { type: 'boolean' },
         layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'] },
+        memoryKind: { type: 'string', enum: ['preference', 'project_fact', 'decision', 'task', 'procedure', 'concept', 'relationship', 'event', 'constraint', 'raw_note'] },
         limit: { type: 'number' },
+        includeSuperseded: { type: 'boolean' },
       },
       required: ['query'],
     },

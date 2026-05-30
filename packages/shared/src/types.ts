@@ -5,6 +5,17 @@ export type ChangeType = 'create' | 'update' | 'layer_move' | 'merge' | 'restore
 export type EvolutionTaskType = 'merge' | 'archive' | 'solidify' | 'conflict' | 'orphan';
 export type IsolationMode = 'isolated' | 'shared' | 'hybrid' | 'project';
 export type ForgetMethod = 'archive' | 'decay' | 'delete';
+export type MemoryKind =
+  | 'preference'
+  | 'project_fact'
+  | 'decision'
+  | 'task'
+  | 'procedure'
+  | 'concept'
+  | 'relationship'
+  | 'event'
+  | 'constraint'
+  | 'raw_note';
 
 export interface Project {
   id: string;
@@ -55,6 +66,7 @@ export interface Relation {
   targetId: string;
   relationType: string;
   strength: number;
+  reason?: string;
   createdAt: string;
 }
 
@@ -111,6 +123,7 @@ export interface HealthReport {
   orphanCount: number;
   conflictCount: number;
   decayingCount: number;
+  privacyRedactedCount: number;
   layerDistribution: Record<Layer, number>;
 }
 
@@ -119,6 +132,7 @@ export interface CreateMemoryInput {
   content: string;
   layer: Layer;
   projectId?: string;
+  projectPath?: string;
   agentSpace?: string;
   ownerAgentId?: string;
   tags?: string[];
@@ -142,9 +156,63 @@ export interface SearchQuery {
   q: string;
   layer?: Layer;
   projectId?: string;
+  includeDescendants?: boolean;
+  includeSuperseded?: boolean;
+  memoryKind?: MemoryKind;
   status?: MemoryStatus;
   limit?: number;
   offset?: number;
+}
+
+export interface AgentContextPackRequest {
+  query?: string;
+  project?: string;
+  projectId?: string;
+  includeDescendants?: boolean;
+  memoryKinds?: MemoryKind[];
+  maxItems?: number;
+  maxChars?: number;
+}
+
+export interface AgentContextRelation {
+  memoryId: string;
+  title: string;
+  relationType: string;
+  direction: 'outgoing' | 'incoming';
+  strength: number;
+  reason?: string;
+}
+
+export interface AgentContextItem {
+  id: string;
+  title: string;
+  content: string;
+  layer: Layer;
+  memoryKind: MemoryKind;
+  projectId?: string;
+  projectPath?: string;
+  tags?: string[];
+  source?: string;
+  updatedAt: string;
+  score: number;
+  relations?: AgentContextRelation[];
+}
+
+export interface AgentContextSection {
+  kind: MemoryKind;
+  title: string;
+  items: AgentContextItem[];
+}
+
+export interface AgentContextPack {
+  query?: string;
+  project?: string;
+  projectId?: string;
+  generatedAt: string;
+  totalItems: number;
+  usedChars: number;
+  sections: AgentContextSection[];
+  markdown: string;
 }
 
 export type ConsolidationActionType = 'merge' | 'deduplicate' | 'archive_stale' | 'archive_flash' | 'solidify';

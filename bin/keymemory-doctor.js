@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -10,6 +10,7 @@ const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.KEYMEMORY_PORT || 3210);
 const DATA_DIR = process.env.KEYMEMORY_DATA_DIR || path.join(os.homedir(), '.keymemory');
 const DB_PATH = process.env.KEYMEMORY_DB_PATH || path.join(DATA_DIR, 'data.db');
+const CLI_ENTRY = path.join(ROOT, 'packages', 'server', 'dist', 'cli.js');
 const MCP_ENTRY = path.join(ROOT, 'packages', 'server', 'dist', 'mcp-server.js');
 const MCP_LAUNCHER = path.join(ROOT, 'bin', 'keymemory-mcp.js');
 const LOG_FILE = path.join(DATA_DIR, 'logs', 'mcp.log');
@@ -55,6 +56,7 @@ function checkRuntime() {
 function checkFiles() {
   console.log('\nProject');
   mark('project root', exists(path.join(ROOT, 'package.json')), ROOT);
+  mark('CLI build output', exists(CLI_ENTRY), CLI_ENTRY);
   mark('MCP launcher', exists(MCP_LAUNCHER), MCP_LAUNCHER);
   mark('MCP build output', exists(MCP_ENTRY), MCP_ENTRY);
   mark('shared build output', exists(path.join(ROOT, 'packages', 'shared', 'dist')), path.join(ROOT, 'packages', 'shared', 'dist'), 'warn');
@@ -185,9 +187,103 @@ function checkConfigs() {
   }
 }
 
+function runJsonCli(args, dataDir) {
+  const stdout = execFileSync(process.execPath, [CLI_ENTRY, '--format', 'json', '--data-dir', dataDir, ...args], {
+    cwd: ROOT,
+    env: { ...process.env, KEYMEMORY_DATA_DIR: dataDir },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 30000,
+  });
+  return JSON.parse(stdout);
+}
+
+function checkCapabilities() {
+  console.log('\nCore capabilities');
+  if (!exists(CLI_ENTRY)) {
+    mark('capability smoke', false, 'run pnpm build first');
+    return;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'keymemory-doctor-'));
+  const backupFile = path.join(tempDir, 'doctor-backup.json');
+  const migrationFile = path.join(tempDir, 'doctor-migration.md');
+  fs.writeFileSync(migrationFile, [
+    '# Doctor migration',
+    '[[Doctor/Migration]] Preference: doctor validates migration import and project routing.',
+  ].join('\n'), 'utf8');
+
+  try {
+    const created = runJsonCli([
+      'create',
+      '--title',
+      'Doctor project memory',
+      '--content',
+      '[[Doctor/Agent/Project]] Preference: doctor validates context pack, project tree, and backup readiness.',
+      '--layer',
+      'long',
+    ], tempDir);
+    mark('project-tree write', Boolean(created.id && created.projectId), created.projectId || 'missing projectId');
+
+    const contextPack = runJsonCli([
+      'context',
+      'backup readiness',
+      '--project',
+      'Doctor/Agent',
+      '--max-items',
+      '4',
+      '--max-chars',
+      '2000',
+    ], tempDir);
+    mark('agent context pack', contextPack.totalItems >= 1 && String(contextPack.markdown || '').includes('User Preferences'), `${contextPack.totalItems || 0} item(s)`);
+
+    const dryRunMigration = runJsonCli(['migrate', migrationFile, '--source', 'doctor', '--dry-run'], tempDir);
+    mark('migration dry-run', dryRunMigration.dryRun && dryRunMigration.imported >= 1 && dryRunMigration.files === 1, `${dryRunMigration.imported || 0} preview item(s)`);
+
+    const migration = runJsonCli(['migrate', migrationFile, '--source', 'doctor'], tempDir);
+    mark('migration import', migration.imported >= 1 && migration.files === 1, `${migration.imported || 0} imported`);
+
+    const relationSource = runJsonCli([
+      'create',
+      '--title',
+      'Doctor new relation',
+      '--content',
+      '[[Doctor/Relations]] Decision: doctor validates newer guidance relation.',
+      '--layer',
+      'long',
+    ], tempDir);
+    const relationTarget = runJsonCli([
+      'create',
+      '--title',
+      'Doctor old relation',
+      '--content',
+      '[[Doctor/Relations]] Decision: doctor validates older guidance relation.',
+      '--layer',
+      'long',
+    ], tempDir);
+    const relation = runJsonCli(['relate', relationSource.id, relationTarget.id, '--type', 'supersedes', '--reason', 'doctor capability smoke'], tempDir);
+    const related = runJsonCli(['related', relationSource.id, '--type', 'supersedes'], tempDir);
+    mark('memory relation', relation.relationType === 'supersedes' && related.some(item => item.memoryId === relationTarget.id), `${related.length || 0} related`);
+
+    const scheduler = runJsonCli(['scheduler'], tempDir);
+    mark('dream scheduler', Boolean(scheduler.nextDreamRunAt) && scheduler.dreamingEnabled === true, scheduler.nextDreamRunAt || 'missing next run');
+
+    const agentConfig = runJsonCli(['agent-config', 'codex'], tempDir);
+    mark('agent config generator', String(agentConfig.snippet || '').includes('[mcp_servers.keymemory]'), agentConfig.target || 'missing target');
+
+    const backup = runJsonCli(['backup-create', backupFile], tempDir);
+    mark('portable backup', backup.valid && backup.counts?.memories >= 1 && exists(backupFile), backupFile);
+
+    const restore = runJsonCli(['backup-restore', backupFile, '--dry-run'], tempDir);
+    mark('dry-run restore', restore.valid && restore.dryRun && restore.wouldRestore, restore.valid ? 'ready' : 'invalid');
+  } catch (err) {
+    mark('capability smoke', false, err.message);
+  }
+}
+
 function printNextSteps() {
   console.log('\nNext steps');
-  if (!exists(MCP_ENTRY)) {
+  if (!exists(CLI_ENTRY) || !exists(MCP_ENTRY)) {
     console.log('  - Run: pnpm build');
   }
   console.log('  - Configure agents with launcher: node "' + MCP_LAUNCHER + '"');
@@ -202,6 +298,7 @@ async function main() {
   checkFiles();
   checkData();
   await checkServer();
+  checkCapabilities();
   checkConfigs();
   printNextSteps();
   console.log(`\nSummary: ${failures} failure(s), ${warnings} warning(s)`);

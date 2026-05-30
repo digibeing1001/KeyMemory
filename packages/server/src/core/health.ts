@@ -1,9 +1,10 @@
 import type { HealthReport, Layer, Memory } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
-import { cosineSimilarity, embed, bufferToEmbedding } from '../embed/onnx.js';
+import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { listMemories } from './atom.js';
-import { rowToMemory } from '../db/mapper.js';
+import { findProjectRef } from './project.js';
+import { searchHybrid } from './query.js';
 
 export async function getHealthReport(): Promise<HealthReport> {
   const db = getDatabase();
@@ -18,6 +19,7 @@ export async function getHealthReport(): Promise<HealthReport> {
   const orphanCount = countOrphans();
   const conflictCount = countConflicts();
   const decayingCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories WHERE status = 'active' AND decay_factor < 1.0 AND decay_factor > 0.01`).get() as { cnt: number }).cnt;
+  const privacyRedactedCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories WHERE status = 'active' AND tags LIKE '%sensitivity:redacted%'`).get() as { cnt: number }).cnt;
 
   const duplicateScore = Math.max(0, 100 - duplicateCount * 5);
   const orphanScore = Math.max(0, 100 - orphanCount * 3);
@@ -32,6 +34,7 @@ export async function getHealthReport(): Promise<HealthReport> {
     orphanCount,
     conflictCount,
     decayingCount,
+    privacyRedactedCount,
     layerDistribution,
   };
 }
@@ -68,9 +71,10 @@ function countOrphans(): number {
   const db = getDatabase();
   return (db.prepare(`
     SELECT COUNT(*) as cnt FROM memories m
+    LEFT JOIN projects p ON p.id = m.project_id
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
-      AND m.project IS NULL
+      AND (m.project_id IS NULL OR m.project_id = '' OR p.parent_id IS NULL)
       AND m.layer NOT IN ('flash')
   `).get() as { cnt: number }).cnt;
 }
@@ -106,34 +110,48 @@ function countConflicts(): number {
   return count;
 }
 
-export async function injectContext(options: { project?: string; query?: string; limit?: number }): Promise<Memory[]> {
+function activeSupersededIds(): Set<string> {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT r.target_memory_id as id
+    FROM memory_relations r
+    JOIN memories source ON source.id = r.source_memory_id
+    WHERE r.relation_type = 'supersedes'
+      AND source.status = 'active'
+  `).all() as { id: string }[];
+  return new Set(rows.map(r => r.id));
+}
+
+function suppressSuperseded(memories: Memory[], includeSuperseded?: boolean): Memory[] {
+  if (includeSuperseded) return memories;
+  const superseded = activeSupersededIds();
+  return memories.filter(memory => !superseded.has(memory.id));
+}
+
+export async function injectContext(options: { project?: string; query?: string; limit?: number; includeSuperseded?: boolean }): Promise<Memory[]> {
   const limit = options.limit ?? 5;
+  let projectId: string | undefined;
 
   if (options.project) {
-    const projectMems = listMemories({ projectId: options.project, status: 'active', limit });
-    if (projectMems.length > 0) return projectMems;
+    const project = findProjectRef(options.project);
+    if (!project) return [];
+    projectId = project.id;
   }
 
   if (options.query) {
-    const db = getDatabase();
-    const queryVec = await embed(options.query);
-    if (!queryVec) return [];
-
-    const rows = db.prepare(`
-      SELECT m.*, e.embedding FROM memories m
-      JOIN embeddings e ON e.memory_id = m.id
-      WHERE m.status = 'active'
-    `).all() as (Record<string, unknown> & { embedding: Buffer })[];
-
-    const scored = rows.map(r => {
-      const vec = bufferToEmbedding(r.embedding);
-      return { row: r, score: cosineSimilarity(queryVec, vec) };
+    const results = await searchHybrid(options.query, {
+      projectId,
+      includeDescendants: true,
+      includeSuperseded: options.includeSuperseded,
+      limit,
     });
-
-    scored.sort((a, b) => b.score - a.score);
-
-    return scored.slice(0, limit).map(s => rowToMemory(s.row));
+    return results.map(result => result.memory);
   }
 
-  return listMemories({ status: 'active', limit });
+  if (projectId) {
+    const projectMems = listMemories({ projectId, includeDescendants: true, status: 'active', limit: limit * 3 });
+    return suppressSuperseded(projectMems, options.includeSuperseded).slice(0, limit);
+  }
+
+  return suppressSuperseded(listMemories({ status: 'active', limit: limit * 3 }), options.includeSuperseded).slice(0, limit);
 }

@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DATA_DIR_NAME, DB_NAME } from '@keymemory/shared';
 
 let db: Database.Database | null = null;
+const DEFAULT_PROJECT_NAME = '未分类';
 
 export function getDataDir(): string {
   const dir = process.env.KEYMEMORY_DATA_DIR || path.join(os.homedir(), DATA_DIR_NAME);
@@ -26,7 +27,7 @@ export function initDatabase(): Database.Database {
   if (db) return db;
 
   const dbPath = getDbPath();
-  console.log(`[KeyMemory] Database path: ${dbPath}`);
+  console.error(`[KeyMemory] Database path: ${dbPath}`);
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
@@ -76,8 +77,6 @@ function runMigrations(db: Database.Database): void {
 
     CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
       title, content, project,
-      content=memories,
-      content_rowid=rowid,
       tokenize='unicode61'
     );
 
@@ -99,6 +98,19 @@ function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL,
       FOREIGN KEY (source_id) REFERENCES entities(id),
       FOREIGN KEY (target_id) REFERENCES entities(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS memory_relations (
+      id TEXT PRIMARY KEY,
+      source_memory_id TEXT NOT NULL,
+      target_memory_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      strength REAL DEFAULT 1.0,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(source_memory_id, target_memory_id, relation_type),
+      FOREIGN KEY (source_memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_memory_id) REFERENCES memories(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS memory_entities (
@@ -263,6 +275,9 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
     CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
     CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_relations_source ON memory_relations(source_memory_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_relations_target ON memory_relations(target_memory_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_relations_type ON memory_relations(relation_type);
   `);
 
   const alterStatements = [
@@ -281,6 +296,7 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memory_entities ADD COLUMN project_id TEXT',
     'ALTER TABLE memory_entities ADD COLUMN context TEXT',
     'ALTER TABLE consolidation_snapshots ADD COLUMN project_id TEXT',
+    'ALTER TABLE memory_relations ADD COLUMN reason TEXT',
   ];
   for (const stmt of alterStatements) {
     try {
@@ -295,6 +311,8 @@ function runMigrations(db: Database.Database): void {
 
   // Migrate existing data: convert project strings to project_ids
   migrateProjectData(db);
+  migrateMemoryRelationData(db);
+  ensureMemoryFtsSchema(db);
 
   // Create indexes for new columns (must run after ALTER TABLE)
   db.exec(`
@@ -308,69 +326,204 @@ function runMigrations(db: Database.Database): void {
   ensureWelcomeMemory(db);
 }
 
+function ensureMemoryFtsSchema(db: Database.Database): void {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memories_fts'")
+    .get() as { sql: string } | undefined;
+  const usesExternalContent = /content\s*=\s*'?memories'?/i.test(row?.sql ?? '');
+  if (!usesExternalContent) return;
+
+  db.exec(`
+    DROP TABLE IF EXISTS memories_fts;
+    CREATE VIRTUAL TABLE memories_fts USING fts5(
+      title, content, project,
+      tokenize='unicode61'
+    );
+  `);
+  rebuildMemoryFtsRows(db);
+}
+
+function rebuildMemoryFtsRows(db: Database.Database): void {
+  const rows = db.prepare(`
+    SELECT m.rowid as rowid, m.title, m.content, m.tags, p.name as project
+    FROM memories m
+    LEFT JOIN projects p ON p.id = m.project_id
+    WHERE m.status != 'deleted'
+  `).all() as { rowid: number; title: string; content: string; tags: string | null; project: string | null }[];
+
+  const insert = db.prepare(`
+    INSERT INTO memories_fts (rowid, title, content, project)
+    VALUES (@rowid, @title, @content, @project)
+  `);
+  for (const row of rows) {
+    let tags = '';
+    try {
+      const parsed = row.tags ? JSON.parse(row.tags) : [];
+      tags = Array.isArray(parsed) ? ` ${parsed.join(' ')}` : '';
+    } catch {
+      tags = '';
+    }
+    insert.run({
+      rowid: row.rowid,
+      title: row.title,
+      content: `${row.content}${tags}`,
+      project: row.project,
+    });
+  }
+}
+
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return rows.some(row => row.name === column);
+}
+
+function ensureDefaultProject(db: Database.Database): string {
+  const named = db.prepare('SELECT id FROM projects WHERE parent_id IS NULL AND name = ? LIMIT 1').get(DEFAULT_PROJECT_NAME) as { id: string } | undefined;
+  if (named) return named.id;
+
+  const existing = db.prepare('SELECT id FROM projects WHERE parent_id IS NULL ORDER BY created_at ASC LIMIT 1').get() as { id: string } | undefined;
+  if (existing) return existing.id;
+
+  const now = new Date().toISOString();
+  const id = uuidv4();
+  db.prepare(`
+    INSERT INTO projects (id, parent_id, name, path, depth, created_at, updated_at)
+    VALUES (@id, NULL, @name, @name, 0, @createdAt, @updatedAt)
+  `).run({ id, name: DEFAULT_PROJECT_NAME, createdAt: now, updatedAt: now });
+  return id;
+}
+
+function getOrCreateProjectByPath(db: Database.Database, pathLike: string): string {
+  const parts = pathLike
+    .split(/[\/\\>]+|::|->|→|›|＞|／/u)
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return ensureDefaultProject(db);
+
+  let parentId: string | null = null;
+  let currentPath = '';
+  let depth = 0;
+  let currentId = '';
+
+  for (const name of parts) {
+    const existing = db.prepare('SELECT id, path, depth FROM projects WHERE name = ? AND parent_id IS ? LIMIT 1').get(name, parentId) as { id: string; path: string; depth: number } | undefined;
+    if (existing) {
+      currentId = existing.id;
+      currentPath = existing.path;
+      depth = existing.depth + 1;
+      parentId = existing.id;
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    currentPath = currentPath ? `${currentPath}/${name}` : name;
+    db.prepare(`
+      INSERT INTO projects (id, parent_id, name, path, depth, created_at, updated_at, metadata)
+      VALUES (@id, @parentId, @name, @path, @depth, @createdAt, @updatedAt, @metadata)
+    `).run({
+      id,
+      parentId,
+      name,
+      path: currentPath,
+      depth,
+      createdAt: now,
+      updatedAt: now,
+      metadata: JSON.stringify({ createdBy: 'migration' }),
+    });
+    currentId = id;
+    parentId = id;
+    depth++;
+  }
+
+  return currentId || ensureDefaultProject(db);
+}
+
 function migrateProjectData(db: Database.Database): void {
   // Check if migration already done using a dedicated marker
   const marker = db.prepare("SELECT value FROM scheduler_config WHERE key = 'migration_v1_done'").get() as { value: string } | undefined;
+  const defaultProjectId = ensureDefaultProject(db);
   if (marker?.value === 'true') return;
 
-  const now = new Date().toISOString();
+  const hasLegacyProject = hasColumn(db, 'memories', 'project');
 
   db.transaction(() => {
-    // 1. Create default root project "未分类"
-    const uncategorizedId = uuidv4();
-    db.prepare(`
-      INSERT OR IGNORE INTO projects (id, parent_id, name, path, depth, created_at, updated_at)
-      VALUES (@id, NULL, '未分类', '未分类', 0, @createdAt, @updatedAt)
-    `).run({ id: uncategorizedId, createdAt: now, updatedAt: now });
-
-    // 2. Extract unique project names from existing memories and create projects
-    const projectNames = db.prepare("SELECT DISTINCT project FROM memories WHERE project IS NOT NULL AND project != ''").all() as { project: string }[];
+    // 1. Extract unique legacy project names from older databases.
+    const projectNames = hasLegacyProject
+      ? db.prepare("SELECT DISTINCT project FROM memories WHERE project IS NOT NULL AND project != ''").all() as { project: string }[]
+      : [];
     const projectMap = new Map<string, string>();
-    projectMap.set('未分类', uncategorizedId);
+    projectMap.set(DEFAULT_PROJECT_NAME, defaultProjectId);
 
     for (const row of projectNames) {
-      const projectId = uuidv4();
-      db.prepare(`
-        INSERT INTO projects (id, parent_id, name, path, depth, created_at, updated_at)
-        VALUES (@id, NULL, @name, @path, 0, @createdAt, @updatedAt)
-      `).run({ id: projectId, name: row.project, path: row.project, createdAt: now, updatedAt: now });
+      const projectId = getOrCreateProjectByPath(db, row.project);
       projectMap.set(row.project, projectId);
     }
 
-    // 3. Update memories: set project_id based on old project string
-    db.prepare(`
-      UPDATE memories SET project_id = @uncategorizedId WHERE project IS NULL OR project = ''
-    `).run({ uncategorizedId });
-
-    for (const [name, id] of projectMap) {
-      if (name === '未分类') continue;
+    // 2. Update memories: set project_id based on old project string when present.
+    if (hasLegacyProject) {
       db.prepare(`
-        UPDATE memories SET project_id = @projectId WHERE project = @projectName
-      `).run({ projectId: id, projectName: name });
-    }
+        UPDATE memories SET project_id = @defaultProjectId WHERE project IS NULL OR project = ''
+      `).run({ defaultProjectId });
 
-    // 4. Convert layer='project' memories to layer='long'
+      for (const [name, id] of projectMap) {
+        if (name === DEFAULT_PROJECT_NAME) continue;
+        db.prepare(`
+          UPDATE memories SET project_id = @projectId WHERE project = @projectName
+        `).run({ projectId: id, projectName: name });
+      }
+    }
+    db.prepare(`UPDATE memories SET project_id = @defaultProjectId WHERE project_id IS NULL OR project_id = ''`).run({ defaultProjectId });
+
+    // 3. Convert layer='project' memories to layer='long'
     db.prepare("UPDATE memories SET layer = 'long' WHERE layer = 'project'").run();
 
-    // 5. Update memory_entities: set project_id from associated memory
+    // 4. Update memory_entities: set project_id from associated memory
     db.prepare(`
       UPDATE memory_entities
       SET project_id = (
         SELECT project_id FROM memories WHERE memories.id = memory_entities.memory_id
       )
-      WHERE project_id IS NULL
+      WHERE project_id IS NULL OR project_id = ''
     `).run();
 
-    // 6. Update consolidation_snapshots
+    // 5. Normalize consolidation snapshots.
     db.prepare(`
       UPDATE consolidation_snapshots
-      SET project_id = COALESCE(project, ''),
-        agent_space = COALESCE(agent_space, 'global')
-      WHERE project_id IS NULL
-    `).run();
+      SET project_id = COALESCE(project_id, @defaultProjectId),
+          agent_space = COALESCE(agent_space, 'global')
+      WHERE project_id IS NULL OR project_id = ''
+    `).run({ defaultProjectId });
 
     // Mark migration complete
     db.prepare("INSERT OR REPLACE INTO scheduler_config (key, value, updated_at) VALUES ('migration_v1_done', 'true', ?)")
+      .run(new Date().toISOString());
+  })();
+}
+
+function migrateMemoryRelationData(db: Database.Database): void {
+  const marker = db.prepare("SELECT value FROM scheduler_config WHERE key = 'memory_relations_v1_done'").get() as { value: string } | undefined;
+  if (marker?.value === 'true') return;
+
+  db.transaction(() => {
+    db.prepare(`
+      INSERT OR IGNORE INTO memory_relations (id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at)
+      SELECT r.id, r.source_id, r.target_id, r.relation_type, r.strength, 'migrated from legacy relations', r.created_at
+      FROM relations r
+      JOIN memories source ON source.id = r.source_id
+      JOIN memories target ON target.id = r.target_id
+    `).run();
+
+    db.prepare(`
+      DELETE FROM relations
+      WHERE id IN (
+        SELECT r.id
+        FROM relations r
+        JOIN memories source ON source.id = r.source_id
+        JOIN memories target ON target.id = r.target_id
+      )
+    `).run();
+
+    db.prepare("INSERT OR REPLACE INTO scheduler_config (key, value, updated_at) VALUES ('memory_relations_v1_done', 'true', ?)")
       .run(new Date().toISOString());
   })();
 }

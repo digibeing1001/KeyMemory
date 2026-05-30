@@ -55,6 +55,10 @@ export const Close: FC<IconProps> = (p) => (
   <I {...p}><path d="M5 5l10 10M15 5L5 15" /></I>
 );
 
+export const Key: FC<IconProps> = (p) => (
+  <I {...p}><circle cx="7" cy="10" r="3" /><path d="M10 10h8M14 10v3M17 10v2" /></I>
+);
+
 export const Trash: FC<IconProps> = (p) => (
   <I {...p}><path d="M3 6h14M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M5 6v10a2 2 0 002 2h6a2 2 0 002-2V6" /></I>
 );

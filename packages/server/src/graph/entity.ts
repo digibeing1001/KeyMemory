@@ -14,6 +14,7 @@ const ENTITY_PATTERNS = [
 ];
 
 const PROJECT_PATTERN = /\[\[([^\]]+)\]\]/g;
+export const MEMORY_RELATION_TYPES = ['part_of', 'derived_from', 'relates_to', 'supersedes', 'references'] as const;
 
 const ORG_SUFFIXES = ['公司', '集团', '有限公司', '有限责任公司', '股份公司', '工作室', '实验室', '研究所', '研究院', '协会', '联盟', '基金会', '银行', '医院', '大学', '学院', '学校'];
 const ORG_SUFFIX_REGEX = new RegExp(`([\\u4e00-\\u9fa5]{2,8}(?:${ORG_SUFFIXES.join('|')}))`, 'g');
@@ -252,43 +253,100 @@ export function processContent(memoryId: string, content: string): { entities: E
   return { entities, projects };
 }
 
-export function createRelation(sourceId: string, targetId: string, relationType: string, strength = 1.0): Relation {
+export function createMemoryRelation(sourceId: string, targetId: string, relationType: string, strength = 1.0, reason?: string): Relation {
+  if (!MEMORY_RELATION_TYPES.includes(relationType as typeof MEMORY_RELATION_TYPES[number])) {
+    throw new Error(`Invalid relation type: ${relationType}. Must be one of: ${MEMORY_RELATION_TYPES.join(', ')}`);
+  }
+  if (sourceId === targetId) {
+    throw new Error('Memory relation cannot point to itself');
+  }
+  if (!Number.isFinite(strength) || strength < 0 || strength > 1) {
+    throw new Error('Memory relation strength must be a number between 0 and 1');
+  }
+
   const db = getDatabase();
   const id = uuid();
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO relations (id, source_id, target_id, relation_type, strength, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, sourceId, targetId, relationType, strength, now);
+    INSERT INTO memory_relations (id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at)
+    VALUES (@id, @sourceId, @targetId, @relationType, @strength, @reason, @createdAt)
+    ON CONFLICT(source_memory_id, target_memory_id, relation_type)
+    DO UPDATE SET strength = excluded.strength, reason = excluded.reason, created_at = excluded.created_at
+  `).run({
+    id,
+    sourceId,
+    targetId,
+    relationType,
+    strength,
+    reason: reason ?? null,
+    createdAt: now,
+  });
 
-  return { id, sourceId, targetId, relationType, strength, createdAt: now };
+  const row = db.prepare(`
+    SELECT id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at
+    FROM memory_relations
+    WHERE source_memory_id = ? AND target_memory_id = ? AND relation_type = ?
+  `).get(sourceId, targetId, relationType) as {
+    id: string;
+    source_memory_id: string;
+    target_memory_id: string;
+    relation_type: string;
+    strength: number;
+    reason: string | null;
+    created_at: string;
+  };
+
+  return {
+    id: row.id,
+    sourceId: row.source_memory_id,
+    targetId: row.target_memory_id,
+    relationType: row.relation_type,
+    strength: row.strength,
+    reason: row.reason ?? undefined,
+    createdAt: row.created_at,
+  };
 }
 
-export function findRelatedMemories(memoryId: string, relationType?: string): { memoryId: string; title: string; layer: string; relationType: string; strength: number }[] {
+export const createRelation = createMemoryRelation;
+
+export function findRelatedMemories(memoryId: string, relationType?: string): { memoryId: string; title: string; layer: string; sourceId: string; targetId: string; direction: 'outgoing' | 'incoming'; relationType: string; strength: number; reason?: string }[] {
   const db = getDatabase();
-  const conditions = ['(r.source_id = ? OR r.target_id = ?)'];
-  const params: (string | number)[] = [memoryId, memoryId];
+  const conditions = ['(r.source_memory_id = @memoryId OR r.target_memory_id = @memoryId)'];
+  const params: Record<string, unknown> = { memoryId };
 
   if (relationType) {
-    conditions.push('r.relation_type = ?');
-    params.push(relationType);
+    if (!MEMORY_RELATION_TYPES.includes(relationType as typeof MEMORY_RELATION_TYPES[number])) {
+      throw new Error(`Invalid relation type: ${relationType}. Must be one of: ${MEMORY_RELATION_TYPES.join(', ')}`);
+    }
+    conditions.push('r.relation_type = @relationType');
+    params.relationType = relationType;
   }
 
   const rows = db.prepare(`
-    SELECT r.source_id, r.target_id, r.relation_type, r.strength, m.id as mid, m.title, m.layer
-    FROM relations r
-    LEFT JOIN memories m ON (m.id = r.source_id OR m.id = r.target_id) AND m.id != ?
+    SELECT r.source_memory_id, r.target_memory_id, r.relation_type, r.strength, r.reason,
+           m.id as mid, m.title, m.layer
+    FROM memory_relations r
+    JOIN memories m
+      ON m.id = CASE
+        WHEN r.source_memory_id = @memoryId THEN r.target_memory_id
+        ELSE r.source_memory_id
+      END
     WHERE ${conditions.join(' AND ')}
-    ORDER BY r.strength DESC
-  `).all(memoryId, ...params) as { source_id: string; target_id: string; relation_type: string; strength: number; mid: string; title: string; layer: string }[];
+      AND m.status != 'deleted'
+    ORDER BY r.strength DESC, r.created_at DESC
+  `).all(params) as { source_memory_id: string; target_memory_id: string; relation_type: string; strength: number; reason: string | null; mid: string; title: string; layer: string }[];
 
   return rows.map(r => ({
     memoryId: r.mid,
     title: r.title,
     layer: r.layer,
+    sourceId: r.source_memory_id,
+    targetId: r.target_memory_id,
+    direction: r.source_memory_id === memoryId ? 'outgoing' as const : 'incoming' as const,
     relationType: r.relation_type,
     strength: r.strength,
+    reason: r.reason ?? undefined,
   })).filter(r => r.memoryId);
 }
 
@@ -303,7 +361,7 @@ export function autoAssociate(sourceMemoryId: string, content: string, title: st
     ) as { id: string }[];
     for (const m of matches) {
       try {
-        createRelation(sourceMemoryId, m.id, 'relates_to', 0.6);
+        createMemoryRelation(sourceMemoryId, m.id, 'relates_to', 0.6, 'auto-associate title overlap');
       } catch { /* 忽略重复关联 */ }
     }
   }

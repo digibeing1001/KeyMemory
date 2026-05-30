@@ -9,6 +9,7 @@ import { runDailyInspection } from './core/evolution.js';
 import { applyDecay } from './core/forgetting.js';
 import { startScheduler, stopScheduler } from './core/scheduler.js';
 import { registerWebUI } from './web-ui.js';
+import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security.js';
 
 async function main() {
   initDatabase();
@@ -21,13 +22,14 @@ async function main() {
 
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: createCorsOriginPolicy() });
 
   registerRoutes(app);
   registerMCPRoutes(app);
   registerWebUI(app);
 
   try {
+    assertSafeServerBinding(DEFAULT_HOST);
     await app.listen({ port: DEFAULT_PORT, host: DEFAULT_HOST });
     console.log(`KeyMemory server running at http://${DEFAULT_HOST}:${DEFAULT_PORT}`);
   } catch (err) {

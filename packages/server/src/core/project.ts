@@ -76,6 +76,57 @@ export function listProjectTree(): Project[] {
   return listProjects();
 }
 
+export function normalizeProjectPath(pathLike: string): string[] {
+  return pathLike
+    .replace(/\[\[|\]\]/g, '')
+    .split(/[\/\\>]+|::|->|→|›|＞|／/u)
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+export function ensureProjectPath(pathLike: string, rootParentId: string | null = null): Project | null {
+  const parts = normalizeProjectPath(pathLike);
+  if (parts.length === 0) return null;
+
+  const db = getDatabase();
+  let parentId = rootParentId;
+  let current: Project | null = null;
+
+  return db.transaction(() => {
+    for (const name of parts) {
+      const row = db.prepare(`
+        SELECT * FROM projects
+        WHERE name = @name AND parent_id IS @parentId
+        LIMIT 1
+      `).get({ name, parentId }) as Record<string, unknown> | undefined;
+
+      current = row ? rowToProject(row) : createProject({
+        name,
+        parentId,
+        metadata: { createdBy: 'auto-project-routing' },
+      });
+      parentId = current.id;
+    }
+
+    return current;
+  })();
+}
+
+export function resolveProjectRef(projectRef: string): Project | null {
+  return findProjectRef(projectRef) ?? ensureProjectPath(projectRef);
+}
+
+export function findProjectRef(projectRef: string): Project | null {
+  const db = getDatabase();
+  const exact = db.prepare(`
+    SELECT * FROM projects WHERE id = @ref OR path = @ref OR name = @ref
+    ORDER BY CASE WHEN id = @ref THEN 0 WHEN path = @ref THEN 1 ELSE 2 END
+    LIMIT 1
+  `).get({ ref: projectRef }) as Record<string, unknown> | undefined;
+  if (exact) return rowToProject(exact);
+  return null;
+}
+
 export function getProjectPath(id: string): string[] {
   const db = getDatabase();
   const row = db.prepare('SELECT path FROM projects WHERE id = ?').get(id) as { path: string } | undefined;

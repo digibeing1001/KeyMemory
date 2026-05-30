@@ -73,6 +73,6 @@ export const DREAM_CONFIG = {
 } as const;
 
 export const DEFAULT_PORT = 3210;
-export const DEFAULT_HOST = '0.0.0.0';
+export const DEFAULT_HOST = '127.0.0.1';
 export const DATA_DIR_NAME = '.keymemory';
 export const DB_NAME = 'data.db';

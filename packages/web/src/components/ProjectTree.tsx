@@ -6,6 +6,7 @@ import { Folder, ChevronRight, ChevronDown } from './Icons';
 interface ProjectTreeProps {
   activeProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
+  refreshToken?: number;
 }
 
 interface TreeNode {
@@ -126,7 +127,7 @@ function TreeItem({
   );
 }
 
-export default function ProjectTree({ activeProjectId, onSelectProject }: ProjectTreeProps) {
+export default function ProjectTree({ activeProjectId, onSelectProject, refreshToken = 0 }: ProjectTreeProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -152,7 +153,7 @@ export default function ProjectTree({ activeProjectId, onSelectProject }: Projec
 
   useEffect(() => {
     fetchProjects();
-  }, [fetchProjects]);
+  }, [fetchProjects, refreshToken]);
 
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {

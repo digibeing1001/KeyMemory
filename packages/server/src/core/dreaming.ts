@@ -6,6 +6,7 @@ import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
 import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
+import { createMemoryRelation } from '../graph/entity.js';
 
 export function runDreamCycle(): DreamReport {
   const startTime = Date.now();
@@ -194,6 +195,7 @@ function runLightPhase(reportId: string, details: DreamReportDetails): { session
         
         // 归档重复项
         forgetMemory(dupId, 'archive');
+        createMemoryRelation(group.keeper, dupId, 'supersedes', 1.0, `dream:${reportId}:light-duplicate-merge`);
         details.merged.push({ memoryId: dupId, title: dup.title, intoId: group.keeper, intoTitle: keeper.title });
         details.archived.push({ memoryId: dupId, title: dup.title, reason: '重复合并' });
       }
@@ -301,12 +303,14 @@ function runRemPhase(reportId: string): { session: DreamSession } {
     }
   }
 
+  const relationsCreated = createRemTagRelations(reportId, hotThemes.map(([tag]) => tag), memoryTagMap);
   const candidatesProcessed = shortTermMemories.length;
 
   const signals: Record<string, number> = {
     themesFound: hotThemes.length,
     tagTypes: tagFrequency.size,
     tagsAdded,
+    relationsCreated,
   };
 
   const session: DreamSession = {
@@ -324,6 +328,43 @@ function runRemPhase(reportId: string): { session: DreamSession } {
 }
 
 // ========== Deep Phase: 评分升级与清理 ==========
+
+function isAssociativeDreamTag(tag: string): boolean {
+  const normalized = tag.toLowerCase();
+  return !normalized.startsWith('kind:')
+    && !normalized.startsWith('scope:')
+    && !normalized.startsWith('project:')
+    && !normalized.startsWith('sensitivity:');
+}
+
+function createRemTagRelations(reportId: string, hotThemes: string[], memoryTagMap: Map<string, string[]>): number {
+  const relationLimit = 40;
+  let relationsCreated = 0;
+
+  for (const theme of hotThemes.filter(isAssociativeDreamTag)) {
+    const ids = Array.from(memoryTagMap.entries())
+      .filter(([, tags]) => tags.some(tag => tag.toLowerCase() === theme.toLowerCase()))
+      .map(([id]) => id)
+      .slice(0, 8);
+
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        if (relationsCreated >= relationLimit) return relationsCreated;
+        try {
+          createMemoryRelation(ids[i], ids[j], 'relates_to', 0.65, `dream:${reportId}:rem-shared-tag:${theme}`);
+          relationsCreated++;
+        } catch (err) {
+          const message = (err as Error).message || '';
+          if (!message.includes('Memory relation')) {
+            console.error(`[REM Phase] Failed to relate ${ids[i]} -> ${ids[j]}:`, err);
+          }
+        }
+      }
+    }
+  }
+
+  return relationsCreated;
+}
 
 function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession, details: DreamReportDetails): {
   deepSession: DreamSession;
@@ -381,7 +422,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
   // 执行清理动作
   for (const action of actions) {
     try {
-      const result = executeAction(db, action, details);
+      const result = executeAction(db, action, details, reportId);
       promoted += result.promoted;
       archived += result.archived;
       merged += result.merged;
@@ -524,6 +565,7 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
 
         // 归档被合并的记忆
         forgetMemory(relatedId, 'archive');
+        createMemoryRelation(group.keeper, relatedId, 'supersedes', 0.9, `dream:${reportId}:semantic-merge`);
         details.merged.push({ memoryId: relatedId, title: related.title, intoId: group.keeper, intoTitle: keeper.title });
         details.archived.push({ memoryId: relatedId, title: related.title, reason: '语义合并' });
       }
@@ -873,7 +915,7 @@ function createSnapshots(db: ReturnType<typeof getDatabase>, reportId: string, m
   }
 }
 
-function executeAction(db: ReturnType<typeof getDatabase>, action: ConsolidationAction, details: DreamReportDetails): { promoted: number; archived: number; merged: number } {
+function executeAction(db: ReturnType<typeof getDatabase>, action: ConsolidationAction, details: DreamReportDetails, reportId: string): { promoted: number; archived: number; merged: number } {
   switch (action.type) {
     case 'deduplicate': {
       const [keeperId, removedId] = action.sourceIds;
@@ -894,6 +936,7 @@ function executeAction(db: ReturnType<typeof getDatabase>, action: Consolidation
       db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, keeperId);
 
       forgetMemory(removedId, 'archive');
+      createMemoryRelation(keeperId, removedId, 'supersedes', 1.0, `dream:${reportId}:deduplicate`);
       details.merged.push({ memoryId: removedId, title: removed.title, intoId: keeperId, intoTitle: keeper.title });
       details.archived.push({ memoryId: removedId, title: removed.title, reason: '重复合并' });
       return { promoted: 0, archived: 0, merged: 1 };
@@ -1089,6 +1132,7 @@ export function rollbackDream(reportId: string): DreamReport {
     }
   }
 
+  db.prepare(`DELETE FROM memory_relations WHERE reason LIKE ?`).run(`dream:${reportId}:%`);
   db.prepare(`UPDATE dream_reports SET status = 'rolled_back' WHERE id = ?`).run(reportId);
 
   return { ...report, status: 'rolled_back' };

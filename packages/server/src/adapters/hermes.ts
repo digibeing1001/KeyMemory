@@ -3,6 +3,7 @@ import type { Memory, Layer, SearchResult, IsolationMode } from '@keymemory/shar
 import { createMemory, getMemory, listMemories, deleteMemory } from '../core/atom.js';
 import { searchHybrid } from '../core/query.js';
 import { routeMemory, createAgentContext } from './base.js';
+import type { MemorySearchOptions } from './base.js';
 
 interface HermesAdapterOptions {
   agentId: string;
@@ -38,8 +39,15 @@ export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapte
       return mem;
     },
 
-    async search(query: string, options?: { layer?: Layer; limit?: number }): Promise<SearchResult[]> {
-      const results = await searchHybrid(query, { layer: options?.layer, limit: options?.limit });
+    async search(query: string, options?: MemorySearchOptions): Promise<SearchResult[]> {
+      const results = await searchHybrid(query, {
+        layer: options?.layer,
+        limit: options?.limit,
+        projectId: options?.projectId,
+        includeDescendants: options?.includeDescendants,
+        includeSuperseded: options?.includeSuperseded,
+        memoryKind: options?.memoryKind,
+      });
 
       const accessibleResults = results.filter(r => {
         return r.memory.agentSpace === 'global' || r.memory.agentSpace === ctx.privateSpace;

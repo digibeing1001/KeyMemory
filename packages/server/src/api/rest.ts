@@ -5,20 +5,25 @@ import { createProject, getProject, listProjects, updateProject, deleteProject, 
 import { searchHybrid, ensureEmbedding, findDuplicateMemories } from '../core/query.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from '../core/evolution.js';
-import { processContent, listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity, findRelatedMemories, autoAssociate, createRelation } from '../graph/entity.js';
+import { processContent, listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity, findRelatedMemories, autoAssociate, createMemoryRelation, MEMORY_RELATION_TYPES } from '../graph/entity.js';
 import { getVersions, diffVersions, rollbackToVersion } from '../core/provenance.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDecay } from '../core/forgetting.js';
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
 import { getHealthReport, injectContext } from '../core/health.js';
+import { buildAgentContextPack } from '../core/context-pack.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
 import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport } from '../core/dreaming.js';
 import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../core/scheduler.js';
+import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from '../core/migration.js';
+import { createBackupFile, inspectBackupFile, restoreBackupFile } from '../core/backup.js';
+import type { BackupSummary } from '../core/backup.js';
 import { routeMemory, createAgentContext } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
 import { getDatabase } from '../db/sqlite.js';
 import { autoRemember } from '../core/auto.js';
 import { extractTags } from '../core/auto.js';
-import type { CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
+import { isApiRequestAuthorized, shouldAuthenticateHttpPath } from '../core/security.js';
+import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
 
 function safeParseTags(tags: string | null): string[] {
   if (!tags) return [];
@@ -30,20 +35,25 @@ function safeParseTags(tags: string | null): string[] {
   }
 }
 
+function createMigrationBackup(shouldCreate: boolean | undefined, dryRun: boolean | undefined): BackupSummary | undefined {
+  if (!shouldCreate || dryRun) return undefined;
+  return createBackupFile();
+}
+
 export function registerRoutes(app: FastifyInstance): void {
   const apiKey = process.env.KEYMEMORY_API_KEY;
 
   // 简单的 API Key 认证（仅在 API Key 存在时启用）
   if (apiKey) {
-    app.addHook('preHandler', async (request: FastifyRequest) => {
+    app.addHook('preHandler', async (request: FastifyRequest, reply) => {
       // 健康检查端点不需要认证
       if (request.url === '/api/health') return;
 
-      const authHeader = request.headers['authorization'];
-      const requestApiKey = authHeader?.replace('Bearer ', '');
+      const path = request.url.split('?')[0];
+      if (!shouldAuthenticateHttpPath(path) || path === '/api/health') return;
 
-      if (!requestApiKey || requestApiKey !== apiKey) {
-        throw { code: 401, message: 'Unauthorized: Invalid API Key' };
+      if (!isApiRequestAuthorized(request.headers as Record<string, string | string[] | undefined>)) {
+        return reply.code(401).send({ error: 'Unauthorized: invalid API key' });
       }
     });
   }
@@ -76,6 +86,7 @@ export function registerRoutes(app: FastifyInstance): void {
     return listMemories({
       layer: query.layer as Layer | undefined,
       projectId: query.projectId,
+      includeDescendants: query.includeDescendants === 'true',
       status: query.status as MemoryStatus | undefined,
       limit: query.limit ? parseInt(query.limit, 10) : undefined,
       offset: query.offset ? parseInt(query.offset, 10) : undefined,
@@ -144,14 +155,17 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.get('/api/memories/search', async (request) => {
-    const query = request.query as SearchQuery;
+    const query = request.query as Record<string, string>;
     const q = query.q;
     if (!q) return [];
     return searchHybrid(q, {
-      layer: query.layer,
+      layer: query.layer as Layer | undefined,
       projectId: query.projectId,
-      status: query.status,
-      limit: query.limit ?? 20,
+      includeDescendants: query.includeDescendants !== 'false',
+      includeSuperseded: query.includeSuperseded === 'true',
+      memoryKind: query.memoryKind as SearchQuery['memoryKind'],
+      status: query.status as MemoryStatus | undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : 20,
     });
   });
 
@@ -259,8 +273,17 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/context/inject', async (request) => {
-    const { project, query, limit } = request.body as { project?: string; query?: string; limit?: number };
-    return injectContext({ project, query, limit });
+    const { project, query, limit, includeSuperseded } = request.body as {
+      project?: string;
+      query?: string;
+      limit?: number;
+      includeSuperseded?: boolean;
+    };
+    return injectContext({ project, query, limit, includeSuperseded: includeSuperseded === true });
+  });
+
+  app.post('/api/context/pack', async (request) => {
+    return buildAgentContextPack(request.body as AgentContextPackRequest);
   });
 
   app.post('/api/agent/route', async (request) => {
@@ -342,6 +365,121 @@ export function registerRoutes(app: FastifyInstance): void {
     return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound });
   });
 
+  app.post('/api/migration/import-file', async (request, reply) => {
+    const body = request.body as {
+      filePath?: string;
+      format?: 'auto' | 'json' | 'jsonl' | 'markdown' | 'text';
+      source?: string;
+      defaultLayer?: Layer;
+      defaultProjectPath?: string;
+      runDream?: boolean;
+      dryRun?: boolean;
+      createBackupBeforeImport?: boolean;
+    };
+    if (!body.filePath) {
+      reply.code(400);
+      return { error: 'filePath is required' };
+    }
+    try {
+      const backup = createMigrationBackup(body.createBackupBeforeImport, body.dryRun);
+      const result = await migrateMemoriesFromPath(body.filePath, {
+        format: body.format,
+        source: body.source,
+        defaultLayer: body.defaultLayer,
+        defaultProjectPath: body.defaultProjectPath,
+        runDream: body.runDream,
+        dryRun: body.dryRun,
+      });
+      return { ...result, backup };
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.get('/api/migration/sources', async (request) => {
+    const query = request.query as Record<string, string>;
+    const roots = query.root
+      ? query.root.split(/[;,]/g).map(root => root.trim()).filter(Boolean)
+      : undefined;
+    return discoverMigrationSources({
+      roots,
+      includeHome: query.includeHome !== 'false',
+      includeMissing: query.includeMissing === 'true',
+      maxFilesPerDirectory: query.maxFiles ? parseInt(query.maxFiles, 10) : undefined,
+    });
+  });
+
+  app.post('/api/migration/import-path', async (request, reply) => {
+    const body = request.body as {
+      path?: string;
+      format?: 'auto' | 'json' | 'jsonl' | 'markdown' | 'text';
+      source?: string;
+      defaultLayer?: Layer;
+      defaultProjectPath?: string;
+      recursive?: boolean;
+      maxFiles?: number;
+      runDream?: boolean;
+      dryRun?: boolean;
+      createBackupBeforeImport?: boolean;
+    };
+    if (!body.path) {
+      reply.code(400);
+      return { error: 'path is required' };
+    }
+    try {
+      const backup = createMigrationBackup(body.createBackupBeforeImport, body.dryRun);
+      const result = await migrateMemoriesFromPath(body.path, {
+        format: body.format,
+        source: body.source,
+        defaultLayer: body.defaultLayer,
+        defaultProjectPath: body.defaultProjectPath,
+        recursive: body.recursive,
+        maxFiles: body.maxFiles,
+        runDream: body.runDream,
+        dryRun: body.dryRun,
+      });
+      return { ...result, backup };
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.post('/api/migration/import-discovered', async (request, reply) => {
+    const body = request.body as {
+      root?: string;
+      includeHome?: boolean;
+      minConfidence?: number;
+      defaultLayer?: Layer;
+      defaultProjectPath?: string;
+      maxFiles?: number;
+      runDream?: boolean;
+      dryRun?: boolean;
+      createBackupBeforeImport?: boolean;
+    };
+    try {
+      const roots = body.root
+        ? body.root.split(/[;,]/g).map(root => root.trim()).filter(Boolean)
+        : undefined;
+      const minConfidence = body.minConfidence ?? 0.7;
+      const sources = discoverMigrationSources({ roots, includeHome: body.includeHome !== false })
+        .filter(source => source.confidence >= minConfidence);
+      const backup = createMigrationBackup(body.createBackupBeforeImport, body.dryRun);
+      const result = await migrateMigrationSources(sources, {
+        defaultLayer: body.defaultLayer,
+        defaultProjectPath: body.defaultProjectPath,
+        maxFiles: body.maxFiles,
+        runDream: body.runDream,
+        dryRun: body.dryRun,
+      });
+      return { ...result, backup, sources };
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+  });
+
   app.get('/api/agents', async () => {
     const db = getDatabase();
     const agents = db.prepare(`
@@ -367,6 +505,55 @@ export function registerRoutes(app: FastifyInstance): void {
       entities,
       versions,
     };
+  });
+
+  app.post('/api/backup/create-file', async (request, reply) => {
+    const body = request.body as {
+      filePath?: string;
+      includeEmbeddings?: boolean;
+      includeOperationalLogs?: boolean;
+    };
+    try {
+      return createBackupFile(body.filePath, {
+        includeEmbeddings: body.includeEmbeddings,
+        includeOperationalLogs: body.includeOperationalLogs,
+      });
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.post('/api/backup/inspect-file', async (request, reply) => {
+    const body = request.body as { filePath?: string };
+    if (!body.filePath) {
+      reply.code(400);
+      return { error: 'filePath is required' };
+    }
+    try {
+      return inspectBackupFile(body.filePath);
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.post('/api/backup/restore', async (request, reply) => {
+    const body = request.body as { filePath?: string; dryRun?: boolean; replace?: boolean; preRestoreBackupPath?: string };
+    if (!body.filePath) {
+      reply.code(400);
+      return { error: 'filePath is required' };
+    }
+    try {
+      return restoreBackupFile(body.filePath, {
+        dryRun: body.dryRun === true,
+        replace: body.replace === true,
+        preRestoreBackupPath: body.preRestoreBackupPath,
+      });
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
   });
 
   app.get('/api/graph/memory-connections', async () => {
@@ -753,18 +940,25 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.post('/api/memories/:id/relate', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { targetId, relationType, strength } = request.body as { targetId: string; relationType: string; strength?: number };
+    const { targetId, relationType, strength, reason } = request.body as { targetId: string; relationType: string; strength?: number; reason?: string };
     if (!targetId || !relationType) {
       reply.code(400);
       return { error: 'targetId and relationType are required' };
     }
-    const validTypes = ['part_of', 'derived_from', 'relates_to', 'supersedes', 'references'];
-    if (!validTypes.includes(relationType)) {
+    if (!MEMORY_RELATION_TYPES.includes(relationType as typeof MEMORY_RELATION_TYPES[number])) {
       reply.code(400);
-      return { error: `relationType must be one of: ${validTypes.join(', ')}` };
+      return { error: `relationType must be one of: ${MEMORY_RELATION_TYPES.join(', ')}` };
     }
     try {
-      const relation = createRelation(id, targetId, relationType, strength ?? 1.0);
+      if (!getMemory(id)) {
+        reply.code(404);
+        return { error: `Memory not found: ${id}` };
+      }
+      if (!getMemory(targetId)) {
+        reply.code(404);
+        return { error: `Memory not found: ${targetId}` };
+      }
+      const relation = createMemoryRelation(id, targetId, relationType, strength ?? 1.0, reason);
       return relation;
     } catch (err) {
       reply.code(400);
@@ -887,10 +1081,15 @@ export function registerRoutes(app: FastifyInstance): void {
     return getSchedulerConfig();
   });
 
-  app.post('/api/scheduler/config', async (request) => {
+  app.post('/api/scheduler/config', async (request, reply) => {
     const updates = request.body as Record<string, unknown>;
-    const result = updateSchedulerConfig(updates);
-    restartScheduler();
-    return result;
+    try {
+      const result = updateSchedulerConfig(updates);
+      restartScheduler();
+      return result;
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
   });
 }

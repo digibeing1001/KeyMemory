@@ -6,9 +6,10 @@ export interface SchedulerConfig {
   dreamingEnabled: boolean;
   dreamingCron: string;
   lastDreamRun: string | null;
+  nextDreamRunAt: string | null;
 }
 
-const DEFAULT_CONFIG: SchedulerConfig = {
+const DEFAULT_CONFIG: Omit<SchedulerConfig, 'nextDreamRunAt'> = {
   dreamingEnabled: true,
   dreamingCron: DREAM_CONFIG.defaultCron,
   lastDreamRun: null,
@@ -16,22 +17,48 @@ const DEFAULT_CONFIG: SchedulerConfig = {
 
 function parseCron(cron: string): { hour: number; minute: number } {
   const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return { hour: 3, minute: 0 };
-  return {
-    minute: parseInt(parts[0], 10),
-    hour: parseInt(parts[1], 10),
-  };
+  if (parts.length !== 5) {
+    throw new Error('dreamingCron must be a daily 5-field cron: "M H * * *"');
+  }
+  if (parts[2] !== '*' || parts[3] !== '*' || parts[4] !== '*') {
+    throw new Error('dreamingCron only supports daily schedules: day, month, and weekday must be "*"');
+  }
+
+  const minute = Number(parts[0]);
+  const hour = Number(parts[1]);
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+    throw new Error('dreamingCron minute must be an integer from 0 to 59');
+  }
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+    throw new Error('dreamingCron hour must be an integer from 0 to 23');
+  }
+  return { hour, minute };
+}
+
+export function normalizeDreamCron(cron: string): string {
+  const { hour, minute } = parseCron(cron);
+  return `${minute} ${hour} * * *`;
+}
+
+export function getNextDreamRunAt(cron: string, from = new Date()): string {
+  const { hour, minute } = parseCron(cron);
+  const target = new Date(from);
+  target.setHours(hour, minute, 0, 0);
+  if (target.getTime() <= from.getTime()) target.setDate(target.getDate() + 1);
+  return target.toISOString();
 }
 
 function msUntilNextRun(cron: string): number {
-  const { hour, minute } = parseCron(cron);
-  const now = new Date();
-  const target = new Date(now);
-  target.setHours(hour, minute, 0, 0);
+  return Math.max(1000, new Date(getNextDreamRunAt(cron)).getTime() - Date.now());
+}
 
-  let diff = target.getTime() - now.getTime();
-  if (diff <= 0) diff += 86400000;
-  return diff;
+function attachNextRun(config: Omit<SchedulerConfig, 'nextDreamRunAt'>): SchedulerConfig {
+  const dreamingCron = normalizeDreamCron(config.dreamingCron);
+  return {
+    ...config,
+    dreamingCron,
+    nextDreamRunAt: config.dreamingEnabled ? getNextDreamRunAt(dreamingCron) : null,
+  };
 }
 
 export function getSchedulerConfig(): SchedulerConfig {
@@ -46,7 +73,11 @@ export function getSchedulerConfig(): SchedulerConfig {
       case 'lastDreamRun': config.lastDreamRun = row.value || null; break;
     }
   }
-  return config;
+  try {
+    return attachNextRun(config);
+  } catch {
+    return attachNextRun({ ...config, dreamingCron: DEFAULT_CONFIG.dreamingCron });
+  }
 }
 
 export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): SchedulerConfig {
@@ -54,6 +85,9 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
   const now = new Date().toISOString();
   const current = getSchedulerConfig();
   const merged = { ...current, ...updates };
+  if (updates.dreamingCron !== undefined) {
+    merged.dreamingCron = normalizeDreamCron(String(updates.dreamingCron));
+  }
 
   const upsert = db.prepare(`
     INSERT INTO scheduler_config (key, value, updated_at) VALUES (?, ?, ?)
@@ -74,7 +108,11 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
   });
   transaction();
 
-  return merged;
+  return attachNextRun({
+    dreamingEnabled: merged.dreamingEnabled,
+    dreamingCron: merged.dreamingCron,
+    lastDreamRun: merged.lastDreamRun,
+  });
 }
 
 let dreamTimer: ReturnType<typeof setTimeout> | null = null;

@@ -6,6 +6,7 @@ import type { Memory, Layer, SearchResult } from '@keymemory/shared';
 import { createMemory, listMemories } from '../core/atom.js';
 import { searchHybrid } from '../core/query.js';
 import { getDatabase } from '../db/sqlite.js';
+import type { MemorySearchOptions } from './base.js';
 
 const CLAUDE_DIR = '.claude';
 const CLAUDE_MD = 'CLAUDE.md';
@@ -31,8 +32,15 @@ export const claudeCodeAdapter: MemoryAdapter = {
     return mem;
   },
 
-  async search(query: string, options?: { layer?: Layer; limit?: number }): Promise<SearchResult[]> {
-    return searchHybrid(query, { layer: options?.layer, limit: options?.limit });
+  async search(query: string, options?: MemorySearchOptions): Promise<SearchResult[]> {
+    return searchHybrid(query, {
+      layer: options?.layer,
+      limit: options?.limit,
+      projectId: options?.projectId,
+      includeDescendants: options?.includeDescendants,
+      includeSuperseded: options?.includeSuperseded,
+      memoryKind: options?.memoryKind,
+    });
   },
 
   async delete(_id: string): Promise<boolean> {

@@ -62,9 +62,11 @@ async function scoreProjectRelevance(content: string, currentProject?: string): 
   const projectMemories = db.prepare(`
     SELECT e.embedding FROM memories m
     JOIN embeddings e ON e.memory_id = m.id
-    WHERE m.project = ? AND m.status = 'active'
+    LEFT JOIN projects p ON p.id = m.project_id
+    WHERE (m.project_id = @project OR p.name = @project OR p.path = @project)
+      AND m.status = 'active'
     LIMIT 10
-  `).all(currentProject) as { embedding: Buffer }[];
+  `).all({ project: currentProject }) as { embedding: Buffer }[];
 
   if (projectMemories.length === 0) return 0.5;
 

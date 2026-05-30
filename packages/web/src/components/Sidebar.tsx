@@ -1,9 +1,9 @@
 import type { Layer } from '@keymemory/shared';
 import { LAYER_CONFIG, LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge } from './Icons';
 import ProjectTree from './ProjectTree';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'recycle';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -18,6 +18,7 @@ interface SidebarProps {
   onToggleTheme: () => void;
   activeProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
+  projectRefreshToken: number;
 }
 
 const LAYER_ICONS: Record<Layer, typeof Flash> = {
@@ -39,6 +40,8 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; label: string; icon: typeof Layers }> 
   { mode: 'nebula', label: '星云图', icon: Globe },
   { mode: 'tags', label: '标签云', icon: Tag },
   { mode: 'dream', label: '梦境', icon: Moon },
+  { mode: 'migration', label: '迁移', icon: Inbox },
+  { mode: 'organize', label: 'Organize', icon: GitMerge },
   { mode: 'recycle', label: '回收站', icon: Trash },
 ];
 
@@ -61,6 +64,7 @@ export default function Sidebar({
   onToggleTheme,
   activeProjectId,
   onSelectProject,
+  projectRefreshToken,
 }: SidebarProps) {
   return (
     <aside
@@ -149,7 +153,7 @@ export default function Sidebar({
         }}
       />
 
-      <ProjectTree activeProjectId={activeProjectId} onSelectProject={onSelectProject} />
+      <ProjectTree activeProjectId={activeProjectId} onSelectProject={onSelectProject} refreshToken={projectRefreshToken} />
 
       <div
         style={{

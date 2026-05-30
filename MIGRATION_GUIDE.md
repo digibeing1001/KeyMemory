@@ -1,5 +1,42 @@
 # KeyMemory 迁移指南
 
+## 一键迁移（新）
+
+KeyMemory 现在支持本机来源发现、文件/目录批量导入、重复导入跳过、导入后梦境整理。
+
+```bash
+keymemory migrate-discover
+keymemory migrate-auto --run-dream
+keymemory migrate <file-or-directory> --source codex --run-dream
+keymemory migrate <file-or-directory> --source codex --dry-run
+```
+
+首次安装推荐先跑安全预览，再确认写入：
+
+```bash
+keymemory onboard
+keymemory onboard --yes --run-dream
+```
+
+`onboard` 会串联发现旧记忆、迁移预览或导入、写前备份、梦境整理和 Agent 配置片段生成。默认不写入；`--yes` 才会导入，`--run-dream` 才会在导入后整理。
+
+Supported file formats: `json`, `jsonl`, `ndjson`, `md`, `markdown`, and `txt`. `jsonl/ndjson` lines may contain direct memory objects, `{ memories: [...] }`, `{ items: [...] }`, nested `payload`/`data`/`item`, or log-style `event_msg`; invalid/non-memory lines are skipped so a partially corrupt export can still migrate.
+Use `--dry-run` before a large import to preview `files`, `total`, `imported`, `skipped`, `failed`, inferred `projectPaths`, and `memoryKinds` without writing memories or running dream consolidation.
+
+### Source-path project routing
+
+When imported memories do not contain `[[Project/Subproject]]` or `projectPath`, KeyMemory now routes them from source evidence before falling back to uncategorized storage:
+
+1. structured metadata such as `projectPath`, `project`, `workspace`, `cwd`, `repoPath`, or `projectRoot`
+2. the discovered source default, for example `Workspaces/<workspace>/Claude Code`
+3. the relative directory under the imported folder, for example `notes/Agent Writer Dashboard/Frontend/memory.md` becomes project `Agent Writer Dashboard/Frontend`
+
+This keeps one-click migration useful for old local memory folders that never had KeyMemory project markers.
+
+可识别来源包括 Codex、Claude Code、Hermes、OpenClaw、Cursor、Gemini、Mem0/OpenMemory 风格本地目录，以及工作区 `AGENTS.md`、`.claude/`、`.hermes/`、`.openclaw/`、`.cursor/rules`。导入后会自动生成项目树、推断记忆类型、补标签和来源证据。
+
+带 `--run-dream` 时，迁移后的旧记忆会进入梦境整理：重复或被更新的记忆会归档，并写入 `memory_relations` 中的 `supersedes` 关系，便于 Agent 知道哪条新记忆替代了旧记忆。
+
 > 从任何来源迁移记忆到 KeyMemory 的通用指南
 
 ---

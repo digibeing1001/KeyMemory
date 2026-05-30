@@ -4,13 +4,20 @@ import type { Memory, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus 
 import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
 import { extractEntities, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
+import { ensureProjectPath } from './project.js';
+import { extractProjectPathFromContent, normalizeMemoryInput, normalizeMemoryUpdate } from './memory-schema.js';
 
 export function createMemory(input: CreateMemoryInput): Memory {
   const db = getDatabase();
+  input = normalizeMemoryInput(input);
   const now = new Date().toISOString();
   const id = uuid();
 
   let projectId = input.projectId;
+  const projectPath = input.projectPath || extractProjectPathFromContent(input.content);
+  if (!projectId && projectPath) {
+    projectId = ensureProjectPath(projectPath)?.id;
+  }
   if (!projectId) {
     const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
     projectId = rootProject?.id ?? '';
@@ -99,7 +106,7 @@ export function getMemory(id: string): Memory | null {
   return rowToMemory(row);
 }
 
-export function listMemories(options?: { layer?: Layer; projectId?: string; status?: MemoryStatus; agentSpaces?: string[]; limit?: number; offset?: number }): Memory[] {
+export function listMemories(options?: { layer?: Layer; projectId?: string; includeDescendants?: boolean; status?: MemoryStatus; agentSpaces?: string[]; limit?: number; offset?: number }): Memory[] {
   const db = getDatabase();
   const conditions: string[] = [];
   const params: Record<string, unknown> = {};
@@ -109,8 +116,17 @@ export function listMemories(options?: { layer?: Layer; projectId?: string; stat
     params.layer = options.layer;
   }
   if (options?.projectId) {
-    conditions.push('project_id = @projectId');
     params.projectId = options.projectId;
+    if (options.includeDescendants) {
+      conditions.push(`project_id IN (
+        SELECT child.id
+        FROM projects child
+        JOIN projects root ON root.id = @projectId
+        WHERE child.id = root.id OR child.path LIKE root.path || '/%'
+      )`);
+    } else {
+      conditions.push('project_id = @projectId');
+    }
   }
   if (options?.status) {
     conditions.push('status = @status');
@@ -140,6 +156,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
   const db = getDatabase();
   const existing = getMemory(id);
   if (!existing) return null;
+  input = normalizeMemoryUpdate(input, existing);
 
   const updates: string[] = [];
   const params: Record<string, unknown> = { id };
@@ -181,7 +198,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
   return db.transaction(() => {
     db.prepare(`UPDATE memories SET ${updates.join(', ')} WHERE id = @id`).run(params);
 
-    if (input.title !== undefined || input.content !== undefined) {
+    if (input.title !== undefined || input.content !== undefined || input.tags !== undefined || input.projectId !== undefined) {
       const updated = getMemory(id)!;
       const updatedProjectName = updated.projectId ? (db.prepare('SELECT name FROM projects WHERE id = ?').get(updated.projectId) as { name: string } | undefined)?.name || '' : '';
       db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);

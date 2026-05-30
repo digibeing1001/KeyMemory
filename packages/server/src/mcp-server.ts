@@ -11,6 +11,11 @@ import type { Layer } from '@keymemory/shared';
 import { runDailyInspection } from './core/evolution.js';
 import { applyDecay } from './core/forgetting.js';
 import { startScheduler, stopScheduler } from './core/scheduler.js';
+import { discoverMigrationSources, migrateMemoriesFromPath } from './core/migration.js';
+import { buildAgentContextPack } from './core/context-pack.js';
+import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from './graph/entity.js';
+import { createBackupFile, inspectBackupFile, restoreBackupFile } from './core/backup.js';
+import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './core/project.js';
 
 function formatLogArg(arg: unknown): string {
   if (arg instanceof Error) return arg.stack || arg.message;
@@ -70,9 +75,11 @@ async function startRestServerInBackground() {
     const { registerMCPRoutes } = await import('./api/mcp.js');
     const { registerWebUI } = await import('./web-ui.js');
     const { DEFAULT_PORT, DEFAULT_HOST } = await import('@keymemory/shared');
+    const { assertSafeServerBinding, createCorsOriginPolicy } = await import('./core/security.js');
 
+    assertSafeServerBinding(DEFAULT_HOST);
     const app = Fastify({ logger: false });
-    await app.register(cors, { origin: true });
+    await app.register(cors, { origin: createCorsOriginPolicy() });
     registerRoutes(app);
     registerMCPRoutes(app);
     registerWebUI(app);
@@ -129,6 +136,7 @@ async function handleRequest(request: any) {
                 content: { type: 'string', description: '完整的记忆内容，支持 Markdown 格式' },
                 layer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: '记忆层级：flash(临时), short(几天), long(长期), project(项目), entity(实体)' },
                 projectId: { type: 'string', description: '关联的项目ID（可选）' },
+                projectPath: { type: 'string', description: 'Project path such as Product/Backend/Memory. Missing folders are created automatically.' },
                 tags: { type: 'array', items: { type: 'string' }, description: '标签列表，帮助分类和检索（必填推荐）' },
                 metadata: { type: 'object', description: '结构化元数据。推荐字段：timeline(时间线), entities(涉及实体), context(场景), category(分类), importance(重要程度)' },
                 source: { type: 'string', description: '记忆来源标识（如 conversation, notionclaw, hindsight）' },
@@ -143,9 +151,56 @@ async function handleRequest(request: any) {
               type: 'object',
               properties: {
                 query: { type: 'string', description: '搜索关键词' },
+                projectId: { type: 'string', description: 'Limit to a project. Descendants are included by default.' },
+                includeDescendants: { type: 'boolean', description: 'Whether project search includes child projects. Default true.' },
+                includeSuperseded: { type: 'boolean', description: 'Include memories superseded by active newer memories. Default false.' },
+                memoryKind: { type: 'string', enum: ['preference', 'project_fact', 'decision', 'task', 'procedure', 'concept', 'relationship', 'event', 'constraint', 'raw_note'], description: 'Filter by normalized memory kind.' },
                 limit: { type: 'number', description: '返回结果数量（默认10）' },
               },
               required: ['query'],
+            },
+          },
+          {
+            name: 'memory_context_pack',
+            description: 'Build an agent-ready context pack grouped by preferences, constraints, decisions, tasks, procedures, and project facts. Use before long-running work.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Current task or question.' },
+                project: { type: 'string', description: 'Project path/name/id. Descendants are included by default.' },
+                projectId: { type: 'string', description: 'Project ID.' },
+                includeDescendants: { type: 'boolean', description: 'Whether to include child projects. Default true.' },
+                memoryKinds: { type: 'array', items: { type: 'string' }, description: 'Optional memory kinds to include.' },
+                maxItems: { type: 'number', description: 'Max memories. Default 12.' },
+                maxChars: { type: 'number', description: 'Approximate character budget. Default 6000.' },
+              },
+            },
+          },
+          {
+            name: 'memory_relate',
+            description: 'Create or update a memory-to-memory relation, e.g. supersedes when newer guidance replaces old guidance.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                sourceId: { type: 'string', description: 'Source memory ID.' },
+                targetId: { type: 'string', description: 'Target memory ID.' },
+                relationType: { type: 'string', enum: [...MEMORY_RELATION_TYPES], description: 'Relation type.' },
+                strength: { type: 'number', description: 'Relation strength from 0 to 1. Default 1.' },
+                reason: { type: 'string', description: 'Provenance or reason for this relation.' },
+              },
+              required: ['sourceId', 'targetId', 'relationType'],
+            },
+          },
+          {
+            name: 'memory_related',
+            description: 'List memories related to one memory, including dream-created supersedes relations.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Memory ID.' },
+                relationType: { type: 'string', enum: [...MEMORY_RELATION_TYPES], description: 'Optional relation type filter.' },
+              },
+              required: ['id'],
             },
           },
           {
@@ -238,6 +293,104 @@ async function handleRequest(request: any) {
               required: ['memories'],
             },
           },
+          {
+            name: 'memory_migration_discover',
+            description: 'Discover local memory sources for one-click migration. Works across Windows, Linux, macOS, and WSL using home/workspace paths.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                root: { type: 'string', description: 'Optional workspace root path. Multiple paths may be separated by ; or ,' },
+                includeHome: { type: 'boolean', description: 'Include home-directory memory sources. Default true.' },
+                includeMissing: { type: 'boolean', description: 'Include expected source paths even when missing. Default false.' },
+              },
+            },
+          },
+          {
+            name: 'memory_migration_import',
+            description: 'Import one discovered memory source, file, or directory, then normalize project tree, memory kind, tags, and optional dream consolidation.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                path: { type: 'string', description: 'File or directory path to import' },
+                source: { type: 'string', description: 'Source identifier, e.g. codex, claude-code, cursor, mem0' },
+                format: { type: 'string', enum: ['auto', 'json', 'jsonl', 'markdown', 'text'], description: 'Input format. Default auto.' },
+                defaultLayer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: 'Fallback memory layer. Default long.' },
+                defaultProjectPath: { type: 'string', description: 'Fallback project path if none is found in source content.' },
+                recursive: { type: 'boolean', description: 'Import supported files recursively when path is a directory. Default true.' },
+                maxFiles: { type: 'number', description: 'Directory file cap. Default 200.' },
+                runDream: { type: 'boolean', description: 'Run a dream cycle after import. Default false.' },
+                dryRun: { type: 'boolean', description: 'Preview counts without writing memories or running dream. Default false.' },
+              },
+              required: ['path'],
+            },
+          },
+          {
+            name: 'memory_backup_create',
+            description: 'Create a portable KeyMemory JSON backup before migration, dream consolidation, or risky maintenance.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                filePath: { type: 'string', description: 'Optional backup file path. Defaults to KeyMemory data-dir backups folder.' },
+                includeEmbeddings: { type: 'boolean', description: 'Include embedding blobs. Larger file. Default false.' },
+                includeOperationalLogs: { type: 'boolean', description: 'Include query logs that may contain user text. Default false.' },
+              },
+            },
+          },
+          {
+            name: 'memory_backup_inspect',
+            description: 'Inspect and checksum-verify a KeyMemory backup file without changing current data.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                filePath: { type: 'string', description: 'Backup file path to inspect.' },
+              },
+              required: ['filePath'],
+            },
+          },
+          {
+            name: 'memory_backup_restore_dry_run',
+            description: 'Validate whether a KeyMemory backup could be restored. This is dry-run only and never writes data.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                filePath: { type: 'string', description: 'Backup file path to validate.' },
+              },
+              required: ['filePath'],
+            },
+          },
+          {
+            name: 'memory_project_suggestions',
+            description: 'List dream-created project organization suggestions so agents can review proposed project-tree changes.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                status: { type: 'string', enum: ['pending', 'accepted', 'rejected'], description: 'Optional suggestion status. Default all.' },
+              },
+            },
+          },
+          {
+            name: 'memory_project_suggestion_accept',
+            description: 'Accept a project organization suggestion and move the suggested projects under a new parent project.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Suggestion ID.' },
+                customName: { type: 'string', description: 'Optional custom parent project name.' },
+              },
+              required: ['id'],
+            },
+          },
+          {
+            name: 'memory_project_suggestion_reject',
+            description: 'Reject a project organization suggestion.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Suggestion ID.' },
+              },
+              required: ['id'],
+            },
+          },
         ],
       };
 
@@ -253,6 +406,7 @@ async function handleRequest(request: any) {
             content: args.content,
             layer: args.layer,
             projectId: args.projectId,
+            projectPath: args.projectPath,
             tags,
             metadata: args.metadata,
             source: args.source,
@@ -273,6 +427,10 @@ async function handleRequest(request: any) {
         case 'memory_search': {
           const results = await searchHybrid(args.query, {
             limit: args.limit || 10,
+            projectId: args.projectId,
+            includeDescendants: args.includeDescendants !== false,
+            includeSuperseded: Boolean(args.includeSuperseded),
+            memoryKind: args.memoryKind,
           });
           if (results.length === 0) {
             return {
@@ -310,6 +468,57 @@ async function handleRequest(request: any) {
               },
             ],
           };
+        }
+
+        case 'memory_context_pack': {
+          const pack = await buildAgentContextPack({
+            query: typeof args.query === 'string' ? args.query : undefined,
+            project: typeof args.project === 'string' ? args.project : undefined,
+            projectId: typeof args.projectId === 'string' ? args.projectId : undefined,
+            includeDescendants: args.includeDescendants !== false,
+            memoryKinds: Array.isArray(args.memoryKinds) ? args.memoryKinds : undefined,
+            maxItems: typeof args.maxItems === 'number' ? args.maxItems : undefined,
+            maxChars: typeof args.maxChars === 'number' ? args.maxChars : undefined,
+          });
+          return {
+            content: [{ type: 'text', text: pack.markdown }],
+          };
+        }
+
+        case 'memory_relate': {
+          if (!getMemory(args.sourceId)) {
+            return { content: [{ type: 'text', text: `Memory not found: ${args.sourceId}` }], isError: true };
+          }
+          if (!getMemory(args.targetId)) {
+            return { content: [{ type: 'text', text: `Memory not found: ${args.targetId}` }], isError: true };
+          }
+          try {
+            const relation = createMemoryRelation(
+              String(args.sourceId),
+              String(args.targetId),
+              String(args.relationType),
+              typeof args.strength === 'number' ? args.strength : 1.0,
+              typeof args.reason === 'string' ? args.reason : undefined,
+            );
+            return { content: [{ type: 'text', text: JSON.stringify(relation, null, 2) }] };
+          } catch (err) {
+            return { content: [{ type: 'text', text: (err as Error).message }], isError: true };
+          }
+        }
+
+        case 'memory_related': {
+          if (!getMemory(args.id)) {
+            return { content: [{ type: 'text', text: `Memory not found: ${args.id}` }], isError: true };
+          }
+          try {
+            const related = findRelatedMemories(
+              String(args.id),
+              typeof args.relationType === 'string' ? args.relationType : undefined,
+            );
+            return { content: [{ type: 'text', text: JSON.stringify(related, null, 2) }] };
+          } catch (err) {
+            return { content: [{ type: 'text', text: (err as Error).message }], isError: true };
+          }
         }
 
         case 'memory_read': {
@@ -486,6 +695,108 @@ async function handleRequest(request: any) {
           };
         }
 
+        case 'memory_migration_discover': {
+          const roots = typeof args.root === 'string'
+            ? args.root.split(/[;,]/g).map((root: string) => root.trim()).filter(Boolean)
+            : undefined;
+          const sources = discoverMigrationSources({
+            roots,
+            includeHome: args.includeHome !== false,
+            includeMissing: Boolean(args.includeMissing),
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(sources, null, 2) }],
+          };
+        }
+
+        case 'memory_migration_import': {
+          if (!args.path) {
+            return { content: [{ type: 'text', text: 'path is required' }], isError: true };
+          }
+          const result = await migrateMemoriesFromPath(String(args.path), {
+            source: typeof args.source === 'string' ? args.source : undefined,
+            format: typeof args.format === 'string' ? args.format as 'auto' | 'json' | 'jsonl' | 'markdown' | 'text' : undefined,
+            defaultLayer: typeof args.defaultLayer === 'string' ? args.defaultLayer as Layer : undefined,
+            defaultProjectPath: typeof args.defaultProjectPath === 'string' ? args.defaultProjectPath : undefined,
+            recursive: args.recursive !== false,
+            maxFiles: typeof args.maxFiles === 'number' ? args.maxFiles : undefined,
+            runDream: Boolean(args.runDream),
+            dryRun: Boolean(args.dryRun),
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case 'memory_backup_create': {
+          const summary = createBackupFile(
+            typeof args.filePath === 'string' ? args.filePath : undefined,
+            {
+              includeEmbeddings: Boolean(args.includeEmbeddings),
+              includeOperationalLogs: Boolean(args.includeOperationalLogs),
+            },
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }],
+          };
+        }
+
+        case 'memory_backup_inspect': {
+          if (!args.filePath) {
+            return { content: [{ type: 'text', text: 'filePath is required' }], isError: true };
+          }
+          const summary = inspectBackupFile(String(args.filePath));
+          return {
+            content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }],
+          };
+        }
+
+        case 'memory_backup_restore_dry_run': {
+          if (!args.filePath) {
+            return { content: [{ type: 'text', text: 'filePath is required' }], isError: true };
+          }
+          const summary = restoreBackupFile(String(args.filePath), { dryRun: true });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }],
+          };
+        }
+
+        case 'memory_project_suggestions': {
+          const status = typeof args.status === 'string' ? args.status : undefined;
+          if (status && !['pending', 'accepted', 'rejected'].includes(status)) {
+            return { content: [{ type: 'text', text: 'status must be pending, accepted, or rejected' }], isError: true };
+          }
+          const suggestions = listProjectSuggestions(status as 'pending' | 'accepted' | 'rejected' | undefined);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(suggestions, null, 2) }],
+          };
+        }
+
+        case 'memory_project_suggestion_accept': {
+          if (!args.id) {
+            return { content: [{ type: 'text', text: 'id is required' }], isError: true };
+          }
+          const result = acceptProjectSuggestion(
+            String(args.id),
+            typeof args.customName === 'string' ? args.customName : undefined,
+          );
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            isError: !result.success,
+          };
+        }
+
+        case 'memory_project_suggestion_reject': {
+          if (!args.id) {
+            return { content: [{ type: 'text', text: 'id is required' }], isError: true };
+          }
+          const ok = rejectProjectSuggestion(String(args.id));
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ success: ok, id: String(args.id) }, null, 2) }],
+            isError: !ok,
+          };
+        }
+
         default:
           return {
             content: [{ type: 'text', text: `未知工具: ${toolName}` }],
@@ -540,21 +851,15 @@ async function handleRequest(request: any) {
       const promptName = params?.name;
       if (promptName === 'memory_context') {
         const query = params?.arguments?.query;
+        const project = params?.arguments?.project;
         const projectId = params?.arguments?.projectId;
-        let contextText = '';
-        if (query) {
-          const results = await searchHybrid(query, { limit: 5 });
-          contextText = results.map(r => `- [${r.memory.layer}] ${r.memory.title}: ${r.memory.content.slice(0, 200)}`).join('\n');
-        } else {
-          const mems = listMemories({ projectId, limit: 5 });
-          contextText = mems.map(m => `- [${m.layer}] ${m.title}: ${m.content.slice(0, 200)}`).join('\n');
-        }
+        const pack = await buildAgentContextPack({ query, project, projectId, maxItems: 8, maxChars: 4000 });
         return {
           description: '注入相关记忆到对话上下文',
           messages: [
             {
               role: 'user',
-              content: { type: 'text', text: contextText ? `## KeyMemory Context\n\n${contextText}` : 'No relevant memories found.' },
+              content: { type: 'text', text: pack.markdown },
             },
           ],
         };

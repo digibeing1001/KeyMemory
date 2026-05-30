@@ -1,5 +1,5 @@
 import { getDatabase } from '../db/sqlite.js';
-import type { Layer } from '@keymemory/shared';
+import { findProjectRef } from './project.js';
 
 export interface CompressionResult {
   projectId?: string;
@@ -10,12 +10,16 @@ export interface CompressionResult {
 
 export function compressProjectMemories(project: string): CompressionResult | null {
   const db = getDatabase();
+  const projectInfo = findProjectRef(project);
+  if (!projectInfo) return null;
 
   const memories = db.prepare(`
-    SELECT id, title, content FROM memories
-    WHERE project = ? AND status = 'active'
+    SELECT m.id, m.title, m.content FROM memories m
+    JOIN projects p ON p.id = m.project_id
+    WHERE (p.id = @projectId OR p.path LIKE @pathPattern)
+      AND m.status = 'active'
     ORDER BY created_at ASC
-  `).all(project) as { id: string; title: string; content: string }[];
+  `).all({ projectId: projectInfo.id, pathPattern: `${projectInfo.path}/%` }) as { id: string; title: string; content: string }[];
 
   if (memories.length < 3) return null;
 
@@ -26,10 +30,10 @@ export function compressProjectMemories(project: string): CompressionResult | nu
     keyPoints.push(`- ${m.title}: ${firstLines.join(' ')}`);
   }
 
-  const summary = `# ${project} 项目摘要\n\n共 ${memories.length} 条记忆，关键要点：\n\n${keyPoints.join('\n')}`;
+  const summary = `# ${projectInfo.path} 项目摘要\n\n共 ${memories.length} 条记忆，关键要点：\n\n${keyPoints.join('\n')}`;
 
   return {
-    projectId: project,
+    projectId: projectInfo.id,
     sourceCount: memories.length,
     summary,
   };
@@ -69,9 +73,10 @@ export function compressEntityMemories(entityId: string): CompressionResult | nu
 export function listCompressibleProjects(): { project: string; count: number }[] {
   const db = getDatabase();
   return db.prepare(`
-    SELECT project, COUNT(*) as count FROM memories
-    WHERE project IS NOT NULL AND status = 'active'
-    GROUP BY project
+    SELECT p.path as project, COUNT(*) as count FROM memories m
+    JOIN projects p ON p.id = m.project_id
+    WHERE m.status = 'active'
+    GROUP BY p.path
     HAVING count >= 3
     ORDER BY count DESC
   `).all() as { project: string; count: number }[];

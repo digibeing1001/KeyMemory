@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  release-check:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+        node:
+          - 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Release check
+        run: pnpm release:check
+
+  wsl-smoke:
+    name: Windows WSL smoke
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build on Windows
+        run: pnpm build
+
+      - name: Smoke through WSL when available
+        shell: pwsh
+        run: |
+          $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+          if (-not $wsl) {
+            Write-Host "WSL unavailable on this runner; skipping WSL smoke."
+            exit 0
+          }
+          wsl.exe --status
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "WSL installed but no distro ready; skipping WSL smoke."
+            exit 0
+          }
+          $wslRoot = (wsl.exe wslpath -a "$PWD").Trim()
+          wsl.exe bash -lc "command -v node >/dev/null && command -v pnpm >/dev/null"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "WSL distro lacks node or pnpm; skipping WSL smoke."
+            exit 0
+          }
+          wsl.exe bash -lc "cd '$wslRoot' && pnpm smoke"

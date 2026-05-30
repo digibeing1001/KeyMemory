@@ -1,0 +1,259 @@
+import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
+import { getMemory, listMemories } from './atom.js';
+import { searchHybrid } from './query.js';
+import { findProjectRef, getProject } from './project.js';
+import { getDatabase } from '../db/sqlite.js';
+import { findRelatedMemories } from '../graph/entity.js';
+
+const KIND_ORDER: MemoryKind[] = [
+  'preference',
+  'constraint',
+  'decision',
+  'task',
+  'procedure',
+  'project_fact',
+  'relationship',
+  'concept',
+  'event',
+  'raw_note',
+];
+
+const KIND_TITLES: Record<MemoryKind, string> = {
+  preference: 'User Preferences',
+  constraint: 'Constraints And Rules',
+  decision: 'Decisions',
+  task: 'Open Tasks',
+  procedure: 'Procedures',
+  project_fact: 'Project Facts',
+  relationship: 'Relationships',
+  concept: 'Concepts',
+  event: 'Events',
+  raw_note: 'Other Notes',
+};
+
+const KIND_WEIGHT = new Map<MemoryKind, number>(KIND_ORDER.map((kind, index) => [kind, (KIND_ORDER.length - index) * 0.01]));
+
+function memoryKindOf(memory: Memory): MemoryKind {
+  const metaKind = (memory.metadata as Record<string, unknown> | undefined)?.memoryKind;
+  if (typeof metaKind === 'string' && KIND_ORDER.includes(metaKind as MemoryKind)) return metaKind as MemoryKind;
+  const tagKind = memory.tags?.find(tag => tag.startsWith('kind:'))?.slice('kind:'.length);
+  if (tagKind && KIND_ORDER.includes(tagKind as MemoryKind)) return tagKind as MemoryKind;
+  return 'raw_note';
+}
+
+function layerWeight(memory: Memory): number {
+  if (memory.layer === 'long') return 0.012;
+  if (memory.layer === 'entity') return 0.01;
+  if (memory.layer === 'short') return 0.004;
+  return 0;
+}
+
+function projectPathOf(memory: Memory): string | undefined {
+  if (!memory.projectId) return undefined;
+  return getProject(memory.projectId)?.path;
+}
+
+function truncate(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function addCandidate(map: Map<string, AgentContextItem>, memory: Memory, score = 0): void {
+  const kind = memoryKindOf(memory);
+  const finalScore = score + (KIND_WEIGHT.get(kind) ?? 0) + layerWeight(memory) + Math.min(0.01, Math.log1p(memory.hitCount) * 0.002);
+  const existing = map.get(memory.id);
+  if (existing && existing.score >= finalScore) return;
+  map.set(memory.id, {
+    id: memory.id,
+    title: memory.title,
+    content: memory.content,
+    layer: memory.layer,
+    memoryKind: kind,
+    projectId: memory.projectId,
+    projectPath: projectPathOf(memory),
+    tags: memory.tags,
+    source: memory.source,
+    updatedAt: memory.updatedAt,
+    score: Number(finalScore.toFixed(6)),
+  });
+}
+
+function activeSuperseders(): Map<string, string> {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT r.target_memory_id as targetId, r.source_memory_id as sourceId
+    FROM memory_relations r
+    JOIN memories source ON source.id = r.source_memory_id
+    WHERE r.relation_type = 'supersedes'
+      AND source.status = 'active'
+    ORDER BY r.strength DESC, r.created_at DESC
+  `).all() as { targetId: string; sourceId: string }[];
+
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (!map.has(row.targetId)) map.set(row.targetId, row.sourceId);
+  }
+  return map;
+}
+
+function promoteSupersedingMemories(candidates: Map<string, AgentContextItem>, superseders: Map<string, string>): void {
+  for (const item of Array.from(candidates.values())) {
+    const sourceId = superseders.get(item.id);
+    if (!sourceId || candidates.has(sourceId)) continue;
+    const source = getMemory(sourceId);
+    if (source?.status === 'active') addCandidate(candidates, source, item.score + 0.05);
+  }
+}
+
+function expandRelatedMemories(candidates: Map<string, AgentContextItem>): void {
+  const seeds = Array.from(candidates.values());
+  for (const item of seeds) {
+    const related = findRelatedMemories(item.id)
+      .filter(rel => ['relates_to', 'derived_from', 'references', 'part_of'].includes(rel.relationType))
+      .slice(0, 4);
+    for (const rel of related) {
+      if (candidates.has(rel.memoryId)) continue;
+      const memory = getMemory(rel.memoryId);
+      if (memory?.status !== 'active') continue;
+      addCandidate(candidates, memory, item.score + Math.min(0.04, rel.strength * 0.04));
+    }
+  }
+}
+
+function enrichRelations(items: AgentContextItem[]): AgentContextItem[] {
+  return items.map(item => {
+    const relations = findRelatedMemories(item.id)
+      .filter(rel => ['supersedes', 'relates_to', 'derived_from', 'references', 'part_of'].includes(rel.relationType))
+      .slice(0, 4)
+      .map(rel => ({
+        memoryId: rel.memoryId,
+        title: rel.title,
+        relationType: rel.relationType,
+        direction: rel.direction,
+        strength: rel.strength,
+        reason: rel.reason,
+      }));
+    return relations.length > 0 ? { ...item, relations } : item;
+  });
+}
+
+function relationLine(item: AgentContextItem): string {
+  if (!item.relations || item.relations.length === 0) return '';
+  return `\n  Relations: ${item.relations.map(rel => `${rel.direction} ${rel.relationType} ${rel.title} (${rel.memoryId.slice(0, 8)})`).join('; ')}`;
+}
+
+function estimateChars(items: AgentContextItem[]): number {
+  return items.reduce((sum, item) => sum + item.title.length + item.content.length + relationLine(item).length + 80, 0);
+}
+
+function formatItem(item: AgentContextItem): string {
+  const source = item.projectPath ? `, project=${item.projectPath}` : '';
+  const shortId = item.id.slice(0, 8);
+  return `- [${item.layer}, ${shortId}${source}] ${item.title}: ${item.content}${relationLine(item)}`;
+}
+
+function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>): string {
+  const lines = ['# KeyMemory Context'];
+  if (pack.project) lines.push(`Project: ${pack.project}`);
+  if (pack.query) lines.push(`Query: ${pack.query}`);
+  lines.push(`Generated: ${pack.generatedAt}`);
+  lines.push('');
+
+  if (pack.sections.length === 0) {
+    lines.push('No relevant memories found.');
+    return lines.join('\n');
+  }
+
+  for (const section of pack.sections) {
+    lines.push(`## ${section.title}`);
+    for (const item of section.items) lines.push(formatItem(item));
+    lines.push('');
+  }
+
+  return lines.join('\n').trimEnd();
+}
+
+export async function buildAgentContextPack(input: AgentContextPackRequest = {}): Promise<AgentContextPack> {
+  const maxItems = Math.max(1, Math.min(input.maxItems ?? 12, 40));
+  const maxChars = Math.max(800, Math.min(input.maxChars ?? 6000, 30000));
+  const includeDescendants = input.includeDescendants !== false;
+  const project = input.projectId ? getProject(input.projectId) : input.project ? findProjectRef(input.project) : null;
+  const projectMissing = Boolean((input.projectId || input.project) && !project);
+  const projectId = input.projectId ?? project?.id;
+  const projectName = project?.path ?? input.project;
+  const allowedKinds = input.memoryKinds && input.memoryKinds.length > 0 ? new Set(input.memoryKinds) : null;
+
+  const candidates = new Map<string, AgentContextItem>();
+  const superseders = activeSuperseders();
+
+  if (input.query?.trim() && !projectMissing) {
+    const results = await searchHybrid(input.query, {
+      projectId,
+      includeDescendants,
+      limit: maxItems * 3,
+    });
+    for (const result of results) addCandidate(candidates, result.memory, result.score);
+  }
+
+  if (!projectMissing) {
+    const scoped = listMemories({
+      projectId,
+      includeDescendants,
+      status: 'active',
+      limit: maxItems * 5,
+    });
+    for (const memory of scoped) addCandidate(candidates, memory, 0);
+  }
+
+  promoteSupersedingMemories(candidates, superseders);
+  expandRelatedMemories(candidates);
+
+  const sorted = Array.from(candidates.values())
+    .filter(item => !allowedKinds || allowedKinds.has(item.memoryKind))
+    .filter(item => !superseders.has(item.id))
+    .sort((a, b) => b.score - a.score || b.updatedAt.localeCompare(a.updatedAt));
+
+  const selectedBase: AgentContextItem[] = [];
+  let usedChars = 0;
+  for (const item of sorted) {
+    if (selectedBase.length >= maxItems) break;
+    const remaining = maxChars - usedChars;
+    if (remaining <= 0) break;
+    const contentBudget = Math.min(900, Math.max(180, remaining - item.title.length - 80));
+    const next = { ...item, content: truncate(item.content, contentBudget) };
+    const cost = next.title.length + next.content.length + 80;
+    if (usedChars + cost > maxChars && selectedBase.length > 0) continue;
+    selectedBase.push(next);
+    usedChars += cost;
+  }
+
+  let selected = enrichRelations(selectedBase);
+  usedChars = estimateChars(selected);
+  while (usedChars > maxChars && selected.length > 1) {
+    selected = selected.slice(0, -1);
+    usedChars = estimateChars(selected);
+  }
+
+  const sections = KIND_ORDER
+    .map(kind => ({
+      kind,
+      title: KIND_TITLES[kind],
+      items: selected.filter(item => item.memoryKind === kind),
+    }))
+    .filter(section => section.items.length > 0);
+
+  const packBase = {
+    query: input.query,
+    project: projectName,
+    projectId,
+    generatedAt: new Date().toISOString(),
+    totalItems: selected.length,
+    usedChars,
+    sections,
+  };
+
+  return {
+    ...packBase,
+    markdown: formatMarkdown(packBase),
+  };
+}

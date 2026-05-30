@@ -8,6 +8,7 @@ const os = require('os');
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const BIN_DIR = path.join(PROJECT_DIR, 'bin');
 const IS_WIN = os.platform() === 'win32';
+const POSIX_LAUNCHERS = ['keymemory', 'keymemory-mcp', 'keymemory-ui', 'keymemory-ui-wsl'];
 
 console.log('');
 console.log('  \x1b[1m\x1b[36mKeyMemory\x1b[0m 安装向导');
@@ -56,6 +57,12 @@ if (IS_WIN) {
     }
   }
 } else {
+  for (const name of POSIX_LAUNCHERS) {
+    try {
+      fs.chmodSync(path.join(BIN_DIR, name), 0o755);
+    } catch {}
+  }
+
   const shellRc = path.join(os.homedir(), '.bashrc');
   const zshRc = path.join(os.homedir(), '.zshrc');
   const exportLine = `\nexport PATH="$PATH:${BIN_DIR}"`;
