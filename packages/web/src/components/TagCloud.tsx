@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useI18n } from '../i18n';
 
 interface TagItem {
   name: string;
@@ -14,11 +15,11 @@ interface TagCloudProps {
 }
 
 const LAYER_COLORS: Record<string, string> = {
-  flash: '#FF9F0A',
-  short: '#007AFF',
-  long: '#34C759',
-  project: '#AF52DE',
-  entity: '#FF2D55',
+  flash: '#f59e0b',
+  short: '#3b82f6',
+  long: '#10b981',
+  project: '#9b59b6',
+  entity: '#ec4899',
 };
 
 const MIN_FONT_SIZE = 13;
@@ -38,7 +39,7 @@ function getDominantLayer(layers?: Record<string, number>): string {
 }
 
 function getLayerColor(layer: string): string {
-  return LAYER_COLORS[layer] ?? '#007AFF';
+  return LAYER_COLORS[layer] ?? '#3b82f6';
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -49,9 +50,10 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 export default function TagCloud({ tags, projects, onTagClick, loading }: TagCloudProps) {
+  const { language, t } = useI18n();
   const { minCount, maxCount, totalMemories } = useMemo(() => {
     if (tags.length === 0) return { minCount: 0, maxCount: 0, totalMemories: 0 };
-    const counts = tags.map((t) => t.count);
+    const counts = tags.map((tag) => tag.count);
     return {
       minCount: Math.min(...counts),
       maxCount: Math.max(...counts),
@@ -67,30 +69,24 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
 
   const getFontWeight = (fontSize: number): number => {
     const ratio = (fontSize - MIN_FONT_SIZE) / (MAX_FONT_SIZE - MIN_FONT_SIZE);
-    return 500 + ratio * 100;
+    return 500 + ratio * 120;
   };
 
   if (loading) {
     return (
       <div style={{ padding: 24 }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <div
-            className="animate-shimmer"
-            style={{ width: 80, height: 20, borderRadius: 10, background: 'var(--bg-muted)' }}
-          />
-          <div
-            className="animate-shimmer"
-            style={{ width: 100, height: 20, borderRadius: 10, background: 'var(--bg-muted)' }}
-          />
+          <div className="animate-pulse" style={{ width: 80, height: 20, borderRadius: 10, background: 'var(--bg-muted)' }} />
+          <div className="animate-pulse" style={{ width: 100, height: 20, borderRadius: 10, background: 'var(--bg-muted)' }} />
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
-          {Array.from({ length: 12 }).map((_, i) => (
+          {Array.from({ length: 12 }).map((_, index) => (
             <div
-              key={i}
-              className="animate-shimmer"
+              key={index}
+              className="animate-pulse"
               style={{
-                width: 60 + Math.random() * 60,
-                height: 28 + Math.random() * 12,
+                width: 60 + (index % 4) * 24,
+                height: 28 + (index % 3) * 6,
                 borderRadius: 20,
                 background: 'var(--bg-muted)',
               }}
@@ -103,60 +99,24 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
 
   if (tags.length === 0) {
     return (
-      <div
-        style={{
-          padding: '48px 24px',
-          textAlign: 'center',
-          color: 'var(--text-tertiary)',
-          fontSize: 15,
-          fontWeight: 500,
-        }}
-      >
-        暂无标签数据
+      <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 15, fontWeight: 600 }}>
+        {language === 'zh' ? '暂无标签数据' : 'No tag data yet'}
       </div>
     );
   }
 
   return (
     <div style={{ padding: '20px 24px' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 16,
-          marginBottom: 20,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: 'var(--text-tertiary)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-          }}
-        >
-          标签
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginBottom: 20 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {t('nav.tags')}
         </span>
-        <span
-          style={{
-            fontSize: 13,
-            color: 'var(--text-tertiary)',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {tags.length} 个标签 · {totalMemories} 条记忆
+        <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
+          {language === 'zh' ? `${tags.length} 个标签 · ${totalMemories} 条记忆` : `${tags.length} tags · ${totalMemories} memories`}
         </span>
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 10,
-          justifyContent: 'center',
-        }}
-      >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
         {tags.map((tag) => {
           const dominantLayer = getDominantLayer(tag.layers);
           const color = getLayerColor(dominantLayer);
@@ -176,24 +136,8 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
                 fontSize,
                 fontWeight,
                 cursor: 'pointer',
-                transition:
-                  'transform var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast)',
-                letterSpacing: '-0.01em',
                 lineHeight: 1.4,
                 whiteSpace: 'nowrap',
-                outline: 'none',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.background = hexToRgba(color, 0.15);
-                e.currentTarget.style.boxShadow = `0 2px 8px ${hexToRgba(color, 0.15)}`;
-                e.currentTarget.style.borderColor = hexToRgba(color, 0.25);
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.background = hexToRgba(color, 0.08);
-                e.currentTarget.style.boxShadow = 'none';
-                e.currentTarget.style.borderColor = hexToRgba(color, 0.15);
               }}
             >
               {tag.name}
@@ -204,28 +148,12 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
 
       {projects && projects.length > 0 && (
         <div style={{ marginTop: 28 }}>
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: 'var(--text-tertiary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-              display: 'block',
-              marginBottom: 12,
-            }}
-          >
-            项目
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 12 }}>
+            {t('sidebar.projects')}
           </span>
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 10,
-            }}
-          >
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {projects.map((project) => (
-              <div
+              <button
                 key={project.name}
                 style={{
                   background: 'var(--bg-card)',
@@ -235,48 +163,16 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
                   display: 'flex',
                   alignItems: 'center',
                   gap: 12,
-                  transition:
-                    'border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast)',
                   cursor: onTagClick ? 'pointer' : 'default',
                   minWidth: 140,
                 }}
                 onClick={() => onTagClick?.(project.name)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)';
-                  e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border)';
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
               >
-                <span
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    letterSpacing: '-0.01em',
-                  }}
-                >
-                  {project.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: 'var(--layer-project)',
-                    background: 'rgba(175, 82, 222, 0.08)',
-                    padding: '2px 8px',
-                    borderRadius: 10,
-                    fontVariantNumeric: 'tabular-nums',
-                    lineHeight: '18px',
-                  }}
-                >
+                <span style={{ fontSize: 15, fontWeight: 650, color: 'var(--text-primary)' }}>{project.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--layer-project)', background: 'rgba(155, 89, 182, 0.08)', padding: '2px 8px', borderRadius: 10, fontVariantNumeric: 'tabular-nums', lineHeight: '18px' }}>
                   {project.count}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         </div>

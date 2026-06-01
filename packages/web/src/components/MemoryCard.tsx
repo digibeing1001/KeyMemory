@@ -1,99 +1,83 @@
 import type { Memory } from '@keymemory/shared';
-import { LAYER_CONFIG } from '@keymemory/shared';
 import { Tag } from './Icons';
+import { useI18n } from '../i18n';
+import { formatDate, formatMemoryTitle, getMemoryKind, LAYER_COLORS, summarizeMemory } from '../lib/memoryFormat';
 
 interface MemoryCardProps {
   memory: Memory;
   onClick: (memory: Memory) => void;
+  selected?: boolean;
   score?: number;
   matchType?: string;
 }
 
-export default function MemoryCard({ memory, onClick, score, matchType }: MemoryCardProps) {
-  const layerConfig = LAYER_CONFIG[memory.layer];
+export default function MemoryCard({ memory, onClick, selected, score, matchType }: MemoryCardProps) {
+  const { language, layerLabel, memoryKindLabel } = useI18n();
+  const kind = getMemoryKind(memory);
+  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
+  const title = formatMemoryTitle(memory);
 
   return (
-    <div
-      className="memory-card"
+    <button
+      className={`memory-card${selected ? ' selected' : ''}`}
       data-layer={memory.layer}
       onClick={() => onClick(memory)}
-      tabIndex={0}
-      role="button"
-      aria-label={memory.title}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick(memory);
-        }
-      }}
+      aria-label={title}
+      style={{ textAlign: 'left', width: '100%' }}
     >
       <div className="flex gap-3">
-        <div
-          className="card-indicator"
-          style={{ background: layerConfig.color }}
-        />
+        <div className="card-indicator" style={{ background: LAYER_COLORS[memory.layer] }} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="flex items-center gap-2">
-            <span className="card-title" style={{ flex: 1 }}>{memory.title}</span>
-            
+            <span className="card-title" style={{ flex: 1 }}>{title}</span>
+
             {score != null && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: 'var(--accent)',
-                  flexShrink: 0,
-                }}
-              >
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>
                 {Math.round(score * 100)}%
               </span>
             )}
-            
-            <span
-              className="tag-pill"
-              style={{ color: layerConfig.color, background: `${layerConfig.color}15` }}
-            >
-              {layerConfig.label}
+
+            <span className="tag-pill" style={{ color: LAYER_COLORS[memory.layer], background: `${LAYER_COLORS[memory.layer]}18` }}>
+              {layerLabel(memory.layer)}
             </span>
-            
-            {matchType && (
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                {matchType}
-              </span>
-            )}
           </div>
 
-          <p className="card-body">{memory.content}</p>
+          <p className="card-body">{summarizeMemory(memory, 150)}</p>
 
           <div className="card-meta">
+            <span className="tag-pill">{memoryKindLabel(kind)}</span>
+
             {memory.tags && memory.tags.length > 0 && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                 <Tag size={11} />
-                <span style={{ display: 'flex', gap: 4 }}>
-                  {memory.tags.slice(0, 3).map((tag) => (
+                <span style={{ display: 'flex', gap: 4, minWidth: 0, overflow: 'hidden' }}>
+                  {memory.tags.slice(0, 2).map((tag) => (
                     <span key={tag} className="tag-pill">
                       {tag}
                     </span>
                   ))}
-                  {memory.tags.length > 3 && (
+                  {memory.tags.length > 2 && (
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      +{memory.tags.length - 3}
+                      +{memory.tags.length - 2}
                     </span>
                   )}
                 </span>
               </span>
             )}
 
-            <span style={{ marginLeft: 'auto' }}>
-              {new Date(memory.updatedAt).toLocaleDateString('zh-CN', {
-                month: 'short',
-                day: 'numeric',
-              })}
+            {matchType && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                {matchType}
+              </span>
+            )}
+
+            <span style={{ marginLeft: 'auto', flexShrink: 0 }}>
+              {formatDate(memory.updatedAt, locale)}
             </span>
           </div>
         </div>
       </div>
-    </div>
+    </button>
   );
 }

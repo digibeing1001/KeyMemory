@@ -1,4 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
+import type { Layer } from '@keymemory/shared';
+import { useI18n } from '../i18n';
+import { redactSensitiveText } from '../lib/memoryFormat';
 
 interface GraphData {
   nodes: Array<{ id: string; title: string; layer: string; tags?: string[]; project?: string }>;
@@ -66,6 +69,7 @@ interface Star {
 }
 
 export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphProps) {
+  const { language, t, layerLabel } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<{ nodes: SimNode[]; edges: SimEdge[] }>({ nodes: [], edges: [] });
@@ -604,11 +608,11 @@ export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphP
             maxWidth: 260,
           }}
         >
-          <div style={{ fontWeight: 600, marginBottom: 2 }}>{hoveredNode.title}</div>
+          <div style={{ fontWeight: 600, marginBottom: 2 }}>{redactSensitiveText(hoveredNode.title)}</div>
           <div style={{ fontSize: 11, color: 'rgba(200,210,255,0.5)' }}>
             {LAYER_COLORS[hoveredNode.layer] ? (
               <span style={{ color: LAYER_COLORS[hoveredNode.layer] }}>
-                {hoveredNode.layer === 'flash' ? '闪念' : hoveredNode.layer === 'short' ? '短期' : hoveredNode.layer === 'long' ? '长期' : hoveredNode.layer === 'project' ? '项目' : '人事物'}
+                {hoveredNode.layer === 'project' ? (language === 'zh' ? '项目' : 'Project') : layerLabel(hoveredNode.layer as Layer)}
               </span>
             ) : null}
             {hoveredNode.tags && hoveredNode.tags.length > 0 && (
@@ -657,7 +661,7 @@ export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphP
             gap: 8,
           }}
         >
-          <div style={{ fontSize: 36, opacity: 0.15 }}>🌌</div>
+          <div style={{ width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(200,210,255,0.18)', opacity: 0.9 }} />
           <div
             style={{
               color: 'rgba(200,210,255,0.3)',
@@ -666,7 +670,7 @@ export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphP
               letterSpacing: 1,
             }}
           >
-            暂无关联数据
+            {t('graph.empty')}
           </div>
           <div
             style={{
@@ -675,7 +679,7 @@ export default function NebulaGraph({ data, onNodeClick, loading }: NebulaGraphP
               fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
             }}
           >
-            记忆之间共享标签、项目或实体后将自动建立关联
+            {t('graph.emptyHint')}
           </div>
         </div>
       )}

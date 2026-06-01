@@ -295,13 +295,10 @@ export async function permanentlyDeleteMemory(id: string): Promise<{ success: bo
 }
 
 export async function deleteDreamReport(reportId: string): Promise<{ success: boolean }> {
-  console.log('[API] DELETE /dream/reports/' + reportId);
-  const result = await request<{ success: boolean }>('/dream/reports/' + reportId, {
+  return request<{ success: boolean }>('/dream/reports/' + reportId, {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
   });
-  console.log('[API] Delete result:', result);
-  return result;
 }
 
 export interface RelatedMemory {

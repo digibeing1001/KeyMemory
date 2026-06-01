@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import type { Layer, SearchResult, HealthReport, Memory } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
@@ -6,45 +7,61 @@ import { Search, Close, Key } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
+import MemoryDetailPanel from './components/MemoryDetailPanel';
+import LayerCards from './components/LayerCards';
 import NebulaGraph from './components/NebulaGraph';
 import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
 import MigrationView from './components/MigrationView';
 import ProjectSuggestionsView from './components/ProjectSuggestionsView';
 import Editor from './views/Editor';
-import { getHealth, getMemoryConnections, getTagCloud, getAgents, searchMemories, listRecycleBin, restoreFromRecycleBin, permanentlyDeleteMemory, setStoredApiKey, clearStoredApiKey } from './lib/api';
-import type { MemoryGraphData, TagCloudData, AgentInfo } from './lib/api';
+import { I18nProvider, useI18n } from './i18n';
+import {
+  getHealth,
+  getMemoryConnections,
+  getTagCloud,
+  searchMemories,
+  listRecycleBin,
+  restoreFromRecycleBin,
+  permanentlyDeleteMemory,
+  setStoredApiKey,
+  clearStoredApiKey,
+} from './lib/api';
+import type { MemoryGraphData, TagCloudData } from './lib/api';
+import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
 type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle';
 
+function isViewMode(value: string | null): value is ViewMode {
+  return value === 'memories'
+    || value === 'nebula'
+    || value === 'tags'
+    || value === 'dream'
+    || value === 'migration'
+    || value === 'organize'
+    || value === 'recycle';
+}
+
 function AppInner() {
   const store = useMemoryStore();
+  const { t, language, layerLabel } = useI18n();
   const { toast } = useToast();
+  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
     const saved = localStorage.getItem('keymemory_view_mode');
-    if (saved === 'memories' || saved === 'nebula' || saved === 'tags' || saved === 'dream' || saved === 'migration' || saved === 'organize' || saved === 'recycle') {
-      return saved;
-    }
-    return 'memories';
+    return isViewMode(saved) ? saved : 'memories';
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
   const [projectRefreshToken, setProjectRefreshToken] = useState(0);
   const [isDark, setIsDark] = useState(() => {
+    const themeVersion = localStorage.getItem('keymemory_theme_version');
     const saved = localStorage.getItem('keymemory_theme');
-    if (saved === 'dark' || saved === 'light') return saved === 'dark';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (themeVersion === 'bright-notes-20260601' && (saved === 'dark' || saved === 'light')) {
+      return saved === 'dark';
+    }
+    return false;
   });
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('keymemory_theme', isDark ? 'dark' : 'light');
-  }, [isDark]);
-
-  const setViewMode = (mode: ViewMode) => {
-    setViewModeState(mode);
-    localStorage.setItem('keymemory_view_mode', mode);
-  };
   const [searchInput, setSearchInput] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearchMode, setIsSearchMode] = useState(false);
@@ -52,16 +69,18 @@ function AppInner() {
   const [graphData, setGraphData] = useState<MemoryGraphData | null>(null);
   const [tagCloudData, setTagCloudData] = useState<TagCloudData | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [authLocked, setAuthLocked] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
 
   useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    localStorage.setItem('keymemory_theme', isDark ? 'dark' : 'light');
+    localStorage.setItem('keymemory_theme_version', 'bright-notes-20260601');
+  }, [isDark]);
+
+  useEffect(() => {
     getHealth()
       .then((res) => setHealthReport(res as unknown as HealthReport))
-      .catch(() => {});
-    getAgents()
-      .then(setAgents)
       .catch(() => {});
   }, []);
 
@@ -70,26 +89,6 @@ function AppInner() {
     window.addEventListener('keymemory:unauthorized', onUnauthorized);
     return () => window.removeEventListener('keymemory:unauthorized', onUnauthorized);
   }, []);
-
-  const submitApiKey = (event: React.FormEvent) => {
-    event.preventDefault();
-    setStoredApiKey(apiKeyInput);
-    setApiKeyInput('');
-    setAuthLocked(false);
-    store.refresh();
-    getHealth()
-      .then((res) => setHealthReport(res as unknown as HealthReport))
-      .catch(() => {});
-    getAgents()
-      .then(setAgents)
-      .catch(() => {});
-  };
-
-  const resetApiKey = () => {
-    clearStoredApiKey();
-    setApiKeyInput('');
-    setAuthLocked(true);
-  };
 
   useEffect(() => {
     if (viewMode === 'nebula' && !graphData) {
@@ -119,41 +118,37 @@ function AppInner() {
     }
   }, [viewMode]);
 
-  const handleRestore = async (id: string) => {
-    try {
-      await restoreFromRecycleBin(id);
-      toast('记忆已恢复', 'success');
-      setRecycleBinData((prev) => prev.filter((m) => m.id !== id));
-      store.refresh();
-    } catch {
-      toast('恢复失败', 'error');
-    }
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    localStorage.setItem('keymemory_view_mode', mode);
   };
 
-  const handlePermanentDelete = async (id: string) => {
-    if (!confirm('确定要永久删除这条记忆吗？此操作不可撤销。')) return;
-    try {
-      await permanentlyDeleteMemory(id);
-      toast('记忆已永久删除', 'success');
-      setRecycleBinData((prev) => prev.filter((m) => m.id !== id));
-      store.refresh();
-    } catch {
-      toast('删除失败', 'error');
-    }
+  const submitApiKey = (event: FormEvent) => {
+    event.preventDefault();
+    setStoredApiKey(apiKeyInput);
+    setApiKeyInput('');
+    setAuthLocked(false);
+    store.refresh();
+    getHealth().then((res) => setHealthReport(res as unknown as HealthReport)).catch(() => {});
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = searchInput.trim();
-    if (!q) {
-      setIsSearchMode(false);
-      setSearchResults([]);
-      store.clearSearch();
+  const resetApiKey = () => {
+    clearStoredApiKey();
+    setApiKeyInput('');
+    setAuthLocked(true);
+  };
+
+  const handleSearch = async (event: FormEvent) => {
+    event.preventDefault();
+    const query = searchInput.trim();
+    if (!query) {
+      handleClearSearch();
       return;
     }
     setIsSearchMode(true);
+    store.selectMemory(null);
     try {
-      const results = await searchMemories(q, store.selectedLayer ?? undefined);
+      const results = await searchMemories(query, store.selectedLayer ?? undefined, store.activeProject ?? undefined);
       setSearchResults(results);
     } catch {
       setSearchResults([]);
@@ -175,23 +170,24 @@ function AppInner() {
     store.selectLayer(layer);
   };
 
-  const handleSave = async (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
-    try {
-      await store.save(data);
-      toast(store.selectedMemory ? '已更新' : '已创建', 'success');
-      setGraphData(null);
-      setTagCloudData(null);
-    } catch {
-      toast('保存失败', 'error');
-    }
-  };
-
   const handleProjectSelect = (projectId: string | null) => {
     setIsSearchMode(false);
     setSearchResults([]);
     setSearchInput('');
     setViewMode('memories');
     store.setActiveProject(projectId);
+    store.selectMemory(null);
+  };
+
+  const handleSave = async (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
+    try {
+      await store.save(data);
+      toast(store.selectedMemory ? (language === 'zh' ? '已更新' : 'Updated') : (language === 'zh' ? '已创建' : 'Created'), 'success');
+      setGraphData(null);
+      setTagCloudData(null);
+    } catch {
+      toast(language === 'zh' ? '保存失败' : 'Save failed', 'error');
+    }
   };
 
   const handleProjectChanged = () => {
@@ -202,29 +198,33 @@ function AppInner() {
   };
 
   const handleDelete = (id: string) => {
-    store.deleteMemory(id).then(() => {
-      toast('已删除', 'success');
-      setGraphData(null);
-      setTagCloudData(null);
-    }).catch(() => toast('删除失败', 'error'));
+    store.deleteMemory(id)
+      .then(() => {
+        toast(language === 'zh' ? '已删除' : 'Deleted', 'success');
+        setGraphData(null);
+        setTagCloudData(null);
+      })
+      .catch(() => toast(language === 'zh' ? '删除失败' : 'Delete failed', 'error'));
   };
 
   const handleArchive = (id: string) => {
-    store.archiveMemory(id).then(() => {
-      toast('已归档', 'success');
-      setGraphData(null);
-      setTagCloudData(null);
-    }).catch(() => toast('归档失败', 'error'));
+    store.archiveMemory(id)
+      .then(() => {
+        toast(language === 'zh' ? '已归档' : 'Archived', 'success');
+        setGraphData(null);
+        setTagCloudData(null);
+      })
+      .catch(() => toast(language === 'zh' ? '归档失败' : 'Archive failed', 'error'));
   };
 
   const handleMoveLayer = async (id: string, layer: Layer) => {
     try {
       await store.moveLayer(id, layer);
-      toast('已移动', 'success');
+      toast(language === 'zh' ? '记忆状态已更新' : 'Memory state updated', 'success');
       setGraphData(null);
       setTagCloudData(null);
     } catch {
-      toast('移动失败', 'error');
+      toast(language === 'zh' ? '移动失败' : 'Move failed', 'error');
     }
   };
 
@@ -232,21 +232,41 @@ function AppInner() {
     setViewMode('memories');
     setSearchInput(tagName);
     setIsSearchMode(true);
+    store.selectMemory(null);
     searchMemories(tagName)
       .then((results) => setSearchResults(results))
       .catch(() => setSearchResults([]));
   };
 
-  const handleCloseDetail = () => {
-    store.cancelCreate();
-    store.selectMemory(null as unknown as string);
+  const handleRestore = async (id: string) => {
+    try {
+      await restoreFromRecycleBin(id);
+      toast(language === 'zh' ? '已恢复' : 'Restored', 'success');
+      setRecycleBinData((prev) => prev.filter((memory) => memory.id !== id));
+      store.refresh();
+    } catch {
+      toast(language === 'zh' ? '恢复失败' : 'Restore failed', 'error');
+    }
   };
 
-  const totalMemories = Object.values(store.layerStats).reduce((sum, s) => sum + s.active, 0);
-  const showDetail = store.selectedId !== null || store.isCreating;
+  const handlePermanentDelete = async (id: string) => {
+    const ok = confirm(language === 'zh' ? '确定永久删除这条记忆吗？此操作不可撤销。' : 'Delete this memory forever? This cannot be undone.');
+    if (!ok) return;
+    try {
+      await permanentlyDeleteMemory(id);
+      toast(language === 'zh' ? '已永久删除' : 'Deleted forever', 'success');
+      setRecycleBinData((prev) => prev.filter((memory) => memory.id !== id));
+      store.refresh();
+    } catch {
+      toast(language === 'zh' ? '删除失败' : 'Delete failed', 'error');
+    }
+  };
+
+  const totalMemories = Object.values(store.layerStats).reduce((sum, stats) => sum + stats.active, 0);
+  const visibleItems = isSearchMode ? searchResults.map((result) => result.memory) : store.memories;
 
   return (
-    <div className="flex h-screen" style={{ background: 'var(--bg-primary)' }}>
+    <div className="app-layout flex h-screen" style={{ background: 'var(--bg-primary)' }}>
       <Sidebar
         layerStats={store.layerStats}
         activeLayer={store.selectedLayer}
@@ -257,51 +277,43 @@ function AppInner() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         isDark={isDark}
-        onToggleTheme={() => setIsDark((d) => !d)}
+        onToggleTheme={() => setIsDark((value) => !value)}
         activeProjectId={store.activeProject}
         onSelectProject={handleProjectSelect}
         projectRefreshToken={projectRefreshToken}
       />
 
-      <div className="flex flex-col flex-1" style={{ marginLeft: 240 }}>
+      <div className="app-main flex flex-col flex-1" style={{ marginLeft: 248 }}>
         <header
           className="flex items-center shrink-0 px-6"
           style={{
-            height: 56,
+            height: 58,
             background: 'var(--bg-primary)',
             borderBottom: '1px solid var(--border)',
           }}
         >
           <div className="flex items-center gap-4 flex-1" style={{ minWidth: 0 }}>
-            <form onSubmit={handleSearch} className="relative flex-1" style={{ maxWidth: 480 }}>
-              <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <form onSubmit={handleSearch} className="relative flex-1" style={{ maxWidth: 520 }}>
+              <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type="text"
-                placeholder="搜索记忆..."
+                placeholder={t('app.searchPlaceholder')}
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(event) => setSearchInput(event.target.value)}
                 className="w-full"
                 style={{
                   background: 'var(--bg-secondary)',
                   border: '1px solid transparent',
                   borderRadius: 'var(--radius-md)',
                   color: 'var(--text-primary)',
-                  padding: '6px 10px 6px 34px',
+                  padding: '7px 34px 7px 36px',
                   fontSize: 13,
-                  transition: 'border-color var(--transition)',
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border-focus)';
-                  e.currentTarget.style.background = 'var(--bg-primary)';
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'transparent';
-                  e.currentTarget.style.background = 'var(--bg-secondary)';
                 }}
               />
               {isSearchMode && (
                 <button
                   type="button"
+                  aria-label={t('common.close')}
                   onClick={handleClearSearch}
                   style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer', background: 'none', border: 'none' }}
                 >
@@ -312,74 +324,86 @@ function AppInner() {
 
             {isSearchMode && (
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {searchResults.length} 条结果
+                {searchResults.length} {t('app.searchResults')}
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            <div
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: store.healthOk ? 'var(--success)' : 'var(--danger)',
-              }}
-            />
-            {store.healthOk ? '已连接' : '未连接'}
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: store.healthOk ? 'var(--success)' : 'var(--danger)' }} />
+            {store.healthOk ? t('app.connected') : t('app.disconnected')}
           </div>
         </header>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="app-content-row flex flex-1 overflow-hidden">
           {viewMode === 'memories' && (
             <>
-              <div className="flex-1 overflow-y-auto">
-                {showDetail ? (
+              <div className="memory-list-shell flex-1 overflow-y-auto">
+                {store.isCreating ? (
                   <Editor
-                    memory={store.selectedMemory}
+                    memory={null}
                     isCreating={store.isCreating}
                     loading={store.loading}
                     onSave={handleSave}
                     onDelete={handleDelete}
                     onArchive={handleArchive}
                     onMoveLayer={handleMoveLayer}
-                    onCancelCreate={handleCloseDetail}
+                    onCancelCreate={store.cancelCreate}
                   />
                 ) : (
                   <div className="px-6 py-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)', fontWeight: 750 }}>
+                          {t('app.memoryList')}
+                        </h2>
+                        <p style={{ margin: '3px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
+                          {t('app.selectedHint')}
+                        </p>
+                      </div>
+                    </div>
+
+                    {!isSearchMode && (
+                      <LayerCards
+                        layerStats={store.layerStats}
+                        activeLayer={store.selectedLayer}
+                        onSelectLayer={handleLayerSelect}
+                      />
+                    )}
+
                     {store.loading ? (
                       <div className="empty-state">
                         <div className="animate-pulse" style={{ width: 20, height: 20, border: '2px solid var(--border)', borderTopColor: 'var(--text-muted)', borderRadius: '50%' }} />
-                        <span className="mt-3" style={{ fontSize: 13, color: 'var(--text-muted)' }}>加载中...</span>
+                        <span className="mt-3" style={{ fontSize: 13, color: 'var(--text-muted)' }}>{t('common.loading')}</span>
                       </div>
                     ) : isSearchMode && searchResults.length === 0 ? (
                       <div className="empty-state">
                         <Search size={24} style={{ color: 'var(--text-muted)', marginBottom: 8 }} />
-                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>未找到匹配的记忆</span>
+                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('app.noSearchResults')}</span>
                       </div>
                     ) : !isSearchMode && store.memories.length === 0 ? (
                       <div className="empty-state">
-                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>暂无记忆</span>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>点击左侧「新建记忆」开始记录</span>
+                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('app.noMemories')}</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{t('app.noMemoriesHint')}</span>
                       </div>
                     ) : (
-                      <div className="flex flex-col">
-                        {(isSearchMode ? searchResults : store.memories).map((item, index) => (
-                          <MemoryCard
-                            key={isSearchMode ? (item as SearchResult).memory.id : (item as Memory).id}
-                            memory={isSearchMode ? (item as SearchResult).memory : item as Memory}
-                            score={isSearchMode ? (item as SearchResult).score : undefined}
-                            matchType={isSearchMode ? (item as SearchResult).matchType : undefined}
-                            onClick={() => store.selectMemory(isSearchMode ? (item as SearchResult).memory.id : (item as Memory).id)}
-                          />
-                        ))}
+                      <div className="flex flex-col gap-2">
+                        {visibleItems.map((memory) => {
+                          const searchItem = isSearchMode ? searchResults.find((result) => result.memory.id === memory.id) : undefined;
+                          return (
+                            <MemoryCard
+                              key={memory.id}
+                              memory={memory}
+                              selected={store.selectedId === memory.id}
+                              score={searchItem?.score}
+                              matchType={searchItem?.matchType}
+                              onClick={() => store.selectMemory(memory.id)}
+                            />
+                          );
+                        })}
                         {!isSearchMode && store.hasMore && (
-                          <button
-                            onClick={store.loadMore}
-                            className="btn mx-auto mt-4"
-                            style={{ border: '1px solid var(--border)' }}
-                          >
-                            加载更多
+                          <button onClick={store.loadMore} className="btn mx-auto mt-4" style={{ border: '1px solid var(--border)' }}>
+                            {language === 'zh' ? '加载更多' : 'Load more'}
                           </button>
                         )}
                       </div>
@@ -388,21 +412,29 @@ function AppInner() {
                 )}
               </div>
 
-              <div
-                className="w-[320px] shrink-0 overflow-y-auto px-5 py-5"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  borderLeft: '1px solid var(--border)',
-                }}
-              >
-                <h3
-                  className="text-xs font-semibold uppercase mb-4"
-                  style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}
-                >
-                  时间线
-                </h3>
-                <Timeline memories={store.memories} onMemoryClick={(id) => store.selectMemory(id)} />
-              </div>
+              {!store.isCreating && (
+                store.selectedMemory ? (
+                  <MemoryDetailPanel
+                    memory={store.selectedMemory}
+                    loading={store.loading}
+                    onClose={() => store.selectMemory(null)}
+                    onSave={handleSave}
+                    onDelete={handleDelete}
+                    onArchive={handleArchive}
+                    onMoveLayer={handleMoveLayer}
+                  />
+                ) : (
+                  <aside
+                    className="timeline-panel w-[340px] shrink-0 overflow-y-auto px-5 py-5"
+                    style={{ background: 'var(--bg-secondary)', borderLeft: '1px solid var(--border)' }}
+                  >
+                    <h3 className="text-xs font-semibold uppercase mb-4" style={{ color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+                      {t('app.timeline')}
+                    </h3>
+                    <Timeline memories={store.memories} onMemoryClick={(id) => store.selectMemory(id)} />
+                  </aside>
+                )
+              )}
             </>
           )}
 
@@ -443,21 +475,13 @@ function AppInner() {
 
           {viewMode === 'migration' && (
             <div className="flex-1 overflow-y-auto">
-              <MigrationView
-                onImported={() => {
-                  handleProjectChanged();
-                }}
-                onToast={toast}
-              />
+              <MigrationView onImported={handleProjectChanged} onToast={toast} />
             </div>
           )}
 
           {viewMode === 'organize' && (
             <div className="flex-1 overflow-y-auto">
-              <ProjectSuggestionsView
-                onChanged={handleProjectChanged}
-                onToast={toast}
-              />
+              <ProjectSuggestionsView onChanged={handleProjectChanged} onToast={toast} />
             </div>
           )}
 
@@ -465,98 +489,59 @@ function AppInner() {
             <div className="flex-1 overflow-y-auto px-8 py-6">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-                    回收站
+                  <h2 style={{ fontSize: 24, fontWeight: 750, color: 'var(--text-primary)', margin: 0 }}>
+                    {t('recycle.title')}
                   </h2>
                   <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>
-                    已删除、已归档的记忆可以在此恢复或永久清除
+                    {t('recycle.subtitle')}
                   </p>
                 </div>
               </div>
               {recycleBinLoading ? (
                 <div className="flex items-center justify-center h-64" style={{ color: 'var(--text-tertiary)' }}>
                   <div className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full mr-2" />
-                  加载中...
+                  {t('common.loading')}
                 </div>
               ) : recycleBinData.length === 0 ? (
-                <div
-                  className="flex flex-col items-center justify-center"
-                  style={{
-                    padding: 56,
-                    color: 'var(--text-tertiary)',
-                    background: 'var(--bg-card)',
-                    borderRadius: 'var(--radius-lg)',
-                    border: '0.5px solid var(--border)',
-                  }}
-                >
-                  <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>回收站为空</span>
-                  <span style={{ fontSize: 13, marginTop: 6, opacity: 0.6 }}>删除或归档的记忆将出现在这里</span>
+                <div className="empty-state" style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', padding: 56 }}>
+                  <span style={{ fontSize: 15, fontWeight: 650, color: 'var(--text-secondary)' }}>{t('recycle.empty')}</span>
+                  <span style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>{t('recycle.emptyHint')}</span>
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: 8 }}>
-                  {recycleBinData.map((mem) => (
+                  {recycleBinData.map((memory) => (
                     <div
-                      key={mem.id}
+                      key={memory.id}
                       style={{
-                        padding: '16px 20px',
+                        padding: '16px 18px',
                         borderRadius: 'var(--radius-md)',
-                        border: '0.5px solid var(--border)',
+                        border: '1px solid var(--border)',
                         background: 'var(--bg-card)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        gap: 16,
                       }}
                     >
-                      <div className="flex items-center gap-4">
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 600,
-                            padding: '2px 8px',
-                            borderRadius: 6,
-                            background: mem.status === 'deleted' ? 'rgba(255,59,48,0.1)' : 'rgba(245,166,35,0.1)',
-                            color: mem.status === 'deleted' ? '#FF3B30' : '#F5A623',
-                          }}
-                        >
-                          {mem.status === 'deleted' ? '已删除' : mem.status === 'archived' ? '已归档' : '已衰变'}
+                      <div className="flex items-center gap-4" style={{ minWidth: 0 }}>
+                        <span className="tag-pill" style={{ color: LAYER_COLORS[memory.layer], background: `${LAYER_COLORS[memory.layer]}18` }}>
+                          {layerLabel(memory.layer)}
                         </span>
-                        <div>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{mem.title}</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 650, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {formatMemoryTitle(memory)}
+                          </div>
                           <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                            [{mem.layer}] {mem.content.slice(0, 60)}{mem.content.length > 60 ? '...' : ''}
+                            {formatDate(memory.updatedAt, locale)}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleRestore(mem.id)}
-                          style={{
-                            padding: '5px 12px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--success)',
-                            background: 'transparent',
-                            color: 'var(--success)',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          恢复
+                        <button onClick={() => handleRestore(memory.id)} className="btn">
+                          {t('recycle.restore')}
                         </button>
-                        <button
-                          onClick={() => handlePermanentDelete(mem.id)}
-                          style={{
-                            padding: '5px 12px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid #FF3B30',
-                            background: 'transparent',
-                            color: '#FF3B30',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          永久删除
+                        <button onClick={() => handlePermanentDelete(memory.id)} className="btn" style={{ color: 'var(--danger)' }}>
+                          {t('recycle.permanentDelete')}
                         </button>
                       </div>
                     </div>
@@ -594,7 +579,7 @@ function AppInner() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <Key size={18} style={{ color: 'var(--accent)' }} />
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650, color: 'var(--text-primary)' }}>
                 API Key
               </h2>
             </div>
@@ -616,11 +601,11 @@ function AppInner() {
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button type="button" className="btn" onClick={resetApiKey}>
-                清除
+                {language === 'zh' ? '清除' : 'Clear'}
               </button>
               <button type="submit" className="btn btn-primary" disabled={!apiKeyInput.trim()}>
                 <Key size={14} />
-                解锁
+                {language === 'zh' ? '解锁' : 'Unlock'}
               </button>
             </div>
           </form>
@@ -632,8 +617,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppInner />
-    </ToastProvider>
+    <I18nProvider>
+      <ToastProvider>
+        <AppInner />
+      </ToastProvider>
+    </I18nProvider>
   );
 }

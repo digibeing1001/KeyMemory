@@ -1,7 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { MouseEvent } from 'react';
 import {
-  Archive, Play, Settings, Activity, RotateCcw, Clock, CheckCircle, Link, FileSearch,
-  Inbox, AlertTriangle, GitMerge, Sliders, Eye,
+  Archive,
+  Play,
+  Settings,
+  Activity,
+  RotateCcw,
+  Clock,
+  CheckCircle,
+  Link,
+  Inbox,
+  AlertTriangle,
+  GitMerge,
+  Eye,
+  Trash,
+  Sparkles,
 } from './Icons';
 import {
   listDreamReports,
@@ -16,40 +29,66 @@ import {
 import type { DreamReport, DreamSignalEntry, SchedulerConfig } from '../lib/api';
 import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
-
-const PHASE_CONFIG: Record<string, { label: string; icon: typeof Archive; color: string; bg: string; desc: string }> = {
-  light: { label: '初步整理', icon: Sliders, color: '#86868B', bg: 'var(--bg-muted)', desc: '去重与筛选' },
-  rem: { label: '关联分析', icon: Link, color: '#86868B', bg: 'var(--bg-muted)', desc: '标签优化与主题发现' },
-  deep: { label: '深度整理', icon: CheckCircle, color: '#86868B', bg: 'var(--bg-muted)', desc: '评分升级与归档' },
-};
-
-function formatTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
-}
-
-function cronToLabel(cron: string): string {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return cron;
-  const minute = parseInt(parts[0], 10);
-  const hour = parseInt(parts[1], 10);
-  return `每天 ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-type DetailTab = 'overview' | 'upgrades' | 'archived' | 'merged' | 'todos' | 'signals';
+import { useI18n } from '../i18n';
+import { redactSensitiveText } from '../lib/memoryFormat';
 
 interface DreamViewProps {
   onMemorySelect?: (id: string) => void;
 }
 
+function formatTime(iso: string | null | undefined, locale: string): string {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDuration(ms?: number): string {
+  if (!ms) return '';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
+}
+
+function cronToLabel(cron: string, language: 'zh' | 'en'): string {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return cron;
+  const minute = parseInt(parts[0], 10);
+  const hour = parseInt(parts[1], 10);
+  const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  return language === 'zh' ? `每天 ${time}` : `Every day ${time}`;
+}
+
+function StatCard({ label, value, hint, icon: Icon, accent }: {
+  label: string;
+  value: number;
+  hint?: string;
+  icon: typeof Archive;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-lg)',
+        background: 'var(--bg-card)',
+        padding: 16,
+        minHeight: 104,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: accent ? 'var(--accent)' : 'var(--text-muted)' }}>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>{label}</span>
+        <Icon size={16} />
+      </div>
+      <div style={{ marginTop: 10, fontSize: 30, fontWeight: 750, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </div>
+      {hint && <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>{hint}</p>}
+    </div>
+  );
+}
+
 export default function DreamView({ onMemorySelect }: DreamViewProps) {
+  const { language, t } = useI18n();
+  const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   const { toast } = useToast();
   const [reports, setReports] = useState<DreamReport[]>([]);
   const [selectedReport, setSelectedReport] = useState<DreamReport | null>(null);
@@ -57,12 +96,11 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const [config, setConfig] = useState<SchedulerConfig | null>(null);
   const [running, setRunning] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editingCron, setEditingCron] = useState(false);
   const [cronHour, setCronHour] = useState(3);
   const [cronMinute, setCronMinute] = useState(0);
-  const [animatingCards, setAnimatingCards] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;
@@ -74,15 +112,19 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, c] = await Promise.all([listDreamReports(20), getSchedulerConfig()]);
-      setReports(r);
-      setConfig(c);
+      const [nextReports, nextConfig] = await Promise.all([listDreamReports(20), getSchedulerConfig()]);
+      setReports(nextReports);
+      setConfig(nextConfig);
+      if (nextReports[0]) {
+        setSelectedReport((current) => current ?? nextReports[0]);
+        getDreamSignals(nextReports[0].id).then(setSignals).catch(() => setSignals([]));
+      }
     } catch {
-      toast('加载整理数据失败', 'error');
+      toast(language === 'zh' ? '加载整理记录失败' : 'Failed to load organize records', 'error');
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [language, toast]);
 
   useEffect(() => {
     fetchData();
@@ -92,1096 +134,497 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
     setRunning(true);
     try {
       const report = await runDream();
-      toast(`整理完成：${report.promoted} 条记忆升级`, 'success');
-      fetchData();
+      toast(language === 'zh' ? `整理完成，需要确认 ${report.todoItems.length} 项` : `Organized. ${report.todoItems.length} items need review`, 'success');
       setSelectedReport(report);
-      setActiveTab('overview');
+      setShowAdvanced(false);
+      setSignals([]);
+      await fetchData();
+      getDreamSignals(report.id).then(setSignals).catch(() => setSignals([]));
     } catch (err) {
-      const message = err instanceof Error ? err.message : '未知错误';
-      toast(`整理运行失败: ${message}`, 'error');
-      console.error('Dream run failed:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      toast((language === 'zh' ? '整理失败: ' : 'Organize failed: ') + message, 'error');
     } finally {
       setRunning(false);
     }
-  }, [toast, fetchData]);
+  }, [fetchData, language, toast]);
 
   const handleSelectReport = useCallback(async (report: DreamReport) => {
     setSelectedReport(report);
-    setActiveTab('overview');
-    setAnimatingCards(new Set([report.id]));
-    setTimeout(() => setAnimatingCards(new Set()), 400);
+    setShowAdvanced(false);
     try {
-      const s = await getDreamSignals(report.id);
-      setSignals(s);
+      setSignals(await getDreamSignals(report.id));
     } catch {
       setSignals([]);
     }
   }, []);
 
-  const handleDeleteReport = useCallback(async (reportId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleDeleteReport = useCallback(async (reportId: string, event?: MouseEvent) => {
+    event?.stopPropagation();
     setConfirmDialog({
       open: true,
-      title: '删除整理记录',
-      message: '确定要删除这条梦境记录吗？此操作不可撤销。',
+      title: t('dream.deleteReport'),
+      message: t('dream.confirmDelete'),
       danger: true,
       onConfirm: async () => {
-        setConfirmDialog(prev => ({ ...prev, open: false }));
+        setConfirmDialog((prev) => ({ ...prev, open: false }));
         try {
           await deleteDreamReport(reportId);
-          toast('梦境记录已删除', 'success');
+          toast(language === 'zh' ? '整理记录已删除' : 'Organize report deleted', 'success');
+          setSelectedReport((prev) => (prev?.id === reportId ? null : prev));
           await fetchData();
-          if (selectedReport?.id === reportId) {
-            setSelectedReport(null);
-          }
         } catch (err) {
-          toast('删除失败: ' + ((err as Error).message || '请检查网络'), 'error');
+          toast((err as Error).message || (language === 'zh' ? '删除失败' : 'Delete failed'), 'error');
         }
       },
     });
-  }, [fetchData, selectedReport, toast]);
+  }, [fetchData, language, t, toast]);
 
   const handleRollback = useCallback(async (reportId: string) => {
     setConfirmDialog({
       open: true,
-      title: '回滚整理',
-      message: '确定要回滚此次整理吗？所有变更将被恢复。',
+      title: t('dream.rollback'),
+      message: t('dream.confirmRollback'),
       danger: true,
       onConfirm: async () => {
-        setConfirmDialog(prev => ({ ...prev, open: false }));
+        setConfirmDialog((prev) => ({ ...prev, open: false }));
         try {
           const result = await rollbackDream(reportId);
           setSelectedReport(result);
-          toast('整理已回滚，所有记忆已恢复', 'success');
-          fetchData();
-          try {
-            const s = await getDreamSignals(result.id);
-            setSignals(s);
-          } catch { /* ignore */ }
+          toast(language === 'zh' ? '已回滚本次整理' : 'Organize run rolled back', 'success');
+          await fetchData();
         } catch {
-          toast('回滚失败', 'error');
+          toast(language === 'zh' ? '回滚失败' : 'Rollback failed', 'error');
         }
       },
     });
-  }, [fetchData, toast]);
+  }, [fetchData, language, t, toast]);
 
   const handleArchiveMemory = useCallback(async (memoryId: string) => {
     try {
       await forgetMemory(memoryId, 'archive');
-      toast('记忆已归档', 'success');
+      toast(language === 'zh' ? '记忆已归档' : 'Memory archived', 'success');
     } catch {
-      toast('归档失败', 'error');
+      toast(language === 'zh' ? '归档失败' : 'Archive failed', 'error');
     }
-  }, [toast]);
+  }, [language, toast]);
 
   const handleToggleDreaming = useCallback(async (enabled: boolean) => {
     if (!config) return;
     try {
-      const updated = await updateSchedulerConfig({ dreamingEnabled: enabled });
-      setConfig(updated);
-      toast(enabled ? '自动整理已开启' : '自动整理已关闭', 'success');
+      setConfig(await updateSchedulerConfig({ dreamingEnabled: enabled }));
+      toast(enabled ? t('dream.enabled') : t('dream.disabled'), 'success');
     } catch {
-      toast('更新失败', 'error');
+      toast(language === 'zh' ? '更新设置失败' : 'Failed to update settings', 'error');
     }
-  }, [config, toast]);
+  }, [config, language, t, toast]);
 
   const handleSaveCron = useCallback(async () => {
     const newCron = `${cronMinute} ${cronHour} * * *`;
     try {
-      const updated = await updateSchedulerConfig({ dreamingCron: newCron });
-      setConfig(updated);
+      setConfig(await updateSchedulerConfig({ dreamingCron: newCron }));
       setEditingCron(false);
-      toast(`调度时间已更新为 ${String(cronHour).padStart(2, '0')}:${String(cronMinute).padStart(2, '0')}`, 'success');
+      toast(language === 'zh' ? '整理时间已更新' : 'Schedule updated', 'success');
     } catch {
-      toast('更新调度时间失败', 'error');
+      toast(language === 'zh' ? '更新时间失败' : 'Failed to update schedule', 'error');
     }
-  }, [cronHour, cronMinute, toast]);
-
-  const tabConfig: { key: DetailTab; label: string; count: number }[] = selectedReport
-    ? (
-        [
-          { key: 'overview' as DetailTab, label: '概览', count: 0 },
-          { key: 'upgrades' as DetailTab, label: '升级', count: selectedReport.promoted },
-          { key: 'archived' as DetailTab, label: '归档', count: selectedReport.archived },
-          { key: 'merged' as DetailTab, label: '合并', count: selectedReport.merged },
-          { key: 'todos' as DetailTab, label: '待处理', count: selectedReport.todoItems.length },
-          { key: 'signals' as DetailTab, label: '信号', count: signals.length },
-        ] as { key: DetailTab; label: string; count: number }[]
-      ).filter((t) => t.key === 'overview' || t.count > 0)
-    : [];
-
-  const statItems = selectedReport
-    ? [
-        { key: 'upgrades' as DetailTab, label: '升级', value: selectedReport.promoted, icon: '⬆️', accent: true },
-        { key: 'archived' as DetailTab, label: '归档', value: selectedReport.archived, icon: '📦' },
-        { key: 'merged' as DetailTab, label: '合并', value: selectedReport.merged, icon: '🔗' },
-        { key: 'todos' as DetailTab, label: '待处理', value: selectedReport.todoItems.length, icon: '⚠️' },
-      ]
-    : [];
+  }, [cronHour, cronMinute, language, toast]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64" style={{ color: 'var(--text-tertiary)' }}>
         <div className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full mr-2" />
-        加载中...
+        {t('common.loading')}
       </div>
     );
   }
 
+  const todoItems = selectedReport?.todoItems ?? [];
+  const promoted = selectedReport?.details?.promoted ?? [];
+  const archived = selectedReport?.details?.archived ?? [];
+  const merged = selectedReport?.details?.merged ?? [];
+
   return (
-    <div className="px-8 py-6 max-w-5xl">
-      {/* ConfirmDialog */}
+    <main className="dream-view px-8 py-6" style={{ maxWidth: 1120 }}>
       <ConfirmDialog
         open={confirmDialog.open}
         title={confirmDialog.title}
         message={confirmDialog.message}
         danger={confirmDialog.danger}
         onConfirm={confirmDialog.onConfirm}
-        onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+        onCancel={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
       />
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
+      <header className="flex items-start justify-between gap-4 mb-6">
+        <div className="flex items-start gap-4">
           <div
+            className="km-icon-tile"
             style={{
-              width: 48,
-              height: 48,
-              borderRadius: 14,
+              width: 46,
+              height: 46,
+              borderRadius: 12,
               background: 'var(--bg-card)',
-              border: '0.5px solid var(--border)',
+              border: '1px solid var(--border)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'var(--text-secondary)',
+              color: 'var(--accent)',
             }}
           >
-            <Archive size={22} />
+            <Sparkles size={22} />
           </div>
           <div>
-            <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-              梦境
+            <h2 style={{ fontSize: 24, fontWeight: 750, color: 'var(--text-primary)', margin: 0 }}>
+              {t('dream.title')}
             </h2>
-            <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>
-              自动归档、去重与关联优化 — Light（去重清理）→ REM（关联分析）→ Deep（评分升级）→ Semantic（语义合并）
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '5px 0 0', lineHeight: 1.65, maxWidth: 680 }}>
+              {t('dream.subtitle')}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            style={{
-              padding: '9px 16px',
-              borderRadius: 'var(--radius-md)',
-              border: '0.5px solid var(--border)',
-              background: showSettings ? 'var(--bg-muted)' : 'var(--bg-card)',
-              color: 'var(--text-secondary)',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all var(--transition-fast)',
-            }}
-            onMouseEnter={(e) => { if (!showSettings) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={(e) => { if (!showSettings) e.currentTarget.style.background = 'var(--bg-card)'; }}
-          >
+        <div className="flex items-center gap-2">
+          <button className="btn" onClick={() => setShowSettings((value) => !value)}>
             <Settings size={14} />
-            设置
+            {t('dream.settings')}
           </button>
-          <button
-            onClick={handleRunDream}
-            disabled={running}
-            style={{
-              padding: '9px 18px',
-              borderRadius: 'var(--radius-md)',
-              border: 'none',
-              background: running ? 'var(--bg-muted)' : 'var(--text-primary)',
-              color: running ? 'var(--text-tertiary)' : 'var(--bg-primary)',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: running ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all var(--transition-fast)',
-            }}
-            onMouseEnter={(e) => { if (!running) e.currentTarget.style.opacity = '0.9'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-          >
-            {running ? (
-              <><div className="animate-spin w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full" /> 运行中...</>
-            ) : (
-              <><Play size={14} /> 开始整理</>
-            )}
+          <button className="btn btn-primary" onClick={handleRunDream} disabled={running}>
+            {running ? <span className="animate-spin" style={{ width: 13, height: 13, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} /> : <Play size={14} />}
+            {running ? t('dream.running') : t('dream.run')}
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Health Status */}
       {config && (
-        <div
+        <section
           style={{
             background: 'var(--bg-card)',
             borderRadius: 'var(--radius-lg)',
-            border: '0.5px solid var(--border)',
-            padding: '18px 22px',
-            marginBottom: 24,
+            border: '1px solid var(--border)',
+            padding: '14px 18px',
+            marginBottom: 18,
             display: 'flex',
             alignItems: 'center',
-            gap: 24,
+            gap: 20,
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: config.dreamingEnabled ? '#34C759' : '#FF3B30',
-                flexShrink: 0,
-              }}
-            />
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
-              自动整理 {config.dreamingEnabled ? '已开启' : '已关闭'}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              上次:
-              {config.lastDreamRun ? (
-                <span style={{ color: 'var(--text-primary)', fontWeight: 600, marginLeft: 4 }}>
-                  {formatTime(config.lastDreamRun)}
-                </span>
-              ) : (
-                <span style={{ color: '#F5A623', fontWeight: 600, marginLeft: 4 }}>从未运行</span>
-              )}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              下次: <span style={{ color: 'var(--text-primary)', fontWeight: 500, marginLeft: 4 }}>{cronToLabel(config.dreamingCron)}</span>
-            </span>
-          </div>
-          {!config.lastDreamRun && (
-            <div
-              style={{
-                fontSize: 12,
-                color: '#F5A623',
-                background: 'rgba(245,166,35,0.08)',
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-sm)',
-                fontWeight: 500,
-              }}
-            >
-              建议立即开始一次整理
-            </div>
-          )}
-        </div>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: config.dreamingEnabled ? 'var(--success)' : 'var(--danger)' }} />
+            {t('dream.auto')} {config.dreamingEnabled ? t('dream.enabled') : t('dream.disabled')}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
+            <Clock size={13} />
+            {t('dream.lastRun')}: <strong style={{ color: 'var(--text-primary)' }}>{config.lastDreamRun ? formatTime(config.lastDreamRun, locale) : t('dream.never')}</strong>
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
+            <Clock size={13} />
+            {t('dream.nextRun')}: <strong style={{ color: 'var(--text-primary)' }}>{cronToLabel(config.dreamingCron, language)}</strong>
+          </span>
+        </section>
       )}
 
-      {/* Settings Panel */}
       {showSettings && config && (
-        <div
+        <section
           style={{
             background: 'var(--bg-card)',
             borderRadius: 'var(--radius-lg)',
-            border: '0.5px solid var(--border)',
-            padding: 24,
-            marginBottom: 28,
-            boxShadow: 'var(--shadow-sm)',
-            animation: 'slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1)',
+            border: '1px solid var(--border)',
+            padding: 18,
+            marginBottom: 22,
+            display: 'grid',
+            gap: 16,
+            maxWidth: 560,
           }}
         >
-          <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 20px' }}>
-            调度设置
-          </h3>
-          <div
-            style={{
-              padding: 18,
-              borderRadius: 'var(--radius-md)',
-              border: '0.5px solid var(--border)',
-              background: 'var(--bg-main)',
-              maxWidth: 420,
-            }}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Archive size={16} style={{ color: 'var(--text-secondary)' }} />
-                自动整理
-              </span>
-              <label style={{ position: 'relative', display: 'inline-block', width: 48, height: 26, cursor: 'pointer' }}>
+          <label className="flex items-center justify-between gap-4">
+            <span>
+              <span style={{ display: 'block', fontSize: 14, fontWeight: 650, color: 'var(--text-primary)' }}>{t('dream.auto')}</span>
+              <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{t('dream.subtitle')}</span>
+            </span>
+            <input type="checkbox" checked={config.dreamingEnabled} onChange={(event) => handleToggleDreaming(event.target.checked)} />
+          </label>
+
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)', marginBottom: 8 }}>{t('dream.schedule')}</div>
+            {editingCron ? (
+              <div className="flex items-center gap-2">
                 <input
-                  type="checkbox"
-                  checked={config.dreamingEnabled}
-                  onChange={(e) => handleToggleDreaming(e.target.checked)}
-                  style={{ opacity: 0, width: 0, height: 0 }}
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={cronHour}
+                  onChange={(event) => setCronHour(Math.max(0, Math.min(23, parseInt(event.target.value, 10) || 0)))}
+                  style={{ width: 58, padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
                 />
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: 0, left: 0, right: 0, bottom: 0,
-                    borderRadius: 13,
-                    background: config.dreamingEnabled ? '#34C759' : 'var(--bg-muted)',
-                    transition: '0.25s',
-                  }}
-                >
-                  <span
-                    style={{
-                      position: 'absolute',
-                      width: 20, height: 20,
-                      left: config.dreamingEnabled ? 26 : 3,
-                      bottom: 3,
-                      borderRadius: '50%',
-                      background: '#fff',
-                      transition: '0.25s',
-                      boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                    }}
-                  />
-                </span>
-              </label>
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              {editingCron ? (
-                <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
-                  <Clock size={14} style={{ color: 'var(--text-tertiary)' }} />
-                  <input
-                    type="number"
-                    min={0}
-                    max={23}
-                    value={cronHour}
-                    onChange={(e) => setCronHour(Math.max(0, Math.min(23, parseInt(e.target.value) || 0)))}
-                    style={{ width: 52, padding: '5px 8px', borderRadius: 'var(--radius-sm)', border: '0.5px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 14, fontWeight: 500, textAlign: 'center' }}
-                  />
-                  <span style={{ color: 'var(--text-tertiary)' }}>:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={cronMinute}
-                    onChange={(e) => setCronMinute(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                    style={{ width: 52, padding: '5px 8px', borderRadius: 'var(--radius-sm)', border: '0.5px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 14, fontWeight: 500, textAlign: 'center' }}
-                  />
-                  <button
-                    onClick={handleSaveCron}
-                    style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--text-primary)', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer', marginLeft: 4 }}
-                  >
-                    保存
-                  </button>
-                  <button
-                    onClick={() => setEditingCron(false)}
-                    style={{ padding: '5px 12px', borderRadius: 'var(--radius-sm)', border: '0.5px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}
-                  >
-                    取消
-                  </button>
-                </div>
-              ) : (
-                <span
-                  onClick={() => {
-                    if (config) {
-                      const parts = config.dreamingCron.trim().split(/\s+/);
-                      setCronMinute(parseInt(parts[0], 10) || 0);
-                      setCronHour(parseInt(parts[1], 10) || 3);
-                    }
-                    setEditingCron(true);
-                  }}
-                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-                >
-                  <Clock size={14} style={{ color: 'var(--text-tertiary)' }} />
-                  <span style={{ borderBottom: '1px dashed var(--text-tertiary)' }}>
-                    {cronToLabel(config.dreamingCron)}
-                  </span>
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 4 }}>点击修改</span>
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <RotateCcw size={12} />
-              上次运行: {formatTime(config.lastDreamRun)}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 10, opacity: 0.7, lineHeight: 1.5 }}>
-              包含去重合并、评分升级、归档过期、语义关联等全部整理操作
-            </div>
+                <span>:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={cronMinute}
+                  onChange={(event) => setCronMinute(Math.max(0, Math.min(59, parseInt(event.target.value, 10) || 0)))}
+                  style={{ width: 58, padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                />
+                <button className="btn btn-primary" onClick={handleSaveCron}>{t('common.save')}</button>
+                <button className="btn" onClick={() => setEditingCron(false)}>{t('common.cancel')}</button>
+              </div>
+            ) : (
+              <button className="btn" onClick={() => setEditingCron(true)}>
+                <Clock size={14} />
+                {cronToLabel(config.dreamingCron, language)}
+              </button>
+            )}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Selected Report Detail */}
       {selectedReport && (
-        <div
-          style={{
-            background: 'var(--bg-card)',
-            borderRadius: 'var(--radius-lg)',
-            border: '0.5px solid var(--border)',
-            padding: 28,
-            marginBottom: 28,
-            boxShadow: 'var(--shadow-sm)',
-            animation: 'slide-up 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)',
-          }}
-        >
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  background: 'var(--bg-main)',
-                  border: '0.5px solid var(--border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                <GitMerge size={16} />
-              </div>
+        <section style={{ marginBottom: 26 }}>
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)', fontWeight: 700 }}>
+              {t('dream.summary')} · {formatTime(selectedReport.completedAt || selectedReport.createdAt, locale)}
+            </h3>
+            <div className="flex items-center gap-2">
+              <button className="btn" onClick={() => handleRollback(selectedReport.id)}>
+                <RotateCcw size={14} />
+                {t('dream.rollback')}
+              </button>
+              <button className="btn" onClick={() => handleDeleteReport(selectedReport.id)} style={{ color: 'var(--danger)' }}>
+                <Trash size={14} />
+                {t('dream.deleteReport')}
+              </button>
+            </div>
+          </div>
+
+          <div className="dream-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
+            <StatCard label={t('dream.checked')} value={selectedReport.totalCandidates} icon={Activity} />
+            <StatCard label={t('dream.strengthened')} value={selectedReport.promoted} icon={CheckCircle} accent />
+            <StatCard label={t('dream.merged')} value={selectedReport.merged} icon={GitMerge} />
+            <StatCard label={t('dream.needReview')} value={todoItems.length} icon={AlertTriangle} accent={todoItems.length > 0} />
+          </div>
+
+          <section className="dream-next-action" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: todoItems.length > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(16, 185, 129, 0.08)', padding: 14, marginBottom: 14 }}>
+            <div className="flex items-start gap-3">
+              <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: todoItems.length > 0 ? 'var(--warning)' : 'var(--success)', flexShrink: 0 }}>
+                {todoItems.length > 0 ? <AlertTriangle size={15} /> : <CheckCircle size={15} />}
+              </span>
               <div>
-                <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  整理报告 #{selectedReport.id.slice(0, 8)}
-                </h3>
-                <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0 0' }}>
-                  {formatTime(selectedReport.completedAt || selectedReport.createdAt)}
-                  {selectedReport.durationMs ? ` · 耗时 ${formatDuration(selectedReport.durationMs)}` : ''}
+                <div style={{ fontSize: 13, fontWeight: 750, color: 'var(--text-primary)' }}>{t('dream.nextAction')}</div>
+                <p style={{ margin: '4px 0 0', fontSize: 13, lineHeight: 1.55, color: 'var(--text-secondary)' }}>
+                  {todoItems.length > 0 ? t('dream.nextActionTodo') : t('dream.nextActionDone')}
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setSelectedReport(null)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 'var(--radius-sm)',
-                border: '0.5px solid var(--border)',
-                background: 'var(--bg-main)',
-                color: 'var(--text-secondary)',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'all var(--transition-fast)',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-main)'; }}
-            >
-              关闭
-            </button>
-          </div>
+          </section>
 
-          {/* Tabs */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 4,
-              marginBottom: 20,
-              borderBottom: '0.5px solid var(--border)',
-              paddingBottom: 1,
-            }}
-          >
-            {tabConfig.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
-                  border: 'none',
-                  borderBottom: activeTab === tab.key ? '2px solid var(--text-primary)' : '2px solid transparent',
-                  background: 'transparent',
-                  color: activeTab === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                  fontSize: 13,
-                  fontWeight: activeTab === tab.key ? 600 : 500,
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                {tab.label}
-                {tab.count > 0 && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      padding: '1px 6px',
-                      borderRadius: 10,
-                      background: activeTab === tab.key ? 'var(--text-primary)' : 'var(--bg-muted)',
-                      color: activeTab === tab.key ? '#fff' : 'var(--text-tertiary)',
-                    }}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab: Overview */}
-          {activeTab === 'overview' && (
-            <>
-              {/* Phase Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
-                {selectedReport.sessions.map((session, idx) => {
-                  const phaseInfo = PHASE_CONFIG[session.phase] || { label: session.phase, icon: Archive, color: '#86868B', bg: 'var(--bg-muted)', desc: '' };
-                  const PhaseIcon = phaseInfo.icon;
-                  return (
-                    <div
-                      key={session.id}
-                      style={{
-                        padding: 18,
-                        borderRadius: 'var(--radius-md)',
-                        border: '0.5px solid var(--border)',
-                        background: phaseInfo.bg,
-                        transition: 'all var(--transition-fast)',
-                        animation: `slide-up 0.4s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.08}s both`,
-                      }}
-                    >
-                      <div className="flex items-center gap-2.5 mb-3">
-                        <div
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 8,
-                            background: phaseInfo.color,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#fff',
-                          }}
-                        >
-                          <PhaseIcon size={16} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                            {phaseInfo.label}
-                          </div>
-                          <div style={{ fontSize: 11, color: phaseInfo.color, fontWeight: 500 }}>
-                            {phaseInfo.desc}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                        {session.summary || (
-                          <span>
-                            处理 <strong style={{ color: 'var(--text-primary)' }}>{session.candidatesProcessed}</strong> 条记忆，
-                            <strong style={{ color: 'var(--success)' }}> {session.candidatesPromoted}</strong> 条提升
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Stats Bar */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '14px 18px',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'var(--bg-main)',
-                  fontSize: 13,
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                {statItems.map((stat) => (
-                  <button
-                    key={stat.key}
-                    onClick={() => setActiveTab(stat.key)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      padding: '6px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: stat.accent ? 'rgba(52,199,89,0.08)' : 'transparent',
-                      color: stat.accent ? 'var(--success)' : 'var(--text-secondary)',
-                      fontWeight: stat.accent ? 600 : 500,
-                      border: 'none',
-                      cursor: 'pointer',
-                      transition: 'all var(--transition-fast)',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = stat.accent ? 'rgba(52,199,89,0.12)' : 'var(--bg-hover)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = stat.accent ? 'rgba(52,199,89,0.08)' : 'transparent'; }}
-                  >
-                    <span>{stat.icon}</span>
-                    <span>{stat.value} {stat.label}</span>
-                  </button>
-                ))}
-                <div style={{ flex: 1 }} />
-                {selectedReport.status === 'completed' && (
-                  <button
-                    onClick={() => handleRollback(selectedReport.id)}
-                    style={{
-                      padding: '7px 14px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '0.5px solid rgba(255,59,48,0.25)',
-                      background: 'rgba(255,59,48,0.05)',
-                      color: '#FF3B30',
-                      fontSize: 12,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      transition: 'all var(--transition-fast)',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.1)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.05)'; }}
-                  >
-                    <RotateCcw size={13} />
-                    回滚此整理
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Tab: Upgrades */}
-          {activeTab === 'upgrades' && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {selectedReport.details?.promoted && selectedReport.details.promoted.length > 0 ? (
-                selectedReport.details.promoted.map((item, idx) => (
-                  <div
-                    key={item.memoryId}
-                    className="flex items-center justify-between"
-                    style={{
-                      padding: '12px 16px',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'rgba(52,199,89,0.06)',
-                      border: '0.5px solid rgba(52,199,89,0.15)',
-                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.04}s both`,
-                    }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: 'var(--success)', padding: '2px 8px', borderRadius: 10 }}>UP</span>
-                      <button
-                        onClick={() => onMemorySelect?.(item.memoryId)}
-                        style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
-                        onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
-                      >
-                        {item.title}
-                      </button>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
-                      评分 <strong style={{ color: 'var(--text-secondary)' }}>{item.score.toFixed(2)}</strong>
+          <div className="dream-report-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
+            <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', padding: 16 }}>
+              <h4 style={{ margin: '0 0 12px', color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>{t('dream.did')}</h4>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {selectedReport.sessions.map((session) => (
+                  <div key={session.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--bg-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                      {session.phase === 'light' ? <Inbox size={14} /> : session.phase === 'rem' ? <Link size={14} /> : <CheckCircle size={14} />}
                     </span>
-                  </div>
-                ))
-              ) : (
-                <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                  本次整理没有升级任何记忆
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tab: Archived */}
-          {activeTab === 'archived' && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {selectedReport.details?.archived && selectedReport.details.archived.length > 0 ? (
-                selectedReport.details.archived.map((item, idx) => (
-                  <div
-                    key={item.memoryId + idx}
-                    className="flex items-center justify-between"
-                    style={{
-                      padding: '12px 16px',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'var(--bg-main)',
-                      border: '0.5px solid var(--border)',
-                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.04}s both`,
-                    }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', background: 'var(--bg-muted)', padding: '2px 8px', borderRadius: 10 }}>归档</span>
-                      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{item.title}</span>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{item.reason}</span>
-                  </div>
-                ))
-              ) : (
-                <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                  本次整理没有归档任何记忆
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tab: Merged */}
-          {activeTab === 'merged' && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {selectedReport.details?.merged && selectedReport.details.merged.length > 0 ? (
-                selectedReport.details.merged.map((item, idx) => (
-                  <div
-                    key={item.memoryId + idx}
-                    style={{
-                      padding: '12px 16px',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'var(--bg-main)',
-                      border: '0.5px solid var(--border)',
-                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.04}s both`,
-                    }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#7B61FF', padding: '2px 8px', borderRadius: 10 }}>合并</span>
-                      <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{item.title}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6, paddingLeft: 42 }}>
-                      合并到「<span style={{ color: 'var(--text-secondary)' }}>{item.intoTitle}</span>」
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                  本次整理没有合并任何记忆
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tab: Todos */}
-          {activeTab === 'todos' && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {selectedReport.todoItems.map((item, idx) => {
-                const isOrphan = item.type === 'orphan';
-                const Icon = isOrphan ? Inbox : AlertTriangle;
-                const color = isOrphan ? '#86868B' : '#F5A623';
-                const bg = isOrphan ? 'var(--bg-main)' : 'rgba(245,166,35,0.04)';
-                const borderColor = isOrphan ? 'var(--border)' : 'rgba(245,166,35,0.2)';
-                return (
-                  <div
-                    key={item.memoryId}
-                    style={{
-                      padding: '14px 18px',
-                      borderRadius: 'var(--radius-md)',
-                      background: bg,
-                      border: `0.5px solid ${borderColor}`,
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.05}s both`,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 7,
-                        background: isOrphan ? 'var(--bg-muted)' : 'rgba(245,166,35,0.1)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: color,
-                        flexShrink: 0,
-                        marginTop: 1,
-                      }}
-                    >
-                      <Icon size={14} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: '#fff',
-                            background: color,
-                            padding: '2px 8px',
-                            borderRadius: 10,
-                            letterSpacing: '0.02em',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {isOrphan ? '未归类' : '冲突'}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: 'var(--text-primary)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {item.title}
-                        </span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>{t(`dream.phase.${session.phase}`)}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                        {language === 'zh'
+                          ? `检查 ${session.candidatesProcessed} 条，处理 ${session.candidatesPromoted} 条`
+                          : `Checked ${session.candidatesProcessed}, changed ${session.candidatesPromoted}`}
                       </div>
-                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 10px' }}>
-                        {item.reason}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onMemorySelect?.(item.memoryId)}
-                          style={{
-                            padding: '5px 12px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '0.5px solid var(--border)',
-                            background: 'var(--bg-card)',
-                            color: 'var(--text-secondary)',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-card)'; }}
-                        >
-                          <Eye size={12} />
-                          查看
-                        </button>
-                        <button
-                          onClick={() => handleArchiveMemory(item.memoryId)}
-                          style={{
-                            padding: '5px 12px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '0.5px solid rgba(255,59,48,0.2)',
-                            background: 'rgba(255,59,48,0.04)',
-                            color: '#FF3B30',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.08)'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,59,48,0.04)'; }}
-                        >
-                          <Archive size={12} />
-                          归档
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Tab: Signals */}
-          {activeTab === 'signals' && (
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
-                共 {signals.length} 条评分信号
-              </div>
-              <div style={{ display: 'grid', gap: 6, maxHeight: 480, overflowY: 'auto', paddingRight: 4 }}>
-                {signals.map((sig, idx) => (
-                  <div
-                    key={sig.memoryId}
-                    className="flex items-center justify-between"
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: sig.promoted ? 'rgba(52,199,89,0.06)' : 'var(--bg-main)',
-                      border: sig.promoted ? '0.5px solid rgba(52,199,89,0.15)' : '0.5px solid var(--border)',
-                      transition: 'all var(--transition-fast)',
-                      animation: `slide-up 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) ${idx * 0.03}s both`,
-                    }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: sig.promoted ? '#fff' : 'var(--text-tertiary)',
-                        background: sig.promoted ? 'var(--success)' : 'var(--bg-muted)',
-                        padding: '2px 7px',
-                        borderRadius: 10,
-                        letterSpacing: '0.02em',
-                      }}>
-                        {sig.promoted ? 'UP' : '—'}
-                      </span>
-                      <button
-                        onClick={() => onMemorySelect?.(sig.memoryId)}
-                        style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
-                        onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
-                      >
-                        {sig.title}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-5" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>评分 <strong style={{ color: 'var(--text-secondary)' }}>{sig.score.toFixed(2)}</strong></span>
-                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>相关 <strong style={{ color: 'var(--text-secondary)' }}>{sig.signals.relevance.toFixed(2)}</strong></span>
-                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>频率 <strong style={{ color: 'var(--text-secondary)' }}>{sig.signals.frequency.toFixed(2)}</strong></span>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
+
+            <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', padding: 16 }}>
+              <h4 style={{ margin: '0 0 12px', color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>{t('dream.needsYou')}</h4>
+              {todoItems.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>{t('dream.noTodo')}</p>
+              ) : (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {todoItems.slice(0, 8).map((item) => {
+                    const isOrphan = item.type === 'orphan';
+                    const Icon = isOrphan ? Inbox : AlertTriangle;
+                    return (
+                      <article key={`${item.type}-${item.memoryId}`} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 12, background: isOrphan ? 'var(--bg-main)' : 'rgba(245, 158, 11, 0.06)' }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <Icon size={16} style={{ color: isOrphan ? 'var(--text-muted)' : 'var(--warning)', marginTop: 2 }} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {isOrphan ? t('dream.todo.orphan') : t('dream.todo.conflict')}
+                            </div>
+                            <div style={{ fontSize: 13, color: 'var(--text-primary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{redactSensitiveText(item.title)}</div>
+                            <p style={{ margin: '5px 0 10px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                              {isOrphan ? t('dream.todo.orphanHint') : t('dream.todo.conflictHint')}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button className="btn" onClick={() => onMemorySelect?.(item.memoryId)}>
+                                <Eye size={12} />
+                                {t('common.view')}
+                              </button>
+                              {isOrphan && (
+                                <button className="btn" onClick={() => handleArchiveMemory(item.memoryId)}>
+                                  <Archive size={12} />
+                                  {t('common.archive')}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {todoItems.length > 8 && (
+                    <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
+                      {t('dream.moreTodo', { count: todoItems.length - 8 })}
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+
+          {(promoted.length > 0 || archived.length > 0 || merged.length > 0 || signals.length > 0) && (
+            <section style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', overflow: 'hidden' }}>
+              <button
+                onClick={() => setShowAdvanced((value) => !value)}
+                style={{
+                  width: '100%',
+                  border: 'none',
+                  background: 'transparent',
+                  padding: '14px 16px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  color: 'var(--text-primary)',
+                  fontWeight: 700,
+                }}
+              >
+                <span>{t('dream.advanced')}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t('dream.advancedHint')}</span>
+              </button>
+              {showAdvanced && (
+                <div className="dream-advanced-content" style={{ padding: '0 16px 16px', display: 'grid', gap: 12 }}>
+                  {promoted.length > 0 && (
+                    <AdvancedList title={t('dream.strengthened')} items={promoted.map((item) => `${redactSensitiveText(item.title)} · ${Math.round(item.score * 100)}%`)} />
+                  )}
+                  {merged.length > 0 && (
+                    <AdvancedList title={t('dream.merged')} items={merged.map((item) => `${redactSensitiveText(item.title)} -> ${redactSensitiveText(item.intoTitle)}`)} />
+                  )}
+                  {archived.length > 0 && (
+                    <AdvancedList title={t('dream.archived')} items={archived.map((item) => `${redactSensitiveText(item.title)} · ${redactSensitiveText(item.reason)}`)} />
+                  )}
+                  {signals.length > 0 && (
+                    <div>
+                      <h5 style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--text-secondary)' }}>{t('dream.signals')}</h5>
+                      <div style={{ display: 'grid', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
+                        {signals.slice(0, 30).map((signal) => (
+                          <button
+                            key={signal.memoryId}
+                            onClick={() => onMemorySelect?.(signal.memoryId)}
+                            style={{
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-md)',
+                              background: signal.promoted ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-main)',
+                              color: 'var(--text-secondary)',
+                              padding: '8px 10px',
+                              cursor: 'pointer',
+                              display: 'grid',
+                              gridTemplateColumns: 'minmax(0, 1fr) auto',
+                              gap: 10,
+                              textAlign: 'left',
+                              fontSize: 12,
+                            }}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{redactSensitiveText(signal.title)}</span>
+                            <strong>{signal.score.toFixed(2)}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
           )}
-        </div>
+        </section>
       )}
 
-      {/* History List */}
-      <div>
-        <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
+      <section>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Clock size={15} style={{ color: 'var(--text-tertiary)' }} />
-          整理记录
+          {t('dream.history')}
         </h3>
         {reports.length === 0 ? (
-          <div
-            className="flex flex-col items-center justify-center"
-            style={{
-              padding: 56,
-              color: 'var(--text-tertiary)',
-              background: 'var(--bg-card)',
-              borderRadius: 'var(--radius-lg)',
-              border: '0.5px solid var(--border)',
-            }}
-          >
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 16,
-                background: 'var(--bg-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 16,
-              }}
-            >
-              <Archive size={28} style={{ opacity: 0.35 }} />
-            </div>
-            <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>暂无整理记录</span>
-            <span style={{ fontSize: 13, marginTop: 6, opacity: 0.6 }}>
-              点击「开始整理」进行第一次归档
-            </span>
+          <div className="empty-state" style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', padding: 48 }}>
+            <Archive size={28} style={{ opacity: 0.45, marginBottom: 12 }} />
+            <span style={{ fontSize: 15, fontWeight: 650, color: 'var(--text-secondary)' }}>{t('dream.noReports')}</span>
+            <span style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>{t('dream.noReportsHint')}</span>
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {reports.map((report) => {
               const isSelected = selectedReport?.id === report.id;
-              const isAnimating = animatingCards.has(report.id);
               return (
-                <div
+                <button
                   key={report.id}
                   onClick={() => handleSelectReport(report)}
                   style={{
-                    padding: '16px 20px',
+                    padding: '14px 16px',
                     borderRadius: 'var(--radius-md)',
-                    border: isSelected ? '1px solid rgba(123,97,255,0.35)' : '0.5px solid var(--border)',
-                    background: isSelected ? 'rgba(123,97,255,0.03)' : 'var(--bg-card)',
+                    border: isSelected ? '1px solid rgba(35, 131, 226, 0.32)' : '1px solid var(--border)',
+                    background: isSelected ? 'var(--bg-selected)' : 'var(--bg-card)',
                     cursor: 'pointer',
-                    transition: 'all var(--transition-fast)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    animation: isAnimating ? 'slide-up 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)' : undefined,
-                    boxShadow: isSelected ? '0 2px 8px rgba(123,97,255,0.08)' : 'none',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.background = 'var(--bg-hover)';
-                      e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.background = 'var(--bg-card)';
-                      e.currentTarget.style.borderColor = 'var(--border)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }
+                    textAlign: 'left',
                   }}
                 >
-                  <div className="flex items-center gap-4">
-                    <div
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 10,
-                        background: report.status === 'completed'
-                          ? 'var(--bg-main)'
-                          : 'var(--bg-muted)',
-                        border: '0.5px solid var(--border)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: report.status === 'completed' ? 'var(--text-secondary)' : 'var(--text-tertiary)',
-                        fontSize: 14,
-                        flexShrink: 0,
-                      }}
-                    >
+                  <span className="flex items-center gap-3">
+                    <span style={{ width: 34, height: 34, borderRadius: 9, background: 'var(--bg-main)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
                       {report.status === 'completed' ? <GitMerge size={16} /> : <Activity size={16} />}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
-                        整理 #{report.id.slice(0, 8)}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Clock size={11} />
-                        {formatTime(report.completedAt || report.createdAt)}
-                        {report.durationMs && (
-                          <span style={{ marginLeft: 4 }}>· {formatDuration(report.durationMs)}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-5" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      <span style={{ color: 'var(--text-tertiary)' }}>候选 </span>
-                      <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{report.totalCandidates}</strong>
                     </span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>
-                      <span>升级 </span>
-                      <strong>{report.promoted}</strong>
-                    </span>
-                    {report.status !== 'completed' && (
-                      <span style={{
-                        fontSize: 11,
-                        padding: '2px 8px',
-                        borderRadius: 10,
-                        background: 'var(--bg-muted)',
-                        color: 'var(--text-tertiary)',
-                        fontWeight: 500,
-                      }}>
-                        {report.status === 'running' ? '运行中' : '失败'}
+                    <span>
+                      <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {formatTime(report.completedAt || report.createdAt, locale)}
                       </span>
-                    )}
-                    <button
-                      onClick={(e) => handleDeleteReport(report.id, e)}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid #FF3B30',
-                        background: 'transparent',
-                        color: '#FF3B30',
-                        fontSize: 12,
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        opacity: 0.6,
-                        transition: 'all var(--transition-fast)',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.opacity = '1';
-                        e.currentTarget.style.background = 'rgba(255,59,48,0.08)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.opacity = '0.6';
-                        e.currentTarget.style.background = 'transparent';
-                      }}
-                    >
-                      删除
+                      <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {report.totalCandidates} {t('dream.checked')} · {report.todoItems.length} {t('dream.needReview')} {formatDuration(report.durationMs)}
+                      </span>
+                    </span>
+                  </span>
+                  <span style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    <span>{t('dream.strengthened')} {report.promoted}</span>
+                    <span>{t('dream.merged')} {report.merged}</span>
+                    <span>{t('dream.needReview')} {report.todoItems.length}</span>
+                    <button className="btn" onClick={(event) => handleDeleteReport(report.id, event)} style={{ color: 'var(--danger)' }}>
+                      <Trash size={12} />
                     </button>
-                  </div>
-                </div>
+                  </span>
+                </button>
               );
             })}
           </div>
         )}
+      </section>
+    </main>
+  );
+}
+
+function AdvancedList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <h5 style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--text-secondary)' }}>{title}</h5>
+      <div style={{ display: 'grid', gap: 6 }}>
+        {items.slice(0, 20).map((item, index) => (
+          <div key={`${item}-${index}`} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-main)', padding: '8px 10px', fontSize: 12, color: 'var(--text-secondary)' }}>
+            {item}
+          </div>
+        ))}
       </div>
     </div>
   );

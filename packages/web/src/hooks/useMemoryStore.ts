@@ -3,6 +3,7 @@ import type { Layer, Memory } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import * as api from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useI18n } from '../i18n';
 
 interface LayerStatValue {
   count: number;
@@ -22,7 +23,7 @@ interface UseMemoryStoreReturn {
   hasMore: boolean;
   selectedMemory: Memory | null;
   selectLayer: (layer: Layer | null) => void;
-  selectMemory: (id: string) => void;
+  selectMemory: (id: string | null) => void;
   createNew: () => void;
   cancelCreate: () => void;
   save: (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => Promise<void>;
@@ -36,6 +37,8 @@ interface UseMemoryStoreReturn {
   loadMore: () => void;
 }
 
+const PAGE_SIZE = 50;
+
 export function useMemoryStore(): UseMemoryStoreReturn {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [selectedLayer, setSelectedLayer] = useState<Layer | null>(null);
@@ -44,17 +47,18 @@ export function useMemoryStore(): UseMemoryStoreReturn {
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [layerStats, setLayerStats] = useState<Record<Layer, LayerStatValue>>(() => {
     const init = {} as Record<Layer, LayerStatValue>;
-    for (const l of LAYERS) init[l] = { count: 0, active: 0 };
+    for (const layer of LAYERS) init[layer] = { count: 0, active: 0 };
     return init;
   });
   const [healthOk, setHealthOk] = useState(false);
   const [activeProject, setActiveProjectState] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const mountedRef = useRef(true);
   const loadingCountRef = useRef(0);
   const { toast } = useToast();
-  const PAGE_SIZE = 50;
+  const { t } = useI18n();
 
   const updateLoading = useCallback((delta: number) => {
     loadingCountRef.current = Math.max(0, loadingCountRef.current + delta);
@@ -63,25 +67,30 @@ export function useMemoryStore(): UseMemoryStoreReturn {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
-
-  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
 
   useEffect(() => {
     if (!selectedId) {
       setSelectedMemory(null);
       return;
     }
-    const found = memories.find((m) => m.id === selectedId);
+
+    const found = memories.find((memory) => memory.id === selectedId);
     if (found) {
       setSelectedMemory(found);
-    } else {
-      // 如果当前列表中没有该记忆（如搜索结果来自其他层级），单独获取
-      api.getMemory(selectedId)
-        .then((m) => { if (mountedRef.current) setSelectedMemory(m); })
-        .catch(() => { if (mountedRef.current) setSelectedMemory(null); });
+      return;
     }
+
+    api.getMemory(selectedId)
+      .then((memory) => {
+        if (mountedRef.current) setSelectedMemory(memory);
+      })
+      .catch(() => {
+        if (mountedRef.current) setSelectedMemory(null);
+      });
   }, [selectedId, memories]);
 
   const fetchMemories = useCallback(async () => {
@@ -99,35 +108,34 @@ export function useMemoryStore(): UseMemoryStoreReturn {
         setHasMore(list.length >= PAGE_SIZE);
       }
     } catch (err) {
-      toast('加载记忆失败: ' + ((err as Error).message || '请检查网络'), 'error');
+      toast(`${t('error.loadMemories')}: ${(err as Error).message || t('error.checkNetwork')}`, 'error');
       if (mountedRef.current) setMemories([]);
     } finally {
       updateLoading(-1);
     }
-  }, [selectedLayer, activeProject, toast, updateLoading]);
+  }, [selectedLayer, activeProject, toast, updateLoading, t]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingCountRef.current > 0) return;
     updateLoading(1);
     try {
-      const currentOffset = memories.length;
       const list = await api.listMemories({
         layer: selectedLayer ?? undefined,
         projectId: activeProject ?? undefined,
         status: 'active',
         limit: PAGE_SIZE,
-        offset: currentOffset,
+        offset: memories.length,
       });
       if (mountedRef.current) {
         setMemories((prev) => [...prev, ...list]);
         setHasMore(list.length >= PAGE_SIZE);
       }
     } catch (err) {
-      toast('加载更多失败: ' + ((err as Error).message || '请检查网络'), 'error');
+      toast(`${t('error.loadMore')}: ${(err as Error).message || t('error.checkNetwork')}`, 'error');
     } finally {
       updateLoading(-1);
     }
-  }, [hasMore, memories.length, selectedLayer, activeProject, toast, updateLoading]);
+  }, [hasMore, memories.length, selectedLayer, activeProject, toast, updateLoading, t]);
 
   const fetchStats = useCallback(async () => {
     updateLoading(1);
@@ -135,11 +143,11 @@ export function useMemoryStore(): UseMemoryStoreReturn {
       const stats = await api.getLayerStats();
       if (mountedRef.current) setLayerStats(stats);
     } catch (err) {
-      toast('统计加载失败: ' + ((err as Error).message || '未知错误'), 'error');
+      toast(`${t('error.loadStats')}: ${(err as Error).message || t('error.unknown')}`, 'error');
     } finally {
       updateLoading(-1);
     }
-  }, [toast, updateLoading]);
+  }, [toast, updateLoading, t]);
 
   const checkHealth = useCallback(async () => {
     try {
@@ -171,7 +179,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     setSearchQuery(null);
   }, []);
 
-  const selectMemory = useCallback((id: string) => {
+  const selectMemory = useCallback((id: string | null) => {
     setSelectedId(id);
     setIsCreating(false);
   }, []);
@@ -190,7 +198,8 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     try {
       if (selectedMemory) {
         const updated = await api.updateMemory(selectedMemory.id, data);
-        setMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+        setMemories((prev) => prev.map((memory) => (memory.id === updated.id ? updated : memory)));
+        setSelectedMemory(updated);
       } else {
         const created = await api.createMemory(data);
         setMemories((prev) => [created, ...prev]);
@@ -207,7 +216,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     updateLoading(1);
     try {
       await api.deleteMemory(id);
-      setMemories((prev) => prev.filter((m) => m.id !== id));
+      setMemories((prev) => prev.filter((memory) => memory.id !== id));
       if (selectedId === id) setSelectedId(null);
       fetchStats();
     } finally {
@@ -219,7 +228,7 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     updateLoading(1);
     try {
       await api.forgetMemory(id, 'archive');
-      setMemories((prev) => prev.filter((m) => m.id !== id));
+      setMemories((prev) => prev.filter((memory) => memory.id !== id));
       if (selectedId === id) setSelectedId(null);
       fetchStats();
     } finally {
@@ -231,7 +240,8 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     updateLoading(1);
     try {
       const updated = await api.moveLayer(id, layer);
-      setMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      setMemories((prev) => prev.map((memory) => (memory.id === updated.id ? updated : memory)));
+      setSelectedMemory(updated);
       fetchStats();
     } finally {
       updateLoading(-1);
@@ -243,14 +253,14 @@ export function useMemoryStore(): UseMemoryStoreReturn {
     updateLoading(1);
     try {
       const results = await api.searchMemories(query, selectedLayer ?? undefined, activeProject ?? undefined);
-      if (mountedRef.current) setMemories(results.map(r => r.memory));
+      if (mountedRef.current) setMemories(results.map((result) => result.memory));
     } catch (err) {
-      toast('搜索失败: ' + ((err as Error).message || '请检查网络'), 'error');
+      toast(`${t('error.search')}: ${(err as Error).message || t('error.checkNetwork')}`, 'error');
       if (mountedRef.current) setMemories([]);
     } finally {
       updateLoading(-1);
     }
-  }, [selectedLayer, activeProject, toast, updateLoading]);
+  }, [selectedLayer, activeProject, toast, updateLoading, t]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery(null);

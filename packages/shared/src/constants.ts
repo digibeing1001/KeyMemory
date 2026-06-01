@@ -3,9 +3,9 @@ import type { Layer } from './types.js';
 export const LAYERS: Layer[] = ['flash', 'short', 'long', 'entity'];
 
 export const LAYER_CONFIG: Record<Layer, { label: string; color: string; decayDays: number; decayRate: number }> = {
-  flash: { label: '闪念', color: '#f59e0b', decayDays: 7, decayRate: 0.9 },
-  short: { label: '短期', color: '#3b82f6', decayDays: 30, decayRate: 0.95 },
-  long: { label: '长期', color: '#10b981', decayDays: Infinity, decayRate: 1.0 },
+  flash: { label: '待整理', color: '#f59e0b', decayDays: 7, decayRate: 0.9 },
+  short: { label: '近期有用', color: '#3b82f6', decayDays: 30, decayRate: 0.95 },
+  long: { label: '长期保留', color: '#10b981', decayDays: Infinity, decayRate: 1.0 },
   entity: { label: '人事物', color: '#ec4899', decayDays: Infinity, decayRate: 1.0 },
 };
 

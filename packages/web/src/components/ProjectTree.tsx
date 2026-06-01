@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Project } from '@keymemory/shared';
 import { listProjects } from '../lib/api';
 import { Folder, ChevronRight, ChevronDown } from './Icons';
+import { useI18n } from '../i18n';
 
 interface ProjectTreeProps {
   activeProjectId: string | null;
@@ -18,32 +19,25 @@ function buildTree(projects: Project[]): TreeNode[] {
   const nodeMap = new Map<string, TreeNode>();
   const roots: TreeNode[] = [];
 
-  // Create all nodes
   for (const project of projects) {
     nodeMap.set(project.id, { project, children: [] });
   }
 
-  // Build parent-child relationships
   for (const project of projects) {
     const node = nodeMap.get(project.id)!;
-    if (project.parentId) {
-      const parent = nodeMap.get(project.parentId);
-      if (parent) {
-        parent.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    } else {
+    if (!project.parentId) {
       roots.push(node);
+      continue;
     }
+    const parent = nodeMap.get(project.parentId);
+    if (parent) parent.children.push(node);
+    else roots.push(node);
   }
 
-  // Sort by path
   roots.sort((a, b) => a.project.path.localeCompare(b.project.path));
   for (const node of nodeMap.values()) {
     node.children.sort((a, b) => a.project.path.localeCompare(b.project.path));
   }
-
   return roots;
 }
 
@@ -68,30 +62,28 @@ function TreeItem({
 
   return (
     <div>
-      <div
-        className="flex items-center gap-1 cursor-pointer select-none"
+      <button
+        type="button"
+        className="project-tree-item flex items-center gap-1 select-none"
         style={{
+          width: '100%',
           padding: '4px 8px',
           paddingLeft: 8 + level * 16,
           borderRadius: 'var(--radius-sm)',
+          border: 'none',
           background: isActive ? 'var(--bg-hover)' : 'transparent',
           color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-          fontWeight: isActive ? 600 : 400,
+          fontWeight: isActive ? 650 : 400,
           fontSize: 13,
-          transition: 'all var(--transition-fast)',
+          cursor: 'pointer',
+          textAlign: 'left',
         }}
         onClick={() => onSelectProject(node.project.id)}
-        onMouseEnter={(e) => {
-          if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)';
-        }}
-        onMouseLeave={(e) => {
-          if (!isActive) e.currentTarget.style.background = 'transparent';
-        }}
       >
         {hasChildren ? (
           <span
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={(event) => {
+              event.stopPropagation();
               onToggleExpand(node.project.id);
             }}
             style={{ display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
@@ -101,13 +93,11 @@ function TreeItem({
         ) : (
           <span style={{ width: 14 }} />
         )}
-        <span style={{ display: 'flex', alignItems: 'center', color: isActive ? 'var(--primary)' : 'var(--text-muted)' }}>
-          <Folder size={14} />
-        </span>
+        <Folder size={14} style={{ color: isActive ? 'var(--accent)' : 'var(--text-muted)' }} />
         <span className="truncate" style={{ flex: 1, minWidth: 0 }}>
           {node.project.name}
         </span>
-      </div>
+      </button>
       {isExpanded && hasChildren && (
         <div>
           {node.children.map((child) => (
@@ -128,6 +118,7 @@ function TreeItem({
 }
 
 export default function ProjectTree({ activeProjectId, onSelectProject, refreshToken = 0 }: ProjectTreeProps) {
+  const { t } = useI18n();
   const [projects, setProjects] = useState<Project[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -137,11 +128,10 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
     try {
       const data = await listProjects();
       setProjects(data);
-      // Auto-expand root projects
-      const roots = data.filter((p) => !p.parentId);
+      const roots = data.filter((project) => !project.parentId);
       setExpandedIds((prev) => {
         const next = new Set(prev);
-        for (const r of roots) next.add(r.id);
+        for (const root of roots) next.add(root.id);
         return next;
       });
     } catch {
@@ -158,11 +148,8 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
@@ -182,24 +169,14 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
           letterSpacing: '0.08em',
         }}
       >
-        <span>项目</span>
-        <button
-          onClick={fetchProjects}
-          style={{
-            fontSize: 11,
-            color: 'var(--primary)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 0,
-          }}
-        >
-          刷新
+        <span>{t('sidebar.projects')}</span>
+        <button onClick={fetchProjects} style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+          {t('common.refresh')}
         </button>
       </div>
 
       {loading && projects.length === 0 && (
-        <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>加载中...</div>
+        <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>{t('common.loading')}</div>
       )}
 
       <div style={{ maxHeight: 320, overflowY: 'auto' }}>
@@ -214,22 +191,30 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
             onToggleExpand={handleToggleExpand}
           />
         ))}
+        {!loading && tree.length === 0 && (
+          <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+            {t('project.empty')}
+          </div>
+        )}
       </div>
 
       {activeProjectId && (
-        <div
-          className="cursor-pointer"
+        <button
+          type="button"
           style={{
-            padding: '4px 8px',
+            width: '100%',
+            border: 'none',
+            background: 'transparent',
+            padding: '6px 8px',
             marginTop: 4,
             fontSize: 12,
-            color: 'var(--primary)',
-            textAlign: 'center',
+            color: 'var(--accent)',
+            cursor: 'pointer',
           }}
           onClick={() => onSelectProject(null)}
         >
-          显示全部
-        </div>
+          {t('common.all')}
+        </button>
       )}
     </div>
   );
