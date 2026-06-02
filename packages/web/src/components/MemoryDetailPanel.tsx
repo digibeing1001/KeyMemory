@@ -136,7 +136,7 @@ export default function MemoryDetailPanel({
         </button>
       </div>
 
-      <div style={{ overflowY: 'auto', padding: 18 }}>
+      <div className="memory-detail-scroll" style={{ overflowY: 'auto', padding: 18 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
           <span className="tag-pill" style={{ color: LAYER_COLORS[memory.layer], background: `${LAYER_COLORS[memory.layer]}18` }}>
             {layerLabel(memory.layer)}
@@ -146,6 +146,7 @@ export default function MemoryDetailPanel({
         </div>
 
         <section
+          className="memory-summary-section"
           style={{
             background: 'var(--bg-card)',
             border: '1px solid var(--border)',
@@ -188,6 +189,7 @@ export default function MemoryDetailPanel({
         )}
 
         <section
+          className={`memory-body-section${showBody ? ' is-expanded' : ''}`}
           style={{
             background: 'var(--bg-card)',
             border: '1px solid var(--border)',
@@ -197,6 +199,7 @@ export default function MemoryDetailPanel({
           }}
         >
           <button
+            className="memory-body-toggle"
             onClick={() => setShowBody((value) => !value)}
             style={{
               width: '100%',
@@ -223,7 +226,7 @@ export default function MemoryDetailPanel({
             </p>
           )}
           {showBody && (
-            <div className="markdown-body" style={{ padding: '0 15px 16px', fontSize: 13 }}>
+            <div className="memory-body-expanded markdown-body" style={{ padding: '0 15px 16px', fontSize: 13 }}>
               <MarkdownRenderer content={redactSensitiveText(memory.content)} />
             </div>
           )}

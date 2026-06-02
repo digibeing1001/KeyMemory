@@ -173,9 +173,13 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
     updates.push('layer = @layer');
     params.layer = input.layer;
   }
-  if (input.projectId !== undefined) {
+  const projectIdFromPath = input.projectPath !== undefined
+    ? (input.projectPath.trim() ? ensureProjectPath(input.projectPath)?.id ?? '' : '')
+    : undefined;
+  const nextProjectId = input.projectId !== undefined ? input.projectId : projectIdFromPath;
+  if (nextProjectId !== undefined) {
     updates.push('project_id = @projectId');
-    params.projectId = input.projectId;
+    params.projectId = nextProjectId;
   }
   if (input.confidence !== undefined) {
     updates.push('confidence = @confidence');
@@ -198,7 +202,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
   return db.transaction(() => {
     db.prepare(`UPDATE memories SET ${updates.join(', ')} WHERE id = @id`).run(params);
 
-    if (input.title !== undefined || input.content !== undefined || input.tags !== undefined || input.projectId !== undefined) {
+    if (input.title !== undefined || input.content !== undefined || input.tags !== undefined || nextProjectId !== undefined) {
       const updated = getMemory(id)!;
       const updatedProjectName = updated.projectId ? (db.prepare('SELECT name FROM projects WHERE id = ?').get(updated.projectId) as { name: string } | undefined)?.name || '' : '';
       db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);

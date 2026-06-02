@@ -273,7 +273,7 @@ function AppInner() {
         onSelectLayer={handleLayerSelect}
         onCreateNew={store.createNew}
         totalMemories={totalMemories}
-        healthScore={healthReport?.score ?? null}
+        healthReport={healthReport}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         isDark={isDark}

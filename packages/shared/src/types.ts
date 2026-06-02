@@ -146,6 +146,7 @@ export interface UpdateMemoryInput {
   content?: string;
   layer?: Layer;
   projectId?: string;
+  projectPath?: string;
   confidence?: number;
   tags?: string[];
   source?: string;

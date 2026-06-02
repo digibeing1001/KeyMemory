@@ -1,4 +1,4 @@
-import type { Layer } from '@keymemory/shared';
+import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge } from './Icons';
 import ProjectTree from './ProjectTree';
@@ -13,7 +13,7 @@ interface SidebarProps {
   onSelectLayer: (layer: Layer | null) => void;
   onCreateNew: () => void;
   totalMemories: number;
-  healthScore: number | null;
+  healthReport: HealthReport | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   isDark: boolean;
@@ -40,8 +40,8 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers 
   { mode: 'recycle', labelKey: 'nav.recycle', icon: Trash },
 ];
 
-function getHealthColor(score: number): string {
-  if (score >= 80) return 'var(--success)';
+function getHealthColor(score: number, reviewCount: number): string {
+  if (score >= 80 && reviewCount === 0) return 'var(--success)';
   if (score >= 60) return 'var(--warning)';
   return 'var(--danger)';
 }
@@ -75,7 +75,7 @@ export default function Sidebar({
   onSelectLayer,
   onCreateNew,
   totalMemories,
-  healthScore,
+  healthReport,
   viewMode,
   onViewModeChange,
   isDark,
@@ -85,6 +85,16 @@ export default function Sidebar({
   projectRefreshToken,
 }: SidebarProps) {
   const { t, layerLabel, layerHelp } = useI18n();
+  const healthReviewCount = healthReport
+    ? healthReport.duplicateCount + healthReport.orphanCount + healthReport.conflictCount + healthReport.decayingCount
+    : 0;
+  const healthColor = healthReport ? getHealthColor(healthReport.score, healthReviewCount) : 'var(--text-muted)';
+  const healthIssues = healthReport ? [
+    healthReport.orphanCount > 0 ? t('sidebar.healthOrphans', { count: healthReport.orphanCount }) : null,
+    healthReport.conflictCount > 0 ? t('sidebar.healthConflicts', { count: healthReport.conflictCount }) : null,
+    healthReport.duplicateCount > 0 ? t('sidebar.healthDuplicates', { count: healthReport.duplicateCount }) : null,
+    healthReport.decayingCount > 0 ? t('sidebar.healthDecaying', { count: healthReport.decayingCount }) : null,
+  ].filter((value): value is string => Boolean(value)) : [];
 
   return (
     <aside
@@ -191,11 +201,30 @@ export default function Sidebar({
       </nav>
 
       <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)' }}>
-        {healthScore !== null && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-            <Heart size={14} style={{ color: getHealthColor(healthScore) }} />
-            <span>{t('sidebar.health')} {healthScore}</span>
-          </div>
+        {healthReport !== null && (
+          <button
+            type="button"
+            className="sidebar-health"
+            onClick={() => onViewModeChange('dream')}
+            title={t('sidebar.healthOpenDream')}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <Heart size={14} style={{ color: healthColor }} />
+              <span style={{ display: 'grid', gap: 1, minWidth: 0 }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {healthReviewCount > 0 ? t('sidebar.healthNeedsReview', { count: healthReviewCount }) : t('sidebar.healthGood')}
+                </span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                  {t('sidebar.healthScore', { score: healthReport.score })}
+                </span>
+              </span>
+            </span>
+            {healthIssues.length > 0 && (
+              <span className="sidebar-health-breakdown">
+                {healthIssues.slice(0, 2).join(' · ')}
+              </span>
+            )}
+          </button>
         )}
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>

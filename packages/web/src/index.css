@@ -133,6 +133,13 @@ html {
   scroll-behavior: smooth;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
 body {
   font-family: var(--font-sans);
   color: var(--text-primary);
@@ -199,10 +206,22 @@ button {
 }
 
 .app-layout {
+  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0) 260px),
     linear-gradient(90deg, rgba(40, 125, 149, 0.04), rgba(74, 139, 101, 0.03) 42%, rgba(217, 130, 53, 0.03)),
     var(--bg-main) !important;
+}
+
+.app-main,
+.app-content-row,
+.memory-list-shell,
+.timeline-panel,
+.memory-detail-panel {
+  min-width: 0;
+  min-height: 0;
 }
 
 [data-theme="dark"] body,
@@ -341,11 +360,57 @@ button {
   gap: 8px;
 }
 
+@media (max-width: 1180px) {
+  .memory-detail-panel {
+    width: min(380px, 42vw) !important;
+  }
+
+  .timeline-panel {
+    width: min(300px, 34vw) !important;
+  }
+
+  .memory-list-shell > div {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
+
+@media (max-width: 1080px) and (min-width: 901px) {
+  .app-content-row {
+    flex-direction: column;
+    overflow-y: auto !important;
+  }
+
+  .memory-list-shell {
+    overflow-y: visible !important;
+  }
+
+  .timeline-panel {
+    display: none;
+  }
+
+  .memory-detail-panel {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+  }
+
+  .dream-view > header {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .dream-header-actions {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 900px) {
   .app-layout {
     flex-direction: column;
     height: auto !important;
-    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
   }
 
   .app-sidebar {
@@ -365,8 +430,22 @@ button {
     position: sticky;
     top: 0;
     z-index: 30;
+    height: auto !important;
+    min-height: 58px;
+    flex-wrap: wrap;
+    gap: 8px;
     padding-left: 12px !important;
     padding-right: 12px !important;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .app-main > header > div:first-child {
+    flex: 1 1 320px;
+  }
+
+  .app-main > header form {
+    max-width: none !important;
   }
 
   .app-content-row {
@@ -393,6 +472,13 @@ button {
   .dream-report-grid {
     grid-template-columns: 1fr !important;
   }
+
+  .dream-view,
+  .migration-view,
+  .project-suggestions-view {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
 }
 
 @media (max-width: 560px) {
@@ -406,6 +492,35 @@ button {
 
   .memory-state-guide > div:last-child {
     grid-template-columns: 1fr !important;
+  }
+
+  .dream-view > header {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .dream-view > header > div:first-child,
+  .dream-header-actions {
+    width: 100%;
+  }
+
+  .dream-header-actions,
+  .dream-assign-control {
+    grid-template-columns: 1fr !important;
+    flex-wrap: wrap;
+  }
+
+  .dream-view .btn {
+    justify-content: center;
+  }
+
+  .dream-history-row {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .dream-history-stats {
+    justify-content: flex-start;
   }
 }
 
@@ -518,9 +633,73 @@ button {
   border-color: var(--border-light) !important;
 }
 
+.memory-detail-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.memory-summary-section {
+  background: linear-gradient(180deg, var(--surface-raised), color-mix(in srgb, var(--surface-raised) 82%, var(--surface-soft))) !important;
+}
+
+.memory-body-section {
+  background: var(--surface-raised) !important;
+  transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+
+.memory-body-section.is-expanded {
+  background:
+    linear-gradient(90deg, var(--accent-soft), transparent 5px),
+    color-mix(in srgb, var(--surface-soft) 82%, var(--surface-raised)) !important;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border)) !important;
+  box-shadow: var(--shadow-panel);
+}
+
+.memory-body-section.is-expanded .memory-body-toggle {
+  border-bottom: 1px solid var(--border-light) !important;
+}
+
+.memory-body-expanded {
+  color: var(--text-primary);
+  padding-top: 12px !important;
+}
+
+.memory-body-expanded .markdown-body,
+.memory-body-expanded p {
+  color: var(--text-primary);
+}
+
 .memory-detail-panel > div:last-child {
   background: var(--surface-chrome);
   box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.48) inset;
+}
+
+.sidebar-health {
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, var(--surface-raised), color-mix(in srgb, var(--surface-raised) 80%, var(--surface-soft)));
+  padding: 9px 10px;
+  margin-bottom: 10px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast), border-color var(--transition), box-shadow var(--transition);
+}
+
+.sidebar-health:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-raised);
+}
+
+.sidebar-health-breakdown {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .dream-next-action {
@@ -538,6 +717,16 @@ button {
   color: var(--text-primary);
 }
 
+.dream-header-actions {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dream-header-actions .btn {
+  white-space: nowrap;
+}
+
 .km-icon-tile {
   background: linear-gradient(180deg, var(--surface-raised), color-mix(in srgb, var(--surface-raised) 74%, var(--bg-tertiary))) !important;
   border-color: var(--border-light) !important;
@@ -548,6 +737,53 @@ button {
 .migration-view section,
 .dream-view section {
   border-color: var(--border-light) !important;
+}
+
+.dream-assign-row {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.dream-assign-row label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dream-assign-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.dream-assign-control input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.dream-history-row {
+  min-width: 0;
+  gap: 12px;
+}
+
+.dream-history-main {
+  min-width: 0;
+}
+
+.dream-history-main > span:last-child {
+  min-width: 0;
+}
+
+.dream-history-stats {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .migration-view [style*="background: var(--bg-secondary)"],
