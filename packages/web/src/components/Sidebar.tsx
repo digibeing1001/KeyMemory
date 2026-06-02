@@ -132,73 +132,75 @@ export default function Sidebar({
         </button>
       </div>
 
-      <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
+      <div className="sidebar-scroll">
+        <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
 
-      <nav style={{ padding: '4px 8px' }}>
-        {VIEW_ITEMS.map((item) => {
-          const isActive = viewMode === item.mode;
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.mode}
-              className={`sidebar-item${isActive ? ' active' : ''}`}
-              onClick={() => onViewModeChange(item.mode)}
-              style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left' }}
-            >
-              <Icon size={16} />
-              <span>{t(item.labelKey)}</span>
-            </button>
-          );
-        })}
-      </nav>
+        <nav style={{ padding: '4px 8px' }}>
+          {VIEW_ITEMS.map((item) => {
+            const isActive = viewMode === item.mode;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.mode}
+                className={`sidebar-item${isActive ? ' active' : ''}`}
+                onClick={() => onViewModeChange(item.mode)}
+                style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left' }}
+              >
+                <Icon size={16} />
+                <span>{t(item.labelKey)}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-      <div style={{ height: 1, background: 'var(--border)', margin: '8px 16px' }} />
+        <div style={{ height: 1, background: 'var(--border)', margin: '8px 16px' }} />
 
-      <ProjectTree activeProjectId={activeProjectId} onSelectProject={onSelectProject} refreshToken={projectRefreshToken} />
+        <ProjectTree activeProjectId={activeProjectId} onSelectProject={onSelectProject} refreshToken={projectRefreshToken} />
 
-      <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
+        <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
 
-      <div style={{ padding: '4px 16px 6px' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
-          {t('sidebar.layers')}
-        </span>
-      </div>
-
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
-        <button
-          className={`sidebar-item${activeLayer === null ? ' active' : ''}`}
-          onClick={() => onSelectLayer(null)}
-          style={{ justifyContent: 'space-between', width: '100%', border: 'none', background: 'transparent' }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Layers size={16} />
-            <span>{t('common.all')}</span>
+        <div style={{ padding: '4px 16px 6px' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+            {t('sidebar.layers')}
           </span>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{totalMemories}</span>
-        </button>
+        </div>
 
-        {LAYERS.map((layer) => {
-          const stats = layerStats[layer];
-          const isActive = activeLayer === layer;
-          const IconComponent = LAYER_ICONS[layer];
+        <nav className="sidebar-layer-list" style={{ padding: '0 8px 12px' }}>
+          <button
+            className={`sidebar-item sidebar-layer-item${activeLayer === null ? ' active' : ''}`}
+            onClick={() => onSelectLayer(null)}
+            style={{ justifyContent: 'space-between', width: '100%', border: 'none', background: 'transparent' }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Layers size={16} />
+              <span>{t('common.all')}</span>
+            </span>
+            <span className="sidebar-count-pill">{totalMemories}</span>
+          </button>
 
-          return (
-            <button
-              key={layer}
-              className={`sidebar-item${isActive ? ' active' : ''}`}
-              onClick={() => onSelectLayer(layer)}
-              title={layerHelp(layer)}
-              style={{ justifyContent: 'space-between', width: '100%', border: 'none', background: 'transparent' }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <IconComponent size={16} style={{ color: isActive ? 'var(--text-primary)' : LAYER_COLORS[layer] }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layerLabel(layer)}</span>
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{stats?.active ?? 0}</span>
-            </button>
-          );
-        })}
-      </nav>
+          {LAYERS.map((layer) => {
+            const stats = layerStats[layer];
+            const isActive = activeLayer === layer;
+            const IconComponent = LAYER_ICONS[layer];
+
+            return (
+              <button
+                key={layer}
+                className={`sidebar-item sidebar-layer-item${isActive ? ' active' : ''}`}
+                onClick={() => onSelectLayer(layer)}
+                title={layerHelp(layer)}
+                style={{ justifyContent: 'space-between', width: '100%', border: 'none', background: 'transparent' }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <IconComponent size={16} style={{ color: isActive ? 'var(--text-primary)' : LAYER_COLORS[layer] }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layerLabel(layer)}</span>
+                </span>
+                <span className="sidebar-count-pill">{stats?.active ?? 0}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
       <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)' }}>
         {healthReport !== null && (

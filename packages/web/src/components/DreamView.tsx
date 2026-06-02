@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { MouseEvent } from 'react';
-import type { Project } from '@keymemory/shared';
+import type { Memory, Project } from '@keymemory/shared';
 import {
   Archive,
+  Close,
   Play,
   Settings,
   Activity,
@@ -27,6 +28,7 @@ import {
   rollbackDream,
   deleteDreamReport,
   forgetMemory,
+  getMemory,
   listProjects,
   updateMemory,
 } from '../lib/api';
@@ -34,7 +36,8 @@ import type { DreamReport, DreamSignalEntry, SchedulerConfig } from '../lib/api'
 import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import { useI18n } from '../i18n';
-import { redactSensitiveText } from '../lib/memoryFormat';
+import MarkdownRenderer from './MarkdownRenderer';
+import { formatDateTime, formatMemoryTitle, getMemoryKind, LAYER_COLORS, redactSensitiveText } from '../lib/memoryFormat';
 
 interface DreamViewProps {
   onMemorySelect?: (id: string) => void;
@@ -108,6 +111,8 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignmentInputs, setAssignmentInputs] = useState<Record<string, string>>({});
   const [assigningMemoryId, setAssigningMemoryId] = useState<string | null>(null);
+  const [previewMemory, setPreviewMemory] = useState<Memory | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;
@@ -123,8 +128,11 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
       setReports(nextReports);
       setConfig(nextConfig);
       if (nextReports[0]) {
-        setSelectedReport((current) => current ?? nextReports[0]);
+        setSelectedReport((current) => nextReports.find((report) => report.id === current?.id) ?? nextReports[0]);
         getDreamSignals(nextReports[0].id).then(setSignals).catch(() => setSignals([]));
+      } else {
+        setSelectedReport(null);
+        setSignals([]);
       }
     } catch {
       toast(language === 'zh' ? '加载整理记录失败' : 'Failed to load organize records', 'error');
@@ -265,6 +273,18 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
     }
   }, [assignmentInputs, fetchProjects, projects, t, toast]);
 
+  const handlePreviewMemory = useCallback(async (memoryId: string) => {
+    setPreviewLoadingId(memoryId);
+    setPreviewMemory(null);
+    try {
+      setPreviewMemory(await getMemory(memoryId));
+    } catch {
+      toast(language === 'zh' ? '加载记忆详情失败' : 'Failed to load memory details', 'error');
+    } finally {
+      setPreviewLoadingId(null);
+    }
+  }, [language, toast]);
+
   const handleToggleDreaming = useCallback(async (enabled: boolean) => {
     if (!config) return;
     try {
@@ -315,6 +335,19 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
           <option key={project.id} value={project.path}>{project.name}</option>
         ))}
       </datalist>
+      {(previewMemory || previewLoadingId) && (
+        <DreamMemoryDrawer
+          memory={previewMemory}
+          projects={projects}
+          loading={Boolean(previewLoadingId)}
+          locale={locale}
+          onClose={() => {
+            setPreviewMemory(null);
+            setPreviewLoadingId(null);
+          }}
+          onOpenInList={previewMemory && onMemorySelect ? () => onMemorySelect(previewMemory.id) : undefined}
+        />
+      )}
 
       <header className="flex items-start justify-between gap-4 mb-6">
         <div className="flex items-start gap-4">
@@ -547,7 +580,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
                               </div>
                             )}
                             <div className="flex items-center gap-2">
-                              <button className="btn" onClick={() => onMemorySelect?.(item.memoryId)}>
+                              <button className="btn" onClick={() => handlePreviewMemory(item.memoryId)}>
                                 <Eye size={12} />
                                 {t('common.view')}
                               </button>
@@ -611,7 +644,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
                         {signals.slice(0, 30).map((signal) => (
                           <button
                             key={signal.memoryId}
-                            onClick={() => onMemorySelect?.(signal.memoryId)}
+                            onClick={() => handlePreviewMemory(signal.memoryId)}
                             style={{
                               border: '1px solid var(--border)',
                               borderRadius: 'var(--radius-md)',
@@ -700,6 +733,89 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
         )}
       </section>
     </main>
+  );
+}
+
+function DreamMemoryDrawer({
+  memory,
+  projects,
+  loading,
+  locale,
+  onClose,
+  onOpenInList,
+}: {
+  memory: Memory | null;
+  projects: Project[];
+  loading: boolean;
+  locale: string;
+  onClose: () => void;
+  onOpenInList?: () => void;
+}) {
+  const { t, layerLabel, memoryKindLabel } = useI18n();
+  const project = memory?.projectId ? projects.find((item) => item.id === memory.projectId) : undefined;
+  const kind = memory ? getMemoryKind(memory) : null;
+
+  return (
+    <>
+      <button className="dream-preview-scrim" aria-label={t('common.close')} onClick={onClose} />
+      <aside className="dream-preview-drawer">
+        <div className="dream-preview-header">
+          <div>
+            <div className="dream-preview-eyebrow">{t('detail.title')}</div>
+            <h3>{memory ? formatMemoryTitle(memory) : t('common.loading')}</h3>
+          </div>
+          <button className="btn" onClick={onClose} aria-label={t('common.close')}>
+            <Close size={14} />
+          </button>
+        </div>
+
+        {loading && (
+          <div className="dream-preview-loading">
+            <div className="animate-spin" style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
+            {t('common.loading')}
+          </div>
+        )}
+
+        {memory && (
+          <>
+            <div className="dream-preview-meta">
+              <span className="tag-pill" style={{ color: LAYER_COLORS[memory.layer], background: `${LAYER_COLORS[memory.layer]}18` }}>
+                {layerLabel(memory.layer)}
+              </span>
+              <span className="tag-pill">{memoryKindLabel(kind)}</span>
+              <span className="tag-pill">{project?.path ?? memory.projectId ?? '-'}</span>
+            </div>
+
+            <div className="dream-preview-facts">
+              <span>{t('detail.updated')}: <strong>{formatDateTime(memory.updatedAt, locale)}</strong></span>
+              <span>{t('detail.hits')}: <strong>{memory.hitCount}</strong></span>
+              <span>{t('common.confidence')}: <strong>{Math.round(memory.confidence * 100)}%</strong></span>
+            </div>
+
+            {memory.tags && memory.tags.length > 0 && (
+              <div className="dream-preview-tags">
+                {memory.tags.slice(0, 12).map((tag) => (
+                  <span key={tag} className="tag-pill">{tag}</span>
+                ))}
+              </div>
+            )}
+
+            <div className="dream-preview-body markdown-body">
+              <MarkdownRenderer content={redactSensitiveText(memory.content)} />
+            </div>
+
+            {onOpenInList && (
+              <div className="dream-preview-actions">
+                <button className="btn" onClick={onOpenInList}>
+                  <Eye size={13} />
+                  {t('dream.openInList')}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </aside>
+    </>
   );
 }
 

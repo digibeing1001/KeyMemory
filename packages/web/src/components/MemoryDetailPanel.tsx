@@ -21,7 +21,7 @@ interface MemoryDetailPanelProps {
 
 function metaRow(label: string, value: ReactNode) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '92px minmax(0, 1fr)', gap: 10, alignItems: 'baseline' }}>
+    <div className="memory-meta-row" style={{ display: 'grid', gridTemplateColumns: '92px minmax(0, 1fr)', gap: 10, alignItems: 'baseline' }}>
       <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</span>
       <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }}>{value}</span>
     </div>
@@ -124,10 +124,10 @@ export default function MemoryDetailPanel({
         flexDirection: 'column',
       }}
     >
-      <div className="flex items-center justify-between" style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
+      <div className="memory-detail-header flex items-center justify-between" style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
         <div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 650 }}>{t('detail.title')}</div>
-          <h2 style={{ margin: '3px 0 0', fontSize: 17, color: 'var(--text-primary)', lineHeight: 1.35 }}>
+          <h2 className="memory-detail-title" style={{ margin: '3px 0 0', fontSize: 17, color: 'var(--text-primary)', lineHeight: 1.35 }}>
             {title}
           </h2>
         </div>
@@ -160,7 +160,7 @@ export default function MemoryDetailPanel({
           </p>
         </section>
 
-        <section style={{ display: 'grid', gap: 9, marginBottom: 18 }}>
+        <section className="memory-meta-grid" style={{ display: 'grid', gap: 9, marginBottom: 18 }}>
           {metaRow(t('editor.layer'), (
             <>
               <strong style={{ color: 'var(--text-primary)' }}>{layerLabel(memory.layer)}</strong>
@@ -274,7 +274,7 @@ export default function MemoryDetailPanel({
         </section>
       </div>
 
-      <div className="flex items-center gap-2" style={{ padding: 14, borderTop: '1px solid var(--border)' }}>
+      <div className="memory-detail-actions flex items-center gap-2" style={{ padding: 14, borderTop: '1px solid var(--border)' }}>
         <button className="btn btn-primary" onClick={() => setEditing(true)}>
           <Edit size={14} />
           {t('common.edit')}

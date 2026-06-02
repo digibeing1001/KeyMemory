@@ -69,14 +69,44 @@ async function countDuplicates(): Promise<number> {
 
 function countOrphans(): number {
   const db = getDatabase();
-  return (db.prepare(`
-    SELECT COUNT(*) as cnt FROM memories m
+  const rows = db.prepare(`
+    SELECT m.project_id as projectId, p.name as projectName, p.path as projectPath
+    FROM memories m
     LEFT JOIN projects p ON p.id = m.project_id
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
-      AND (m.project_id IS NULL OR m.project_id = '' OR p.parent_id IS NULL)
       AND m.layer NOT IN ('flash')
-  `).get() as { cnt: number }).cnt;
+  `).all() as { projectId: string | null; projectName: string | null; projectPath: string | null }[];
+
+  return rows.filter(row => !hasConcreteProject(row)).length;
+}
+
+const GENERIC_PROJECT_NAMES = new Set([
+  '未分类',
+  'uncategorized',
+  'unclassified',
+  'default',
+  'general',
+  'global',
+  'migrated',
+  'memory',
+  'memories',
+]);
+
+function normalizeProjectName(value: string): string {
+  return value.toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isUsefulProjectName(value: string): boolean {
+  const normalized = normalizeProjectName(value);
+  if (!normalized || GENERIC_PROJECT_NAMES.has(normalized)) return false;
+  if (/[\u3400-\u9fff]/u.test(normalized)) return normalized.length >= 2;
+  return normalized.length >= 4;
+}
+
+function hasConcreteProject(row: { projectId: string | null; projectName: string | null; projectPath: string | null }): boolean {
+  if (!row.projectId || !row.projectName || !row.projectPath) return false;
+  return isUsefulProjectName(row.projectName) || isUsefulProjectName(row.projectPath);
 }
 
 function countConflicts(): number {

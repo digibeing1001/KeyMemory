@@ -182,6 +182,7 @@ const zh: Record<string, string> = {
   'dream.todo.assignFailed': '分配文件夹失败',
   'dream.todo.conflict': '可能冲突',
   'dream.todo.conflictHint': '系统发现同一事实可能有不同说法，建议打开核对。',
+  'dream.openInList': '在记忆列表打开',
 
   'organize.title': '项目整理',
   'organize.subtitle': '自动整理发现的项目归类建议。采纳前可以修改新分组名称。',
@@ -416,6 +417,7 @@ const en: Record<string, string> = {
   'dream.todo.assignFailed': 'Failed to assign folder',
   'dream.todo.conflict': 'Possible conflict',
   'dream.todo.conflictHint': 'Different memories may disagree about the same fact. Open and verify.',
+  'dream.openInList': 'Open in memory list',
 
   'organize.title': 'Project cleanup',
   'organize.subtitle': 'Review project grouping suggestions created by auto organize.',

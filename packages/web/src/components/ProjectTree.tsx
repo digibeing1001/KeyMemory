@@ -59,6 +59,7 @@ function TreeItem({
   const isExpanded = expandedIds.has(node.project.id);
   const isActive = activeProjectId === node.project.id;
   const hasChildren = node.children.length > 0;
+  const childCount = node.children.length;
 
   return (
     <div>
@@ -77,6 +78,7 @@ function TreeItem({
           fontSize: 13,
           cursor: 'pointer',
           textAlign: 'left',
+          minHeight: 30,
         }}
         onClick={() => onSelectProject(node.project.id)}
       >
@@ -97,6 +99,11 @@ function TreeItem({
         <span className="truncate" style={{ flex: 1, minWidth: 0 }}>
           {node.project.name}
         </span>
+        {childCount > 0 && (
+          <span className="project-tree-count">
+            {childCount}
+          </span>
+        )}
       </button>
       {isExpanded && hasChildren && (
         <div>
@@ -128,10 +135,12 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
     try {
       const data = await listProjects();
       setProjects(data);
-      const roots = data.filter((project) => !project.parentId);
+      const parentIds = new Set(data.map((project) => project.parentId).filter((id): id is string => Boolean(id)));
       setExpandedIds((prev) => {
         const next = new Set(prev);
-        for (const root of roots) next.add(root.id);
+        for (const project of data) {
+          if (parentIds.has(project.id)) next.add(project.id);
+        }
         return next;
       });
     } catch {
@@ -157,7 +166,7 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
   const tree = buildTree(projects);
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div className="project-tree-section" style={{ marginBottom: 16 }}>
       <div
         className="flex items-center justify-between"
         style={{
@@ -179,7 +188,7 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
         <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>{t('common.loading')}</div>
       )}
 
-      <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+      <div className="project-tree-list">
         {tree.map((node) => (
           <TreeItem
             key={node.project.id}

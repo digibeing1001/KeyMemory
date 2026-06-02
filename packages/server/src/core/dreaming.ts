@@ -434,7 +434,8 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
 
   const candidatesProcessed = candidates.length + actions.length;
 
-  // 检测问题记忆
+  // Detect current review items after automatic project routing.
+  const autoRouted = autoRouteProjectOrphans(db);
   const orphans = detectOrphanMemories(db);
   const conflicts = detectConflictMemories(db);
   const todoItems: DreamTodoItem[] = [...orphans, ...conflicts];
@@ -443,6 +444,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
     avgScore: candidates.length > 0 ? candidates.reduce((s, c) => s + c.score, 0) / candidates.length : 0,
     lightBoost: lightSession.signals.merged || 0,
     remBoost: remSession.signals.tagsAdded || 0,
+    autoRoutedProjects: autoRouted,
     orphansFound: orphans.length,
     conflictsFound: conflicts.length,
   };
@@ -808,15 +810,135 @@ function detectOldFlashActions(db: ReturnType<typeof getDatabase>, affectedIds: 
   return actions;
 }
 
-function detectOrphanMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
+const GENERIC_PROJECT_NAMES = new Set([
+  '未分类',
+  'uncategorized',
+  'unclassified',
+  'default',
+  'general',
+  'global',
+  'migrated',
+  'memory',
+  'memories',
+]);
+
+interface DreamProjectRow {
+  id: string;
+  name: string;
+  path: string;
+}
+
+interface DreamOrphanCandidateRow {
+  id: string;
+  title: string;
+  content: string;
+  layer: string;
+  tags: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  projectPath: string | null;
+}
+
+function normalizeMatchText(value: string): string {
+  return value.toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isUsefulProjectAlias(value: string): boolean {
+  const normalized = normalizeMatchText(value);
+  if (!normalized || GENERIC_PROJECT_NAMES.has(normalized)) return false;
+  if (/[\u3400-\u9fff]/u.test(normalized)) return normalized.length >= 2;
+  return normalized.length >= 4;
+}
+
+function projectAliases(project: DreamProjectRow): string[] {
+  const aliases = new Set<string>();
+  for (const raw of [project.name, project.path, ...project.path.split(/[\/\\>]+/)]) {
+    const alias = normalizeMatchText(raw);
+    if (isUsefulProjectAlias(alias)) aliases.add(alias);
+  }
+  return Array.from(aliases).sort((a, b) => b.length - a.length);
+}
+
+function parseMemoryTags(tags: string | null): string[] {
+  if (!tags) return [];
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function hasConcreteProject(row: Pick<DreamOrphanCandidateRow, 'projectId' | 'projectName' | 'projectPath'>): boolean {
+  if (!row.projectId || !row.projectName || !row.projectPath) return false;
+  return isUsefulProjectAlias(row.projectName) || isUsefulProjectAlias(row.projectPath);
+}
+
+function findBestProjectForMemory(row: DreamOrphanCandidateRow, projects: DreamProjectRow[]): DreamProjectRow | null {
+  const tags = parseMemoryTags(row.tags);
+  const text = normalizeMatchText(`${row.title}\n${row.content}\n${tags.join('\n')}`);
+  let best: { project: DreamProjectRow; score: number } | null = null;
+
+  for (const project of projects) {
+    let score = 0;
+    for (const alias of projectAliases(project)) {
+      if (text.includes(alias)) score = Math.max(score, alias.length);
+      if (tags.some((tag) => {
+        const normalizedTag = normalizeMatchText(tag);
+        return isUsefulProjectAlias(normalizedTag) && (normalizedTag.includes(alias) || alias.includes(normalizedTag));
+      })) {
+        score = Math.max(score, alias.length + 8);
+      }
+    }
+    if (score > 0 && (!best || score > best.score)) best = { project, score };
+  }
+
+  return best?.project ?? null;
+}
+
+function autoRouteProjectOrphans(db: ReturnType<typeof getDatabase>): number {
+  const projects = db.prepare(`
+    SELECT id, name, path FROM projects
+    ORDER BY LENGTH(path) DESC
+  `).all() as DreamProjectRow[];
+  const usableProjects = projects.filter(project => projectAliases(project).length > 0);
+  if (usableProjects.length === 0) return 0;
+
   const rows = db.prepare(`
-    SELECT m.id, m.title, m.layer FROM memories m
+    SELECT m.id, m.title, m.content, m.layer, m.tags, m.project_id as projectId,
+           p.name as projectName, p.path as projectPath
+    FROM memories m
+    LEFT JOIN projects p ON p.id = m.project_id
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
-    LIMIT 20
-  `).all() as { id: string; title: string; layer: string }[];
+    ORDER BY m.updated_at DESC
+    LIMIT 100
+  `).all() as DreamOrphanCandidateRow[];
 
-  return rows.map(r => ({
+  let routed = 0;
+  for (const row of rows) {
+    if (hasConcreteProject(row)) continue;
+    const match = findBestProjectForMemory(row, usableProjects);
+    if (!match) continue;
+    if (updateMemory(row.id, { projectId: match.id }, `dream:auto-route:${match.path}`)) routed++;
+  }
+
+  return routed;
+}
+
+function detectOrphanMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
+  const rows = db.prepare(`
+    SELECT m.id, m.title, m.content, m.layer, m.tags, m.project_id as projectId,
+           p.name as projectName, p.path as projectPath
+    FROM memories m
+    LEFT JOIN projects p ON p.id = m.project_id
+    WHERE m.status = 'active'
+      AND m.id NOT IN (SELECT memory_id FROM memory_entities)
+    ORDER BY m.updated_at DESC
+    LIMIT 100
+  `).all() as DreamOrphanCandidateRow[];
+
+  return rows.filter(row => !hasConcreteProject(row)).slice(0, 20).map(r => ({
     type: 'orphan' as const,
     memoryId: r.id,
     title: r.title,
@@ -875,6 +997,36 @@ function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoIt
   }
 
   return items.slice(0, 20);
+}
+
+function isTodoItemStillActionable(db: ReturnType<typeof getDatabase>, item: DreamTodoItem): boolean {
+  const row = db.prepare(`
+    SELECT m.id, m.title, m.content, m.layer, m.tags, m.project_id as projectId,
+           p.name as projectName, p.path as projectPath,
+           EXISTS(SELECT 1 FROM memory_entities me WHERE me.memory_id = m.id) as hasEntity
+    FROM memories m
+    LEFT JOIN projects p ON p.id = m.project_id
+    WHERE m.id = ? AND m.status = 'active'
+  `).get(item.memoryId) as (DreamOrphanCandidateRow & { hasEntity: number }) | undefined;
+  if (!row) return false;
+  if (item.type === 'orphan') {
+    if (row.hasEntity === 1 || hasConcreteProject(row)) return false;
+    const projects = db.prepare(`
+      SELECT id, name, path FROM projects
+      ORDER BY LENGTH(path) DESC
+    `).all() as DreamProjectRow[];
+    const match = findBestProjectForMemory(row, projects.filter(project => projectAliases(project).length > 0));
+    if (match && updateMemory(row.id, { projectId: match.id }, `dream:auto-route-on-review:${match.path}`)) {
+      return false;
+    }
+    return true;
+  }
+  return true;
+}
+
+function currentTodoItems(db: ReturnType<typeof getDatabase>, raw: unknown): DreamTodoItem[] {
+  const items = raw ? JSON.parse(raw as string) as DreamTodoItem[] : [];
+  return items.filter(item => isTodoItemStillActionable(db, item));
 }
 
 function buildExcludeClause(ids: Set<string>): { clause: string; params: string[] } {
@@ -1153,7 +1305,7 @@ export function getDreamReport(reportId: string): DreamReport | null {
     status: row.status as DreamReport['status'],
     createdAt: row.created_at as string,
     completedAt: row.completed_at as string | undefined,
-    todoItems: row.todo_items ? JSON.parse(row.todo_items as string) as DreamTodoItem[] : [],
+    todoItems: currentTodoItems(db, row.todo_items),
     details: row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined,
   };
 }
@@ -1172,7 +1324,7 @@ export function listDreamReports(limit = 20): DreamReport[] {
     archived: row.archived as number,
     merged: row.merged as number,
     status: row.status as DreamReport['status'],
-    todoItems: row.todo_items ? JSON.parse(row.todo_items as string) as DreamTodoItem[] : [],
+    todoItems: currentTodoItems(db, row.todo_items),
     createdAt: row.created_at as string,
     completedAt: row.completed_at as string | undefined,
     details: row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined,
