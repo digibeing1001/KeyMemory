@@ -63,7 +63,10 @@ function genericSnippet(root?: string): AgentConfigSnippet {
     launcherPath: launcherPath(root),
     configPathHints: [],
     snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
-    notes: ['Use the launcher path, not packages/server/dist/mcp-server.js, so logs stay off stdout.'],
+    notes: [
+      'Use the launcher path, not packages/server/dist/mcp-server.js, so logs stay off stdout.',
+      'Prefer keymemory_* tools for durable memory; memory_* names remain compatibility aliases.',
+    ],
   };
 }
 
@@ -78,7 +81,10 @@ function claudeDesktopSnippet(root?: string): AgentConfigSnippet {
       homePath('.config', 'Claude', 'claude_desktop_config.json'),
     ],
     snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
-    notes: ['Restart Claude Desktop after updating the config file.'],
+    notes: [
+      'Restart Claude Desktop after updating the config file.',
+      'Tell the agent to prefer keymemory_create, keymemory_search, and keymemory_context_pack over local Memory files.',
+    ],
   };
 }
 
@@ -96,6 +102,7 @@ function claudeCodeSnippet(root?: string): AgentConfigSnippet {
     notes: [
       'Use this for Claude Code setups that accept project-local MCP JSON.',
       'Keep existing servers in the file and merge the keymemory entry.',
+      'Prefer keymemory_* tools for durable memory; memory_* names remain compatibility aliases.',
     ],
   };
 }
@@ -108,7 +115,7 @@ function hermesSnippet(root?: string): AgentConfigSnippet {
     launcherPath: launcherPath(root),
     configPathHints: [appDataPath('Claude', 'claude_desktop_config.json')],
     snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
-    notes: ['Hermes should call memory_context_pack before long-running work and memory_auto_remember after important exchanges.'],
+    notes: ['Hermes should call keymemory_context_pack before long-running work and keymemory_auto_remember after important exchanges.'],
   };
 }
 
@@ -124,9 +131,12 @@ function openClawSnippet(root?: string): AgentConfigSnippet {
     ],
     snippet: jsonSnippet({
       mcpServers: { keymemory: mcpServerConfig(root) },
-      memory: { provider: 'keymemory', primary: true },
+      memory: { provider: 'keymemory', primary: true, defaultTool: 'keymemory' },
     }),
-    notes: ['Merge this into the existing OpenClaw config instead of replacing unrelated settings.'],
+    notes: [
+      'Merge this into the existing OpenClaw config instead of replacing unrelated settings.',
+      'OpenClaw should prefer keymemory_* tools and avoid local flat-file memory when KeyMemory MCP tools are available.',
+    ],
   };
 }
 
@@ -143,7 +153,10 @@ function codexSnippet(root?: string): AgentConfigSnippet {
       'command = "node"',
       `args = [${tomlString(launcher)}]`,
     ].join('\n'),
-    notes: ['Append this TOML block to the Codex config and restart Codex.'],
+    notes: [
+      'Append this TOML block to the Codex config and restart Codex.',
+      'Prefer keymemory_* tools for durable memory; memory_* names remain compatibility aliases.',
+    ],
   };
 }
 

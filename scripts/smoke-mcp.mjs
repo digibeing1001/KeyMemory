@@ -96,7 +96,7 @@ try {
   await call('initialize');
   const listed = await call('tools/list');
   const toolNames = listed.tools.map(tool => tool.name);
-  for (const required of ['memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
+  for (const required of ['keymemory', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'keymemory_auto_remember', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
     if (!toolNames.includes(required)) throw new Error(`missing MCP tool: ${required}`);
   }
 
@@ -128,7 +128,7 @@ try {
   }
 
   const searched = await call('tools/call', {
-    name: 'memory_search',
+    name: 'keymemory_search',
     arguments: { query: 'production release checks', limit: 3 },
   });
   const searchText = toolText(searched);
@@ -137,7 +137,7 @@ try {
   }
 
   const packed = await call('tools/call', {
-    name: 'memory_context_pack',
+    name: 'keymemory_context_pack',
     arguments: { query: 'production release checks', project: 'MCP/Smoke', maxItems: 4 },
   });
   const packText = toolText(packed);
@@ -146,7 +146,7 @@ try {
   }
 
   const sourceId = createdMemoryId(await call('tools/call', {
-    name: 'memory_create',
+    name: 'keymemory_create',
     arguments: {
       title: 'MCP relation source',
       content: '[[MCP/Smoke/Relations]] New release guidance supersedes old release guidance.',
@@ -154,7 +154,7 @@ try {
     },
   }));
   const targetId = createdMemoryId(await call('tools/call', {
-    name: 'memory_create',
+    name: 'keymemory',
     arguments: {
       title: 'MCP relation target',
       content: '[[MCP/Smoke/Relations]] Old release guidance should be superseded.',

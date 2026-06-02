@@ -154,7 +154,7 @@ function callMcpLauncher() {
         }
         const listed = await call('tools/list');
         const toolNames = listed.tools.map(tool => tool.name);
-        for (const required of ['memory_create', 'memory_search', 'memory_context_pack', 'memory_migration_import']) {
+        for (const required of ['keymemory', 'keymemory_search', 'keymemory_context_pack', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_migration_import']) {
           if (!toolNames.includes(required)) throw new Error(`missing MCP launcher tool: ${required}`);
         }
         if (nonJsonStdout.length > 0) {

@@ -25,7 +25,7 @@ The generator prints config snippets without writing files. This keeps setup saf
 - `claude-desktop`: JSON snippet for Claude Desktop `mcpServers`.
 - `claude-code`: project MCP JSON snippet for Claude Code-style setups.
 - `hermes`: Claude Desktop-compatible MCP config plus Hermes usage notes.
-- `openclaw`: JSON snippet with `mcpServers.keymemory` and `memory.provider = keymemory`.
+- `openclaw`: JSON snippet with `mcpServers.keymemory`, `memory.provider = keymemory`, and `memory.defaultTool = keymemory`.
 - `codex`: TOML snippet for Codex `~/.codex/config.toml`.
 
 ## Why Launcher
@@ -42,6 +42,17 @@ The launcher checks build output, writes logs to `~/.keymemory/logs/mcp.log`, an
 4. Merge the printed snippet into the host agent config.
 5. Restart the host agent.
 6. Run `keymemory doctor`.
-7. Ask the agent to call `memory_context_pack` before project work and `memory_auto_remember` after important exchanges.
+7. Ask the agent to call `keymemory_context_pack` before project work and `keymemory_auto_remember` after important exchanges.
+
+## Tool Naming
+
+KeyMemory now exposes `keymemory_*` tool names so agents can distinguish the configured KeyMemory default tool from their own local Memory files:
+
+- `keymemory_create`: save durable memory in KeyMemory.
+- `keymemory_search`: recall durable memory from KeyMemory.
+- `keymemory_context_pack`: build a compact project/task context pack.
+- `keymemory_auto_remember`: evaluate an exchange and save it when useful.
+
+The older `memory_*` tool names still work as compatibility aliases, but host agents should prefer `keymemory_*` when both are available.
 
 For large old-memory imports, run `keymemory migrate <path> --dry-run` before writing data.

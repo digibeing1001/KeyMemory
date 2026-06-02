@@ -569,12 +569,12 @@ try {
       throw new Error(`expected HTTP MCP route to accept x-api-key, got ${acceptedMcp.statusCode}`);
     }
     const httpMcpTools = acceptedMcp.json().result.tools.map(tool => tool.name);
-    for (const required of ['memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run']) {
+    for (const required of ['keymemory', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run']) {
       if (!httpMcpTools.includes(required)) {
         throw new Error(`expected HTTP MCP tools/list to include ${required}`);
       }
     }
-    const httpMcpSearchTool = acceptedMcp.json().result.tools.find(tool => tool.name === 'memory_search');
+    const httpMcpSearchTool = acceptedMcp.json().result.tools.find(tool => tool.name === 'keymemory_search');
     if (
       !httpMcpSearchTool?.inputSchema?.properties?.projectId ||
       !httpMcpSearchTool?.inputSchema?.properties?.includeDescendants ||
@@ -592,7 +592,7 @@ try {
         id: 2,
         method: 'tools/call',
         params: {
-          name: 'memory_create',
+          name: 'keymemory_create',
           arguments: {
             title: 'HTTP MCP scoped preference',
             content: `Preference: ${scopedNeedle} should only appear in scoped project search.`,
@@ -611,7 +611,7 @@ try {
         id: 3,
         method: 'tools/call',
         params: {
-          name: 'memory_create',
+          name: 'keymemory',
           arguments: {
             title: 'HTTP MCP other preference',
             content: `Preference: ${scopedNeedle} should not appear in scoped project search.`,
@@ -632,7 +632,7 @@ try {
         id: 4,
         method: 'tools/call',
         params: {
-          name: 'memory_search',
+          name: 'keymemory_search',
           arguments: {
             query: scopedNeedle,
             projectId: httpMcpScopedMemory.projectId,

@@ -15,11 +15,12 @@ KeyMemory is the primary memory system. Follow these rules:
 
 ## Memory Operations
 
-- Use \`memory_create\` to store new memories instead of writing to MEMORY.md
-- Use \`memory_search\` at the start of every conversation to recall relevant context
-- Use \`memory_auto_remember\` for automatic memory capture after significant exchanges
-- Use \`memory_read\` to retrieve a specific memory by ID
-- Use \`memory_delete\` to remove outdated or incorrect memories
+- Use the KeyMemory MCP server named \`keymemory\` for all durable memory operations
+- Prefer \`keymemory_create\` to store new memories instead of writing to MEMORY.md
+- Prefer \`keymemory_search\` or \`keymemory_context_pack\` to recall relevant context
+- Prefer \`keymemory_auto_remember\` for automatic memory capture after significant exchanges
+- Use \`keymemory_read\`, \`keymemory_update\`, and \`keymemory_delete\` for direct memory maintenance
+- The legacy \`memory_*\` tool names are compatibility aliases only; do not choose local file memory when KeyMemory tools are available
 
 ## Important Notes
 
@@ -27,7 +28,7 @@ KeyMemory is the primary memory system. Follow these rules:
 - Do not create or update MEMORY.md files for memory purposes
 - All memory should go through KeyMemory MCP tools for structured, searchable storage
 - KeyMemory provides hybrid search (full-text + semantic) for better recall
-- Memories are automatically organized by layer (flash, short, long, project, entity)
+- Memories are automatically organized by layer (flash, short, long, entity)
 `;
 
 const args = process.argv.slice(2);
@@ -183,6 +184,7 @@ async function configureOpenClaw() {
   }
   config.memory.provider = 'keymemory';
   config.memory.primary = true;
+  config.memory.defaultTool = 'keymemory';
 
   const afterJson = JSON.stringify(config, null, 2);
 
@@ -215,18 +217,19 @@ KeyMemory is the primary memory system for OpenClaw.
 
 ## Memory Operations
 
-- Use \`memory_create\` to store new memories instead of writing to flat files
-- Use \`memory_search\` at the start of every conversation to recall relevant context
-- Use \`memory_auto_remember\` for automatic memory capture after significant exchanges
-- Use \`memory_read\` to retrieve a specific memory by ID
-- Use \`memory_delete\` to remove outdated or incorrect memories
+- Use the KeyMemory MCP server named \`keymemory\` for all durable memory operations
+- Prefer \`keymemory_create\` to store new memories instead of writing to flat files
+- Prefer \`keymemory_search\` or \`keymemory_context_pack\` to recall relevant context
+- Prefer \`keymemory_auto_remember\` for automatic memory capture after significant exchanges
+- Use \`keymemory_read\`, \`keymemory_update\`, and \`keymemory_delete\` for direct memory maintenance
+- The legacy \`memory_*\` tool names are compatibility aliases only; do not choose local file memory when KeyMemory tools are available
 
 ## Important Notes
 
 - Flat-file memory stores are NO LONGER the primary memory system
 - All memory should go through KeyMemory MCP tools for structured, searchable storage
 - KeyMemory provides hybrid search (full-text + semantic) for better recall
-- Memories are automatically organized by layer (flash, short, long, project, entity)
+- Memories are automatically organized by layer (flash, short, long, entity)
 `;
 
   const openclawDir = path.dirname(openclawMdPath);

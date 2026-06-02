@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createMemory, getMemory, listMemories, updateMemory, deleteMemory } from '../core/atom.js';
 import { getLayerStats } from '../core/layer.js';
-import { searchHybrid } from '../core/query.js';
-import { autoRemember } from '../core/auto.js';
+import { ensureEmbedding, searchHybrid } from '../core/query.js';
+import { autoRemember, extractTags } from '../core/auto.js';
 import { discoverMigrationSources, migrateMemoriesFromPath } from '../core/migration.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from '../core/backup.js';
 import { buildAgentContextPack } from '../core/context-pack.js';
@@ -10,8 +10,8 @@ import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestio
 import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from '../graph/entity.js';
 import { createHermesAdapter } from '../adapters/hermes.js';
 import { openClawAdapter } from '../adapters/openclaw.js';
-import { MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from '../adapters/openclaw.js';
-import type { CreateMemoryInput, Layer, IsolationMode, MemoryKind } from '@keymemory/shared';
+import { canonicalToolName, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from '../core/mcp-tools.js';
+import type { CreateMemoryInput, Layer, IsolationMode, MemoryKind, MemoryStatus } from '@keymemory/shared';
 import type { MemoryAdapter } from '../adapters/base.js';
 
 interface MCPTool {
@@ -215,7 +215,9 @@ function getAdapter(request: FastifyRequest): MemoryAdapter {
 }
 
 async function handleToolCall(name: string, args: Record<string, unknown>, adapter: MemoryAdapter): Promise<unknown> {
-  switch (name) {
+  const toolName = canonicalToolName(name);
+
+  switch (toolName) {
     case 'memory_create':
       return adapter.write(args as unknown as CreateMemoryInput);
     case 'memory_search': {
@@ -232,6 +234,23 @@ async function handleToolCall(name: string, args: Record<string, unknown>, adapt
     }
     case 'memory_read':
       return adapter.read(args.id as string);
+    case 'memory_list':
+      return listMemories({
+        layer: args.layer as Layer | undefined,
+        projectId: typeof args.projectId === 'string' ? args.projectId : undefined,
+        status: typeof args.status === 'string' ? args.status as MemoryStatus : undefined,
+        limit: (args.limit as number) ?? 20,
+      });
+    case 'memory_update': {
+      if (!args.id) return { error: 'id is required' };
+      const { id, change_reason, ...updateData } = args;
+      const mem = updateMemory(String(id), updateData, typeof change_reason === 'string' ? change_reason : undefined);
+      if (!mem) return { error: `Memory not found: ${id}` };
+      if (updateData.title !== undefined || updateData.content !== undefined) {
+        ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined, true).catch(() => {});
+      }
+      return mem;
+    }
     case 'memory_delete':
       return adapter.delete(args.id as string);
     case 'memory_context_pack':
@@ -287,6 +306,68 @@ async function handleToolCall(name: string, args: Record<string, unknown>, adapt
       } catch (err) {
         return { error: (err as Error).message };
       }
+    case 'memory_import': {
+      const items = args.memories;
+      if (!Array.isArray(items)) return { error: 'memories must be an array' };
+      const autoLayer = args.autoLayer !== false;
+      const stripPrefixes = args.stripPrefixes !== false;
+      const stripPrefix = (value: unknown): string => {
+        const text = typeof value === 'string' ? value : '';
+        if (!stripPrefixes) return text;
+        return text
+          .replace(/^\[[\w\u4e00-\u9fff]+\]\s*/, '')
+          .replace(/^[\w\u4e00-\u9fff]+[:：-]\s*/, match => (/^(http|https|ftp|www)/i.test(match) ? match : ''))
+          .replace(/^migration[:：\s]*\S*\s*/i, '')
+          .trimStart();
+      };
+      const inferLayer = (title: string, content: string, metadata?: Record<string, unknown>): Layer => {
+        const text = `${title} ${content}`.toLowerCase();
+        const importance = metadata?.importance as string | undefined;
+        if (importance === 'high') return 'long';
+        if (importance === 'low') return 'short';
+        if (metadata?.category === 'preference' || metadata?.category === 'decision') return 'long';
+        if (metadata?.category === 'person' || metadata?.category === 'entity') return 'entity';
+        if (/preference|rule|principle|decision|project|architecture|repo|framework/.test(text)) return 'long';
+        if (/todo|today|tomorrow|temporary|pending/.test(text)) return 'short';
+        if (content.length > 200) return 'long';
+        return 'short';
+      };
+      const validLayers: Layer[] = ['flash', 'short', 'long', 'entity'];
+      let imported = 0;
+      const skipped: string[] = [];
+
+      for (const raw of items as Record<string, unknown>[]) {
+        const title = stripPrefix(raw.title);
+        const content = stripPrefix(raw.content);
+        if (!title.trim() || !content.trim()) {
+          skipped.push(title || '(empty)');
+          continue;
+        }
+
+        const metadata = raw.metadata && typeof raw.metadata === 'object'
+          ? raw.metadata as Record<string, unknown>
+          : undefined;
+        const layer = typeof raw.layer === 'string' && validLayers.includes(raw.layer as Layer)
+          ? raw.layer as Layer
+          : autoLayer ? inferLayer(title, content, metadata) : 'short';
+        const tags = Array.isArray(raw.tags) ? raw.tags as string[] : extractTags(content);
+        const mem = createMemory({
+          title,
+          content,
+          layer,
+          projectId: typeof raw.projectId === 'string' ? raw.projectId : undefined,
+          projectPath: typeof raw.projectPath === 'string' ? raw.projectPath : undefined,
+          tags,
+          metadata,
+          source: typeof raw.source === 'string' ? raw.source : undefined,
+          sourceId: typeof raw.sourceId === 'string' ? raw.sourceId : undefined,
+        });
+        ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
+        imported++;
+      }
+
+      return { imported, skipped };
+    }
     case 'memory_migration_discover': {
       const roots = typeof args.root === 'string'
         ? args.root.split(/[;,]/g).map(root => root.trim()).filter(Boolean)
@@ -364,13 +445,13 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       return {
         jsonrpc: '2.0',
         id: mcpRequest.id,
-        result: { tools: TOOLS },
+        result: { tools: MCP_TOOLS },
       };
     }
 
     if (mcpRequest.method === 'tools/call') {
       const params = mcpRequest.params ?? {};
-      const toolName = params.name as string;
+      const toolName = canonicalToolName(params.name);
       const toolArgs = (params.arguments ?? {}) as Record<string, unknown>;
       const adapter = getAdapter(request);
       const result = await handleToolCall(toolName, toolArgs, adapter);

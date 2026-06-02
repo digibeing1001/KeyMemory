@@ -10,6 +10,6 @@
   "mcp": {
     "enabled": true,
     "serverName": "keymemory-hermes",
-    "tools": ["memory_create", "memory_search", "memory_read", "memory_list", "memory_delete"]
+    "tools": ["keymemory_create", "keymemory_search", "keymemory_context_pack", "keymemory_read", "keymemory_list", "keymemory_delete"]
   }
 }

@@ -16,6 +16,7 @@ import { buildAgentContextPack } from './core/context-pack.js';
 import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from './graph/entity.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from './core/backup.js';
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './core/project.js';
+import { canonicalToolName, MCP_TOOLS } from './core/mcp-tools.js';
 
 function formatLogArg(arg: unknown): string {
   if (arg instanceof Error) return arg.stack || arg.message;
@@ -124,6 +125,8 @@ async function handleRequest(request: any) {
       };
 
     case 'tools/list':
+      return { tools: MCP_TOOLS };
+
       return {
         tools: [
           {
@@ -395,7 +398,7 @@ async function handleRequest(request: any) {
       };
 
     case 'tools/call': {
-      const toolName = params?.name;
+      const toolName = canonicalToolName(params?.name);
       const args = params?.arguments || {};
 
       switch (toolName) {
