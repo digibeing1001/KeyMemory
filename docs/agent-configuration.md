@@ -23,10 +23,21 @@ The generator prints config snippets without writing files. This keeps setup saf
 
 - `generic`: JSON snippet for any MCP-compatible agent.
 - `claude-desktop`: JSON snippet for Claude Desktop `mcpServers`.
-- `claude-code`: project MCP JSON snippet for Claude Code-style setups.
-- `hermes`: Claude Desktop-compatible MCP config plus Hermes usage notes.
-- `openclaw`: JSON snippet with `mcpServers.keymemory`, `memory.provider = keymemory`, and `memory.defaultTool = keymemory`.
+- `claude-code`: project MCP JSON snippet plus `permissions.allow = ["mcp__keymemory__*"]`.
+- `hermes`: Hermes `mcp_servers.keymemory` config plus native-memory usage notes.
+- `openclaw`: JSON snippet with `mcpServers.keymemory`, `memory.provider = keymemory`, `permissions.allow`, and `allowedTools`.
 - `codex`: TOML snippet for Codex `~/.codex/config.toml`.
+
+## Native Memory Permissions
+
+KeyMemory is a native durable memory backend. Read and write tools should be treated like memory access, not like arbitrary external tool use.
+
+- Claude Code: keep `"mcp__keymemory__*"` in `permissions.allow`.
+- Codex: keep `default_tools_approval_mode = "approve"` inside `[mcp_servers.keymemory]`.
+- OpenClaw: keep `memory.provider = "keymemory"` and allow `"mcp__keymemory__*"` through `permissions.allow` or `allowedTools`.
+- Hermes: keep the `mcp_servers.keymemory` entry enabled and include the `keymemory_*` tools; when the host supports MCP permissions, allow `"mcp__keymemory__*"`.
+
+The MCP tools also advertise annotations: read-only memory tools are marked read-only, ordinary memory writes are local and non-open-world, and destructive deletes are marked separately.
 
 ## Why Launcher
 
@@ -43,6 +54,8 @@ The launcher checks build output, writes logs to `~/.keymemory/logs/mcp.log`, an
 5. Restart the host agent.
 6. Run `keymemory doctor`.
 7. Ask the agent to call `keymemory_context_pack` before project work and `keymemory_auto_remember` after important exchanges.
+
+For host configs that support tool permissions, keep the KeyMemory allow pattern in place. KeyMemory only writes to the local durable memory store, so native memory reads and writes should not ask for approval in every new agent window.
 
 ## Tool Naming
 

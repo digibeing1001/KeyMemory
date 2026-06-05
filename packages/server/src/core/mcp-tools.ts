@@ -4,6 +4,15 @@ export interface MCPTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: MCPToolAnnotations;
+}
+
+export interface MCPToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
 }
 
 const LAYERS = ['flash', 'short', 'long', 'entity'];
@@ -89,6 +98,15 @@ const memoryImportSchema = {
     stripPrefixes: { type: 'boolean', description: 'Strip common source prefixes from titles and content. Default true.' },
   },
   required: ['memories'],
+};
+
+const toolSecretNameSchema = {
+  type: 'object',
+  properties: {
+    tool: { type: 'string', description: 'Tool or agent name, such as hermes, openclaw, anthropic, openai, github, or codex.' },
+    name: { type: 'string', description: 'Secret name. Defaults to api_key.' },
+  },
+  required: ['tool'],
 };
 
 const BASE_MCP_TOOLS: MCPTool[] = [
@@ -298,6 +316,40 @@ const BASE_MCP_TOOLS: MCPTool[] = [
       required: ['id'],
     },
   },
+  {
+    name: 'memory_secret_set',
+    description: 'Store a tool credential or API key in KeyMemory secret storage. Use this for API keys instead of memory_create; secrets are encrypted and not indexed, embedded, searched, dreamed, or exported by normal memory backup.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tool: { type: 'string', description: 'Tool or agent name, such as hermes, openclaw, anthropic, openai, github, or codex.' },
+        name: { type: 'string', description: 'Secret name. Defaults to api_key.' },
+        value: { type: 'string', description: 'Secret value to encrypt and store.' },
+        metadata: { type: 'object', description: 'Optional non-secret metadata, such as provider, scope, or note.' },
+      },
+      required: ['tool', 'value'],
+    },
+  },
+  {
+    name: 'memory_secret_get',
+    description: 'Read and decrypt one KeyMemory tool credential. Use only when a configured tool needs the secret value.',
+    inputSchema: toolSecretNameSchema,
+  },
+  {
+    name: 'memory_secret_list',
+    description: 'List stored tool credentials without returning secret values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tool: { type: 'string', description: 'Optional tool or agent name filter.' },
+      },
+    },
+  },
+  {
+    name: 'memory_secret_delete',
+    description: 'Delete one stored tool credential.',
+    inputSchema: toolSecretNameSchema,
+  },
 ];
 
 function toolByName(name: string): MCPTool {
@@ -325,6 +377,10 @@ export const KEYMEMORY_ALIAS_TOOLS: MCPTool[] = [
   aliasTool('keymemory_update', 'memory_update', 'KeyMemory: update an existing durable memory.'),
   aliasTool('keymemory_delete', 'memory_delete', 'KeyMemory: delete or archive a durable memory.'),
   aliasTool('keymemory_auto_remember', 'memory_auto_remember', 'KeyMemory: auto-evaluate content and save it when it has durable value.'),
+  aliasTool('keymemory_secret_set', 'memory_secret_set', 'KeyMemory secrets: encrypt and store a tool API key or credential outside regular memory.'),
+  aliasTool('keymemory_secret_get', 'memory_secret_get', 'KeyMemory secrets: decrypt and read a stored tool API key or credential.'),
+  aliasTool('keymemory_secret_list', 'memory_secret_list', 'KeyMemory secrets: list stored tool credentials without values.'),
+  aliasTool('keymemory_secret_delete', 'memory_secret_delete', 'KeyMemory secrets: delete a stored tool credential.'),
 ];
 
 export const MCP_TOOL_ALIASES: Record<string, string> = {
@@ -349,6 +405,10 @@ export const MCP_TOOL_ALIASES: Record<string, string> = {
   forget_memory: 'memory_delete',
   keymemory_auto: 'memory_auto_remember',
   keymemory_auto_remember: 'memory_auto_remember',
+  keymemory_secret_set: 'memory_secret_set',
+  keymemory_secret_get: 'memory_secret_get',
+  keymemory_secret_list: 'memory_secret_list',
+  keymemory_secret_delete: 'memory_secret_delete',
 };
 
 export function canonicalToolName(name: unknown): string {
@@ -356,10 +416,54 @@ export function canonicalToolName(name: unknown): string {
   return MCP_TOOL_ALIASES[name] ?? name;
 }
 
+const READ_ONLY_TOOL_NAMES = new Set([
+  'memory_search',
+  'memory_context_pack',
+  'memory_read',
+  'memory_list',
+  'memory_related',
+  'memory_migration_discover',
+  'memory_backup_inspect',
+  'memory_backup_restore_dry_run',
+  'memory_project_suggestions',
+  'memory_secret_get',
+  'memory_secret_list',
+]);
+
+const DESTRUCTIVE_TOOL_NAMES = new Set([
+  'memory_delete',
+  'memory_secret_delete',
+]);
+
+function toolTitle(name: string): string {
+  return name
+    .split('_')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function annotateTool(tool: MCPTool): MCPTool {
+  const canonicalName = canonicalToolName(tool.name);
+  const readOnly = READ_ONLY_TOOL_NAMES.has(canonicalName);
+  const destructive = DESTRUCTIVE_TOOL_NAMES.has(canonicalName);
+
+  return {
+    ...tool,
+    annotations: {
+      title: tool.annotations?.title ?? toolTitle(tool.name),
+      readOnlyHint: readOnly,
+      destructiveHint: destructive,
+      idempotentHint: readOnly,
+      openWorldHint: false,
+      ...tool.annotations,
+    },
+  };
+}
+
 export const MCP_TOOLS: MCPTool[] = [
   ...KEYMEMORY_ALIAS_TOOLS,
   ...BASE_MCP_TOOLS,
-];
+].map(annotateTool);
 
 export const MCP_RESOURCES = [
   {

@@ -96,8 +96,47 @@ try {
   await call('initialize');
   const listed = await call('tools/list');
   const toolNames = listed.tools.map(tool => tool.name);
-  for (const required of ['keymemory', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'keymemory_auto_remember', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
+  for (const required of ['keymemory', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'keymemory_auto_remember', 'keymemory_secret_set', 'keymemory_secret_get', 'keymemory_secret_list', 'keymemory_secret_delete', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
     if (!toolNames.includes(required)) throw new Error(`missing MCP tool: ${required}`);
+  }
+  const searchTool = listed.tools.find(tool => tool.name === 'keymemory_search');
+  if (!searchTool?.annotations?.readOnlyHint || searchTool.annotations.openWorldHint !== false) {
+    throw new Error(`expected keymemory_search to be annotated as local read-only memory, got ${JSON.stringify(searchTool?.annotations)}`);
+  }
+  const createTool = listed.tools.find(tool => tool.name === 'keymemory_create');
+  if (createTool?.annotations?.readOnlyHint !== false || createTool?.annotations?.destructiveHint !== false || createTool?.annotations?.openWorldHint !== false) {
+    throw new Error(`expected keymemory_create to be annotated as local non-destructive write, got ${JSON.stringify(createTool?.annotations)}`);
+  }
+  const deleteTool = listed.tools.find(tool => tool.name === 'memory_delete');
+  if (deleteTool?.annotations?.destructiveHint !== true) {
+    throw new Error(`expected memory_delete to be annotated as destructive, got ${JSON.stringify(deleteTool?.annotations)}`);
+  }
+  const secretGetTool = listed.tools.find(tool => tool.name === 'keymemory_secret_get');
+  if (!secretGetTool?.annotations?.readOnlyHint || secretGetTool.annotations.openWorldHint !== false) {
+    throw new Error(`expected keymemory_secret_get to be annotated as local read-only credential access, got ${JSON.stringify(secretGetTool?.annotations)}`);
+  }
+
+  const secretValue = 'hmcp_test_secret_1234567890';
+  const secretSet = JSON.parse(toolText(await call('tools/call', {
+    name: 'keymemory_secret_set',
+    arguments: { tool: 'hermes', name: 'api_key', value: secretValue, metadata: { provider: 'smoke' } },
+  })));
+  if (secretSet.value || secretSet.tool !== 'hermes' || secretSet.name !== 'api_key') {
+    throw new Error(`expected secret set to return metadata without value, got ${JSON.stringify(secretSet)}`);
+  }
+  const secretListed = JSON.parse(toolText(await call('tools/call', {
+    name: 'keymemory_secret_list',
+    arguments: { tool: 'hermes' },
+  })));
+  if (!Array.isArray(secretListed) || secretListed.length !== 1 || JSON.stringify(secretListed).includes(secretValue)) {
+    throw new Error(`expected secret list to omit values, got ${JSON.stringify(secretListed)}`);
+  }
+  const secretGot = JSON.parse(toolText(await call('tools/call', {
+    name: 'keymemory_secret_get',
+    arguments: { tool: 'hermes', name: 'api_key' },
+  })));
+  if (secretGot.value !== secretValue) {
+    throw new Error('expected secret get to round-trip encrypted credential value');
   }
 
   const discovered = await call('tools/call', {
@@ -197,6 +236,9 @@ try {
   if (!backup.valid || backup.counts?.memories < 1 || !fs.existsSync(backupFile)) {
     throw new Error(`expected MCP backup create to write a valid backup, got ${JSON.stringify(backup)}`);
   }
+  if (backup.includedTables.includes('tool_secrets') || JSON.stringify(backup).includes(secretValue)) {
+    throw new Error('expected normal backup to omit tool secrets and decrypted values');
+  }
   const inspectedBackup = JSON.parse(toolText(await call('tools/call', {
     name: 'memory_backup_inspect',
     arguments: { filePath: backupFile },
@@ -230,6 +272,7 @@ try {
     backupTables: backup.includedTables.length,
     backupDryRun: Boolean(restoreDryRun.wouldRestore),
     projectSuggestionsListed: Array.isArray(projectSuggestions),
+    secretRoundTrip: true,
     searchSuppressed: true,
   }, null, 2));
 } finally {

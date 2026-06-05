@@ -40,6 +40,7 @@ function auditReleaseArtifacts() {
   assertFile('scripts/smoke-keymemory.mjs', /项目路径:[\s\S]*Natural Routing/, 'natural-language project routing smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /contextPack/, 'agent context pack smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /sensitivity:redacted/, 'privacy redaction smoke coverage');
+  assertFile('scripts/smoke-keymemory.mjs', /secret-set[\s\S]*secret-get[\s\S]*tool_secrets/, 'tool credential secret storage smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /backup-create[\s\S]*backup-restore[\s\S]*--dry-run[\s\S]*--replace/, 'backup, dry-run restore, and replace restore smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /relate[\s\S]*supersedes[\s\S]*dreamRelationMerged[\s\S]*backupMemoryRelations/, 'memory relation and dream supersedes smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /relationContext[\s\S]*Relations:[\s\S]*older guidance should be marked superseded/, 'relation-aware context pack smoke coverage');
@@ -57,12 +58,12 @@ function auditReleaseArtifacts() {
   assertFile('scripts/smoke-keymemory.mjs', /bin\/keymemory\.js[\s\S]*context/, 'top-level keymemory CLI passthrough smoke coverage');
   assertFile('scripts/smoke-launchers.mjs', /keymemory\.cmd[\s\S]*path\.join\(root, 'bin', 'keymemory'\)[\s\S]*keymemory-mcp\.js[\s\S]*MCP launcher polluted stdout[\s\S]*mcpLauncherLoggedToStderr/, 'cross-platform launcher smoke coverage');
   assertFile('bin/install.js', /POSIX_LAUNCHERS[\s\S]*keymemory-mcp[\s\S]*keymemory-ui-wsl[\s\S]*chmodSync/, 'POSIX launcher executable setup');
-  assertFile('scripts/smoke-keymemory.mjs', /agent-config[\s\S]*codex[\s\S]*openclaw[\s\S]*agentConfigTargets/, 'agent config generator smoke coverage');
+  assertFile('scripts/smoke-keymemory.mjs', /agent-config[\s\S]*claude-code[\s\S]*mcp__keymemory__\*[\s\S]*openClawAgentConfig[\s\S]*agentConfigTargets/, 'agent config generator smoke coverage');
   assertFile('packages/server/src/cli.ts', /command\('onboard'\)[\s\S]*--yes[\s\S]*createBackupFile[\s\S]*buildAgentConfigSnippets/, 'onboarding command safety and agent config flow');
   assertFile('bin/keymemory-doctor.js', /migration dry-run[\s\S]*memory relation[\s\S]*dream scheduler[\s\S]*agent config generator/, 'doctor production capability smoke coverage');
   assertFile('scripts/eval-memory.mjs', /relation-aware context[\s\S]*search suppresses superseded[\s\S]*relation expansion context[\s\S]*natural project routing[\s\S]*abstain missing project/, 'long-term memory eval coverage');
   assertFile('scripts/perf-memory.mjs', /KEYMEMORY_PERF_COUNT[\s\S]*searchP95Ms[\s\S]*runDreamCycle[\s\S]*contextItems/, 'memory performance budget coverage');
-  assertFile('scripts/smoke-mcp.mjs', /memory_context_pack[\s\S]*memory_relate[\s\S]*memory_related[\s\S]*memory_migration_import[\s\S]*memory_backup_create[\s\S]*memory_backup_restore_dry_run[\s\S]*memory_project_suggestions[\s\S]*includeSuperseded[\s\S]*backupDryRun[\s\S]*projectSuggestionsListed/, 'MCP context, relation, search, migration, backup, and project suggestion smoke coverage');
+  assertFile('scripts/smoke-mcp.mjs', /keymemory_secret_set[\s\S]*keymemory_secret_get[\s\S]*memory_context_pack[\s\S]*memory_relate[\s\S]*memory_related[\s\S]*memory_migration_import[\s\S]*memory_backup_create[\s\S]*memory_backup_restore_dry_run[\s\S]*memory_project_suggestions[\s\S]*includeSuperseded[\s\S]*backupDryRun[\s\S]*projectSuggestionsListed/, 'MCP context, relation, search, migration, backup, secret, and project suggestion smoke coverage');
   assertFile('packages/web/src/components/ProjectSuggestionsView.tsx', /listProjectSuggestions[\s\S]*acceptProjectSuggestion[\s\S]*rejectProjectSuggestion/, 'Web project suggestion review actions');
   assertFile('packages/web/src/App.tsx', /ProjectSuggestionsView[\s\S]*organize/, 'Web project organization route');
   assertFile('packages/web/src/components/Sidebar.tsx', /organize[\s\S]*GitMerge/, 'Web project organization sidebar entry');
@@ -72,12 +73,12 @@ function auditReleaseArtifacts() {
   assertFile('docs/project-organization.md', /project-suggestions[\s\S]*project-suggestion-accept[\s\S]*Web UI[\s\S]*memory_project_suggestions/, 'project organization suggestion docs');
   assertFile('docs/memory-eval.md', /LongMemEval[\s\S]*pnpm eval:memory/, 'memory eval docs');
   assertFile('docs/performance.md', /pnpm perf:memory[\s\S]*search p95[\s\S]*dream cycle/, 'performance budget docs');
-  assertFile('docs/privacy-and-safety.md', /Default Redaction[\s\S]*privacyRedactedCount/, 'privacy and safety docs');
+  assertFile('docs/privacy-and-safety.md', /Default Redaction[\s\S]*Tool Credential Storage[\s\S]*privacyRedactedCount/, 'privacy and safety docs');
   assertFile('docs/privacy-and-safety.md', /Local-First Server Safety[\s\S]*KEYMEMORY_API_KEY[\s\S]*Authorization: Bearer[\s\S]*KEYMEMORY_ALLOWED_ORIGINS/, 'local-first server safety docs');
   assertFile('docs/backup-and-recovery.md', /backup-create[\s\S]*backup-restore .*--dry-run[\s\S]*backup-restore .*--replace[\s\S]*memory_backup_create[\s\S]*memory_backup_restore_dry_run/, 'backup and recovery docs');
   assertFile('docs/backup-and-recovery.md', /Migration Safety[\s\S]*createBackupBeforeImport[\s\S]*Web UI/, 'REST and Web migration backup docs');
   assertFile('docs/backup-and-recovery.md', /memory_relations/, 'memory relation backup docs');
-  assertFile('docs/agent-configuration.md', /agent-config all[\s\S]*claude-desktop[\s\S]*openclaw[\s\S]*codex/, 'agent configuration docs');
+  assertFile('docs/agent-configuration.md', /agent-config all[\s\S]*claude-desktop[\s\S]*mcp__keymemory__\*[\s\S]*openclaw[\s\S]*codex/, 'agent configuration docs');
   assertFile('MIGRATION_GUIDE.md', /migrate-auto --run-dream[\s\S]*Hermes[\s\S]*OpenClaw/, 'one-click migration docs');
   assertFile('MIGRATION_GUIDE.md', /Source-path project routing[\s\S]*Agent Writer Dashboard\/Frontend/, 'source-path project routing docs');
   assertFile('MIGRATION_GUIDE.md', /jsonl[\s\S]*ndjson/, 'JSONL migration docs');

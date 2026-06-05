@@ -32,6 +32,28 @@ The redaction path is centralized in `normalizeMemoryInput` and `normalizeMemory
 - MCP create/import/migration tools
 - adapter writes from Claude Code, Hermes, OpenClaw, and Codex-style clients
 
+## Tool Credential Storage
+
+API keys and tool credentials should not be stored as normal memories. Normal memory writes are intentionally redacted and cannot recover the original secret.
+
+Use the dedicated credential store instead:
+
+```bash
+keymemory secret-set hermes api_key --value-env HERMES_API_KEY
+keymemory secret-get hermes api_key
+keymemory secret-list hermes
+keymemory secret-delete hermes api_key
+```
+
+Agents can use the MCP tools `keymemory_secret_set`, `keymemory_secret_get`, `keymemory_secret_list`, and `keymemory_secret_delete`.
+
+Credential storage is separate from the memory index:
+
+- values are encrypted with AES-256-GCM before SQLite storage
+- the local key is read from `KEYMEMORY_SECRET_KEY` or generated under the KeyMemory data directory
+- secret values are not added to FTS, embeddings, entity extraction, dream consolidation, migration output, or normal portable backups
+- `secret-list` returns metadata only; `secret-get` is the only operation that returns plaintext
+
 ## Health Signal
 
 `getHealthReport()` exposes `privacyRedactedCount`, which counts active memories where sensitive material was detected and redacted.

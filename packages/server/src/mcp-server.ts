@@ -17,6 +17,7 @@ import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from './core/backup.js';
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './core/project.js';
 import { canonicalToolName, MCP_TOOLS } from './core/mcp-tools.js';
+import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from './core/secrets.js';
 
 function formatLogArg(arg: unknown): string {
   if (arg instanceof Error) return arg.stack || arg.message;
@@ -797,6 +798,56 @@ async function handleRequest(request: any) {
           return {
             content: [{ type: 'text', text: JSON.stringify({ success: ok, id: String(args.id) }, null, 2) }],
             isError: !ok,
+          };
+        }
+
+        case 'memory_secret_set': {
+          if (typeof args.tool !== 'string') {
+            return { content: [{ type: 'text', text: 'tool is required' }], isError: true };
+          }
+          if (typeof args.value !== 'string') {
+            return { content: [{ type: 'text', text: 'value is required' }], isError: true };
+          }
+          const secret = setToolSecret({
+            tool: args.tool,
+            name: typeof args.name === 'string' ? args.name : undefined,
+            value: args.value,
+            metadata: args.metadata && typeof args.metadata === 'object'
+              ? args.metadata as Record<string, unknown>
+              : undefined,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(secret, null, 2) }],
+          };
+        }
+
+        case 'memory_secret_get': {
+          if (typeof args.tool !== 'string') {
+            return { content: [{ type: 'text', text: 'tool is required' }], isError: true };
+          }
+          const secret = getToolSecret(args.tool, typeof args.name === 'string' ? args.name : undefined);
+          if (!secret) {
+            return { content: [{ type: 'text', text: 'secret not found' }], isError: true };
+          }
+          return {
+            content: [{ type: 'text', text: JSON.stringify(secret, null, 2) }],
+          };
+        }
+
+        case 'memory_secret_list': {
+          const secrets = listToolSecrets(typeof args.tool === 'string' ? args.tool : undefined);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(secrets, null, 2) }],
+          };
+        }
+
+        case 'memory_secret_delete': {
+          if (typeof args.tool !== 'string') {
+            return { content: [{ type: 'text', text: 'tool is required' }], isError: true };
+          }
+          const success = deleteToolSecret(args.tool, typeof args.name === 'string' ? args.name : undefined);
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ success, tool: args.tool, name: typeof args.name === 'string' ? args.name : 'api_key' }, null, 2) }],
           };
         }
 

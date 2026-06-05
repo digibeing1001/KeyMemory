@@ -16,6 +16,7 @@ import { buildAgentContextPack } from './core/context-pack.js';
 import { buildAgentConfigSnippets, listAgentConfigTargets } from './core/agent-config.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile, verifyBackupFile } from './core/backup.js';
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './core/project.js';
+import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from './core/secrets.js';
 import { initEmbedding } from './embed/onnx.js';
 import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security.js';
 import type { Layer, MemoryKind, MemoryStatus, ForgetMethod } from '@keymemory/shared';
@@ -118,6 +119,14 @@ function parsePathList(val?: string): string[] | undefined {
 function parseMemoryKinds(val?: string): MemoryKind[] | undefined {
   if (!val) return undefined;
   return val.split(',').map(t => t.trim()).filter(Boolean) as MemoryKind[];
+}
+
+async function readAllStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString('utf8').replace(/\r?\n$/, '');
 }
 
 function parseProjectSuggestionStatus(val?: string): 'pending' | 'accepted' | 'rejected' | undefined {
@@ -255,6 +264,55 @@ program
     const ok = deleteMemory(id, opts.permanent || false);
     if (!ok) printError(`Memory not found: ${id}`);
     printAndExit({ success: true, id, permanent: opts.permanent || false }, program.opts().format || 'json');
+  });
+
+program
+  .command('secret-set <tool> [name]')
+  .description('Encrypt and store a tool credential outside regular memory')
+  .option('--value <value>', 'secret value')
+  .option('--value-env <envName>', 'read secret value from an environment variable')
+  .option('--stdin', 'read secret value from stdin')
+  .option('--metadata <json>', 'non-secret JSON metadata')
+  .action(async (tool, name, opts) => {
+    const sources = [opts.value !== undefined, opts.valueEnv !== undefined, Boolean(opts.stdin)].filter(Boolean).length;
+    if (sources !== 1) {
+      printError('Provide exactly one of --value, --value-env, or --stdin');
+    }
+    let value = '';
+    if (opts.value !== undefined) value = String(opts.value);
+    if (opts.valueEnv !== undefined) {
+      value = process.env[String(opts.valueEnv)] ?? '';
+      if (!value) printError(`Environment variable is empty or missing: ${opts.valueEnv}`);
+    }
+    if (opts.stdin) value = await readAllStdin();
+
+    const metadata = opts.metadata ? parseMetadata(opts.metadata) : undefined;
+    const secret = setToolSecret({ tool, name, value, metadata });
+    printAndExit(secret, program.opts().format || 'json');
+  });
+
+program
+  .command('secret-get <tool> [name]')
+  .description('Decrypt and read a stored tool credential')
+  .action((tool, name) => {
+    const secret = getToolSecret(tool, name);
+    if (!secret) printError(`Secret not found: ${tool}/${name ?? 'api_key'}`);
+    printAndExit(secret, program.opts().format || 'json');
+  });
+
+program
+  .command('secret-list [tool]')
+  .description('List stored tool credentials without secret values')
+  .action((tool) => {
+    printAndExit(listToolSecrets(tool), program.opts().format || 'json');
+  });
+
+program
+  .command('secret-delete <tool> [name]')
+  .description('Delete a stored tool credential')
+  .action((tool, name) => {
+    const success = deleteToolSecret(tool, name);
+    printAndExit({ success, tool, name: name ?? 'api_key' }, program.opts().format || 'json');
   });
 
 program

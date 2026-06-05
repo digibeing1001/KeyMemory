@@ -11,6 +11,7 @@ import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from
 import { createHermesAdapter } from '../adapters/hermes.js';
 import { openClawAdapter } from '../adapters/openclaw.js';
 import { canonicalToolName, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from '../core/mcp-tools.js';
+import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from '../core/secrets.js';
 import type { CreateMemoryInput, Layer, IsolationMode, MemoryKind, MemoryStatus } from '@keymemory/shared';
 import type { MemoryAdapter } from '../adapters/base.js';
 
@@ -420,6 +421,31 @@ async function handleToolCall(name: string, args: Record<string, unknown>, adapt
     case 'memory_project_suggestion_reject':
       if (!args.id) return { error: 'id is required' };
       return { success: rejectProjectSuggestion(String(args.id)), id: String(args.id) };
+    case 'memory_secret_set':
+      if (typeof args.tool !== 'string') return { error: 'tool is required' };
+      if (typeof args.value !== 'string') return { error: 'value is required' };
+      return setToolSecret({
+        tool: args.tool,
+        name: typeof args.name === 'string' ? args.name : undefined,
+        value: args.value,
+        metadata: args.metadata && typeof args.metadata === 'object'
+          ? args.metadata as Record<string, unknown>
+          : undefined,
+      });
+    case 'memory_secret_get': {
+      if (typeof args.tool !== 'string') return { error: 'tool is required' };
+      const secret = getToolSecret(args.tool, typeof args.name === 'string' ? args.name : undefined);
+      return secret ?? { error: 'secret not found' };
+    }
+    case 'memory_secret_list':
+      return listToolSecrets(typeof args.tool === 'string' ? args.tool : undefined);
+    case 'memory_secret_delete':
+      if (typeof args.tool !== 'string') return { error: 'tool is required' };
+      return {
+        success: deleteToolSecret(args.tool, typeof args.name === 'string' ? args.name : undefined),
+        tool: args.tool,
+        name: typeof args.name === 'string' ? args.name : 'api_key',
+      };
     default:
       return { error: `Unknown tool: ${name}` };
   }

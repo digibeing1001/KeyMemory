@@ -161,6 +161,10 @@ bin/keymemory-mcp.js
 | `memory_project_suggestions` | 查看梦境生成的项目整理建议 |
 | `memory_project_suggestion_accept` | 接受项目整理建议 |
 | `memory_project_suggestion_reject` | 拒绝项目整理建议 |
+| `memory_secret_set` / `keymemory_secret_set` | 加密保存工具 API key，不进入普通记忆 |
+| `memory_secret_get` / `keymemory_secret_get` | 在工具需要时解密读取一条凭据 |
+| `memory_secret_list` / `keymemory_secret_list` | 列出凭据元数据，不返回明文 |
+| `memory_secret_delete` / `keymemory_secret_delete` | 删除一条工具凭据 |
 
 ## 一键迁移旧记忆
 

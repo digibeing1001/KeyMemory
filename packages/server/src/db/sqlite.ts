@@ -248,6 +248,19 @@ function runMigrations(db: Database.Database): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS tool_secrets (
+      id TEXT PRIMARY KEY,
+      tool TEXT NOT NULL,
+      name TEXT NOT NULL,
+      value_ciphertext TEXT NOT NULL,
+      value_hash TEXT NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_accessed_at TEXT,
+      UNIQUE(tool, name)
+    );
+
     CREATE TABLE IF NOT EXISTS query_logs (
       id TEXT PRIMARY KEY,
       query TEXT NOT NULL,
@@ -278,6 +291,7 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memory_relations_source ON memory_relations(source_memory_id);
     CREATE INDEX IF NOT EXISTS idx_memory_relations_target ON memory_relations(target_memory_id);
     CREATE INDEX IF NOT EXISTS idx_memory_relations_type ON memory_relations(relation_type);
+    CREATE INDEX IF NOT EXISTS idx_tool_secrets_tool ON tool_secrets(tool);
   `);
 
   const alterStatements = [

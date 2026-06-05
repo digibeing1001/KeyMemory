@@ -163,6 +163,19 @@ if (JSON.stringify(secretMemory).includes('github_pat_1234567890abcdefghijklmnop
 if (!secretMemory.tags?.includes('sensitivity:redacted') || !secretMemory.metadata?.privacy?.redacted) {
   throw new Error(`expected redaction metadata, got ${JSON.stringify(secretMemory)}`);
 }
+const toolSecretValue = 'cli-tool-secret-1234567890';
+const toolSecret = await run(['secret-set', 'hermes', 'api_key', '--value', toolSecretValue, '--metadata', '{"provider":"smoke"}']);
+if (toolSecret.value || toolSecret.tool !== 'hermes' || toolSecret.name !== 'api_key') {
+  throw new Error(`expected secret-set to return credential metadata without plaintext, got ${JSON.stringify(toolSecret)}`);
+}
+const toolSecretList = await run(['secret-list', 'hermes']);
+if (!Array.isArray(toolSecretList) || toolSecretList.length !== 1 || JSON.stringify(toolSecretList).includes(toolSecretValue)) {
+  throw new Error(`expected secret-list to omit plaintext values, got ${JSON.stringify(toolSecretList)}`);
+}
+const toolSecretRead = await run(['secret-get', 'hermes', 'api_key']);
+if (toolSecretRead.value !== toolSecretValue) {
+  throw new Error('expected secret-get to decrypt and round-trip the stored credential');
+}
 
 const migrated = await run(['migrate', sampleFile, '--source', 'smoke-test', '--run-dream']);
 if (migrated.imported !== 2 || migrated.files !== 1) {
@@ -371,6 +384,9 @@ if (!backup.valid || backup.counts.memories < 1 || backup.counts.projects < 1) {
 }
 if (!Object.prototype.hasOwnProperty.call(backup.counts, 'memory_relations')) {
   throw new Error(`expected backup to include memory_relations, got ${JSON.stringify(backup.counts)}`);
+}
+if (backup.includedTables.includes('tool_secrets') || JSON.stringify(backup).includes(toolSecretValue)) {
+  throw new Error(`expected normal backup to omit encrypted tool secrets and plaintext values, got ${JSON.stringify(backup)}`);
 }
 
 const inspectedBackup = await run(['backup-inspect', backupFile]);
@@ -711,11 +727,27 @@ if (wrapperContext.totalItems < 1) {
 }
 
 const agentConfigs = await run(['agent-config', 'all']);
-if (!Array.isArray(agentConfigs) || !agentConfigs.some(item => item.target === 'codex' && item.snippet.includes('[mcp_servers.keymemory]'))) {
+const codexAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item => item.target === 'codex') : null;
+const claudeCodeAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item => item.target === 'claude-code') : null;
+const hermesAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item => item.target === 'hermes') : null;
+const openClawAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item => item.target === 'openclaw') : null;
+if (!codexAgentConfig?.snippet?.includes('[mcp_servers.keymemory]')) {
   throw new Error(`expected agent-config all to include Codex TOML snippet, got ${JSON.stringify(agentConfigs)}`);
 }
-if (!agentConfigs.some(item => item.target === 'openclaw' && item.snippet.includes('"provider": "keymemory"'))) {
+if (!codexAgentConfig.snippet.includes('default_tools_approval_mode = "approve"')) {
+  throw new Error(`expected Codex KeyMemory config to pre-approve local memory tools, got ${JSON.stringify(codexAgentConfig)}`);
+}
+if (!claudeCodeAgentConfig?.snippet?.includes('"mcp__keymemory__*"')) {
+  throw new Error(`expected Claude Code KeyMemory config to allow native memory tools, got ${JSON.stringify(claudeCodeAgentConfig)}`);
+}
+if (!hermesAgentConfig?.snippet?.includes('"mcp_servers"') || !hermesAgentConfig.snippet.includes('"supports_parallel_tool_calls": true')) {
+  throw new Error(`expected Hermes KeyMemory config to include native MCP server settings, got ${JSON.stringify(hermesAgentConfig)}`);
+}
+if (!openClawAgentConfig?.snippet?.includes('"provider": "keymemory"')) {
   throw new Error(`expected agent-config all to include OpenClaw memory provider, got ${JSON.stringify(agentConfigs)}`);
+}
+if (!openClawAgentConfig.snippet.includes('"mcp__keymemory__*"') || !openClawAgentConfig.snippet.includes('"autoApprove": true')) {
+  throw new Error(`expected OpenClaw KeyMemory config to auto-approve native memory tools, got ${JSON.stringify(openClawAgentConfig)}`);
 }
 const wrapperAgentConfig = await runWrapper(['agent-config', 'generic']);
 if (!wrapperAgentConfig.snippet?.includes('keymemory-mcp.js')) {

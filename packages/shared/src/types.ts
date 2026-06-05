@@ -101,6 +101,21 @@ export interface ProjectSuggestion {
   createdAt: string;
 }
 
+export interface ToolSecret {
+  id: string;
+  tool: string;
+  name: string;
+  valueHash: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  lastAccessedAt?: string;
+}
+
+export interface ToolSecretValue extends ToolSecret {
+  value: string;
+}
+
 export interface EvolutionTask {
   id: string;
   taskType: EvolutionTaskType;
