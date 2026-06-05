@@ -743,6 +743,9 @@ if (!claudeCodeAgentConfig?.snippet?.includes('"mcp__keymemory__*"')) {
 if (!hermesAgentConfig?.snippet?.includes('"mcp_servers"') || !hermesAgentConfig.snippet.includes('"supports_parallel_tool_calls": true')) {
   throw new Error(`expected Hermes KeyMemory config to include native MCP server settings, got ${JSON.stringify(hermesAgentConfig)}`);
 }
+if (!hermesAgentConfig.snippet.includes('"keymemory_secret_get"')) {
+  throw new Error(`expected Hermes KeyMemory config to include secret credential tools, got ${JSON.stringify(hermesAgentConfig)}`);
+}
 if (!openClawAgentConfig?.snippet?.includes('"provider": "keymemory"')) {
   throw new Error(`expected agent-config all to include OpenClaw memory provider, got ${JSON.stringify(agentConfigs)}`);
 }

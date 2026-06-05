@@ -21,6 +21,10 @@ const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory_update',
   'keymemory_delete',
   'keymemory_auto_remember',
+  'keymemory_secret_set',
+  'keymemory_secret_get',
+  'keymemory_secret_list',
+  'keymemory_secret_delete',
 ];
 
 const CLAUDE_MD_CONTENT = `# KeyMemory - Default Memory System
