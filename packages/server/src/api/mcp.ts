@@ -12,6 +12,7 @@ import { createHermesAdapter } from '../adapters/hermes.js';
 import { openClawAdapter } from '../adapters/openclaw.js';
 import { canonicalToolName, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from '../core/mcp-tools.js';
 import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from '../core/secrets.js';
+import { executeMcpTool } from '../core/mcp-executor.js';
 import type { CreateMemoryInput, Layer, IsolationMode, MemoryKind, MemoryStatus } from '@keymemory/shared';
 import type { MemoryAdapter } from '../adapters/base.js';
 
@@ -480,14 +481,12 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       const toolName = canonicalToolName(params.name);
       const toolArgs = (params.arguments ?? {}) as Record<string, unknown>;
       const adapter = getAdapter(request);
-      const result = await handleToolCall(toolName, toolArgs, adapter);
+      const result = await executeMcpTool(toolName, toolArgs, adapter, { responseStyle: 'json' });
 
       return {
         jsonrpc: '2.0',
         id: mcpRequest.id,
-        result: {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        },
+        result,
       };
     }
 

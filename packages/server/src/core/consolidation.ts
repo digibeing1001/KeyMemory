@@ -259,8 +259,8 @@ function createSnapshots(db: Database.Database, planId: string, memoryIds: strin
   const now = new Date().toISOString();
 
   const stmt = db.prepare(`
-    INSERT INTO consolidation_snapshots (id, plan_id, memory_id, title, content, layer, status, tags, metadata, project, agent_space, confidence, decay_factor, captured_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO consolidation_snapshots (id, plan_id, memory_id, title, content, layer, status, tags, metadata, project, project_id, agent_space, confidence, decay_factor, captured_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const mid of memoryIds) {
@@ -277,6 +277,7 @@ function createSnapshots(db: Database.Database, planId: string, memoryIds: strin
       mem.status,
       mem.tags ? JSON.stringify(mem.tags) : null,
       mem.metadata ? JSON.stringify(mem.metadata) : null,
+      mem.projectId,
       mem.projectId,
       mem.agentSpace,
       mem.confidence,

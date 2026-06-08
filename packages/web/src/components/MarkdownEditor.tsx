@@ -102,7 +102,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14, marginBottom: 18 }}>
+        <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14, marginBottom: 18 }}>
           <label style={{ display: 'block' }}>
             <span style={labelStyle}>{t('editor.layer')}</span>
             <select value={layer} onChange={(e) => setLayer(e.target.value as Layer)} style={inputStyle}>

@@ -164,9 +164,9 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
   };
 
   return (
-    <main className="migration-view" style={{ padding: 24, overflowY: 'auto', height: '100%' }}>
+    <main className="migration-view app-page" style={{ padding: 24, overflowY: 'auto', height: '100%' }}>
       <div style={{ maxWidth: 880 }}>
-        <header style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+        <header className="page-header" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
           <div className="km-icon-tile" style={{ width: 42, height: 42, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
             <Inbox size={22} />
           </div>
@@ -188,15 +188,15 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
           </label>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button className="btn" onClick={scan} disabled={loading !== null}>
+            <button type="button" className="btn" onClick={scan} disabled={loading !== null}>
               <FileSearch size={15} />
               {loading === 'scan' ? t('common.loading') : t('migration.scanSources')}
             </button>
-            <button className="btn" onClick={() => importAll(true)} disabled={loading !== null}>
+            <button type="button" className="btn" onClick={() => importAll(true)} disabled={loading !== null}>
               {loading === 'all-preview' ? <Sparkles size={15} /> : <FileSearch size={15} />}
               {loading === 'all-preview' ? t('common.loading') : t('migration.previewAll')}
             </button>
-            <button className="btn btn-primary" onClick={() => importAll(false)} disabled={loading !== null}>
+            <button type="button" className="btn btn-primary" onClick={() => importAll(false)} disabled={loading !== null}>
               {loading === 'all' ? <Sparkles size={15} /> : <RefreshCw size={15} />}
               {loading === 'all' ? t('common.loading') : t('migration.importAll')}
             </button>
@@ -208,6 +208,7 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
               {sources.map((candidate) => (
                 <div
                   key={candidate.id}
+                  className="migration-source-row"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'minmax(0, 1fr) auto auto',
@@ -234,11 +235,11 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
                       </div>
                     )}
                   </div>
-                  <button className="btn" onClick={() => importCandidate(candidate, true)} disabled={loading !== null} style={{ minWidth: 88 }}>
+                  <button type="button" className="btn" onClick={() => importCandidate(candidate, true)} disabled={loading !== null} style={{ minWidth: 88 }}>
                     {loading === `${candidate.id}:preview` ? <Sparkles size={14} /> : <FileSearch size={14} />}
                     {t('common.preview')}
                   </button>
-                  <button className="btn" onClick={() => importCandidate(candidate, false)} disabled={loading !== null} style={{ minWidth: 88 }}>
+                  <button type="button" className="btn" onClick={() => importCandidate(candidate, false)} disabled={loading !== null} style={{ minWidth: 88 }}>
                     {loading === candidate.id ? <Sparkles size={14} /> : <RefreshCw size={14} />}
                     {t('common.import')}
                   </button>
@@ -259,7 +260,7 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
             />
           </label>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6, color: 'var(--text-secondary)', fontSize: 13 }}>
               {t('migration.source')}
               <input value={source} onChange={(event) => setSource(event.target.value)} style={inputStyle} />
@@ -277,7 +278,7 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
             </label>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6, color: 'var(--text-secondary)', fontSize: 13 }}>
               {t('migration.defaultLayer')}
               <select value={defaultLayer} onChange={(event) => setDefaultLayer(event.target.value as Layer)} style={inputStyle}>
@@ -323,7 +324,7 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
                 {t('migration.backup', { path: result.backup.filePath || '' })}
               </p>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+            <div className="metric-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
               <Metric label={t('common.files')} value={result.files} />
               <Metric label={t('migration.imported')} value={result.imported} good />
               <Metric label={t('migration.skipped')} value={result.skipped} />

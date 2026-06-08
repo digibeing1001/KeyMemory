@@ -37,6 +37,7 @@ import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import { useI18n } from '../i18n';
 import MarkdownRenderer from './MarkdownRenderer';
+import MemoryQualityPanel from './MemoryQualityPanel';
 import { formatDateTime, formatMemoryTitle, getMemoryKind, LAYER_COLORS, redactSensitiveText } from '../lib/memoryFormat';
 
 interface DreamViewProps {
@@ -229,6 +230,14 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const handleArchiveMemory = useCallback(async (memoryId: string) => {
     try {
       await forgetMemory(memoryId, 'archive');
+      setSelectedReport((prev) => prev ? {
+        ...prev,
+        todoItems: prev.todoItems.filter((item) => item.memoryId !== memoryId),
+      } : prev);
+      setReports((prev) => prev.map((report) => ({
+        ...report,
+        todoItems: report.todoItems.filter((item) => item.memoryId !== memoryId),
+      })));
       toast(language === 'zh' ? '记忆已归档' : 'Memory archived', 'success');
     } catch {
       toast(language === 'zh' ? '归档失败' : 'Archive failed', 'error');
@@ -321,7 +330,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const merged = selectedReport?.details?.merged ?? [];
 
   return (
-    <main className="dream-view px-8 py-6" style={{ maxWidth: 1120, width: '100%', boxSizing: 'border-box' }}>
+    <main className="dream-view app-page px-8 py-6" style={{ maxWidth: 1120, width: '100%', boxSizing: 'border-box' }}>
       <ConfirmDialog
         open={confirmDialog.open}
         title={confirmDialog.title}
@@ -349,7 +358,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
         />
       )}
 
-      <header className="flex items-start justify-between gap-4 mb-6">
+      <header className="page-header flex items-start justify-between gap-4 mb-6">
         <div className="flex items-start gap-4">
           <div
             className="km-icon-tile"
@@ -512,7 +521,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
           </section>
 
           <div className="dream-report-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
-            <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', padding: 16 }}>
+            <section className="dream-did-card" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', padding: 16 }}>
               <h4 style={{ margin: '0 0 12px', color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>{t('dream.did')}</h4>
               <div style={{ display: 'grid', gap: 10 }}>
                 {selectedReport.sessions.map((session) => (
@@ -533,7 +542,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
               </div>
             </section>
 
-            <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', padding: 16 }}>
+            <section className="dream-todo-list" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', padding: 16 }}>
               <h4 style={{ margin: '0 0 12px', color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>{t('dream.needsYou')}</h4>
               {todoItems.length === 0 ? (
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>{t('dream.noTodo')}</p>
@@ -543,7 +552,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
                     const isOrphan = item.type === 'orphan';
                     const Icon = isOrphan ? Inbox : AlertTriangle;
                     return (
-                      <article key={`${item.type}-${item.memoryId}`} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 12, background: isOrphan ? 'var(--bg-main)' : 'rgba(245, 158, 11, 0.06)' }}>
+                      <article className="dream-todo-card" key={`${item.type}-${item.memoryId}`} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 12, background: isOrphan ? 'var(--bg-main)' : 'rgba(245, 158, 11, 0.06)' }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                           <Icon size={16} style={{ color: isOrphan ? 'var(--text-muted)' : 'var(--warning)', marginTop: 2 }} />
                           <div style={{ minWidth: 0, flex: 1 }}>
@@ -579,7 +588,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
                                 </div>
                               </div>
                             )}
-                            <div className="flex items-center gap-2">
+                            <div className="dream-todo-actions flex items-center gap-2">
                               <button className="btn" onClick={() => handlePreviewMemory(item.memoryId)}>
                                 <Eye size={12} />
                                 {t('common.view')}
@@ -757,8 +766,8 @@ function DreamMemoryDrawer({
 
   return (
     <>
-      <button className="dream-preview-scrim" aria-label={t('common.close')} onClick={onClose} />
-      <aside className="dream-preview-drawer">
+      <button type="button" className="dream-preview-scrim" aria-label={t('common.close')} onClick={onClose} />
+      <aside className="dream-preview-drawer" role="dialog" aria-modal="true" aria-label={t('detail.title')}>
         <div className="dream-preview-header">
           <div>
             <div className="dream-preview-eyebrow">{t('detail.title')}</div>
@@ -790,6 +799,10 @@ function DreamMemoryDrawer({
               <span>{t('detail.updated')}: <strong>{formatDateTime(memory.updatedAt, locale)}</strong></span>
               <span>{t('detail.hits')}: <strong>{memory.hitCount}</strong></span>
               <span>{t('common.confidence')}: <strong>{Math.round(memory.confidence * 100)}%</strong></span>
+            </div>
+
+            <div className="dream-preview-quality">
+              <MemoryQualityPanel memory={memory} compact />
             </div>
 
             {memory.tags && memory.tags.length > 0 && (

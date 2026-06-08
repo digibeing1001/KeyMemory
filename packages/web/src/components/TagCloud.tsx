@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useI18n } from '../i18n';
+import { LAYER_COLORS } from '../lib/memoryFormat';
 
 interface TagItem {
   name: string;
@@ -14,16 +15,8 @@ interface TagCloudProps {
   loading?: boolean;
 }
 
-const LAYER_COLORS: Record<string, string> = {
-  flash: '#f59e0b',
-  short: '#3b82f6',
-  long: '#10b981',
-  project: '#9b59b6',
-  entity: '#ec4899',
-};
-
 const MIN_FONT_SIZE = 13;
-const MAX_FONT_SIZE = 28;
+const MAX_FONT_SIZE = 24;
 
 function getDominantLayer(layers?: Record<string, number>): string {
   if (!layers || Object.keys(layers).length === 0) return 'short';
@@ -39,7 +32,8 @@ function getDominantLayer(layers?: Record<string, number>): string {
 }
 
 function getLayerColor(layer: string): string {
-  return LAYER_COLORS[layer] ?? '#3b82f6';
+  if (layer === 'project') return '#7c5fa6';
+  return (LAYER_COLORS as Record<string, string>)[layer] ?? '#2f8297';
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -99,15 +93,15 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
 
   if (tags.length === 0) {
     return (
-      <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 15, fontWeight: 600 }}>
+      <div className="empty-state" style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 15, fontWeight: 600 }}>
         {language === 'zh' ? '暂无标签数据' : 'No tag data yet'}
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '20px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginBottom: 20 }}>
+    <div className="tag-cloud-page">
+      <div className="tag-cloud-header" style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginBottom: 20 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           {t('nav.tags')}
         </span>
@@ -116,7 +110,7 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
         </span>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
+      <div className="tag-cloud-wrap" style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         {tags.map((tag) => {
           const dominantLayer = getDominantLayer(tag.layers);
           const color = getLayerColor(dominantLayer);
@@ -125,11 +119,11 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
 
           return (
             <button
+              type="button"
               key={tag.name}
               onClick={() => onTagClick?.(tag.name)}
+              className="tag-cloud-token"
               style={{
-                padding: '6px 14px',
-                borderRadius: 20,
                 border: `1px solid ${hexToRgba(color, 0.15)}`,
                 background: hexToRgba(color, 0.08),
                 color,
@@ -147,14 +141,16 @@ export default function TagCloud({ tags, projects, onTagClick, loading }: TagClo
       </div>
 
       {projects && projects.length > 0 && (
-        <div style={{ marginTop: 28 }}>
+        <div className="tag-cloud-projects" style={{ marginTop: 28 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 12 }}>
             {t('sidebar.projects')}
           </span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {projects.map((project) => (
               <button
+                type="button"
                 key={project.name}
+                className="tag-cloud-project"
                 style={{
                   background: 'var(--bg-card)',
                   border: '1px solid var(--border)',

@@ -1,12 +1,17 @@
 import { v4 as uuid } from 'uuid';
 import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, DreamReportDetails, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, analyzeMemoryQuality } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
 import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
 import { createMemoryRelation } from '../graph/entity.js';
+
+type ScoredDreamCandidate = DreamCandidate & {
+  qualityScore: number;
+  qualityIssues: string[];
+};
 
 export function runDreamCycle(): DreamReport {
   const startTime = Date.now();
@@ -128,6 +133,38 @@ export function runDreamCycle(): DreamReport {
 
 // ========== Light Phase: 去重与初步清理 ==========
 
+function safeParseTagList(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeParseRecord(raw: string | null): Record<string, unknown> | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function dreamSignalTags(tags: string[]): string[] {
+  return tags.filter(tag => {
+    const normalized = tag.toLowerCase();
+    return !normalized.startsWith('kind:')
+      && !normalized.startsWith('scope:')
+      && !normalized.startsWith('project:')
+      && !normalized.startsWith('sensitivity:');
+  });
+}
+
 function runLightPhase(reportId: string, details: DreamReportDetails): { session: DreamSession; mergedCount: number } {
   const db = getDatabase();
   const sessionId = uuid();
@@ -152,20 +189,22 @@ function runLightPhase(reportId: string, details: DreamReportDetails): { session
     if (processedIds.has(recentMemories[i].id)) continue;
     
     const duplicates: string[] = [];
-    const tagsA = recentMemories[i].tags ? JSON.parse(recentMemories[i].tags as string) as string[] : [];
+    const tagsA = dreamSignalTags(safeParseTagList(recentMemories[i].tags));
     
     for (let j = i + 1; j < recentMemories.length; j++) {
       if (processedIds.has(recentMemories[j].id)) continue;
 
-      const tagsB = recentMemories[j].tags ? JSON.parse(recentMemories[j].tags as string) as string[] : [];
+      const tagsB = dreamSignalTags(safeParseTagList(recentMemories[j].tags));
       const jaccard = computeJaccard(tagsA, tagsB);
 
-      if (jaccard > DREAM_THRESHOLDS.lightJaccardThreshold) {
-        const textSim = computeTextSimilarity(recentMemories[i].content, recentMemories[j].content);
-        if (textSim > 0.75) {
+      const textSim = computeTextSimilarity(recentMemories[i].content, recentMemories[j].content);
+      const titleSim = computeTextSimilarity(recentMemories[i].title, recentMemories[j].title);
+      if (
+        (tagsA.length > 0 && tagsB.length > 0 && jaccard > DREAM_THRESHOLDS.lightJaccardThreshold && textSim > 0.78)
+        || (titleSim > 0.9 && textSim > 0.82)
+      ) {
           duplicates.push(recentMemories[j].id);
           processedIds.add(recentMemories[j].id);
-        }
       }
     }
 
@@ -174,6 +213,8 @@ function runLightPhase(reportId: string, details: DreamReportDetails): { session
       processedIds.add(recentMemories[i].id);
     }
   }
+
+  createSnapshots(db, reportId, mergeGroups.flatMap(group => [group.keeper, ...group.duplicates]));
 
   // 执行智能合并
   for (const group of mergeGroups) {
@@ -261,7 +302,7 @@ function runRemPhase(reportId: string): { session: DreamSession } {
   const memoryTagMap = new Map<string, string[]>();
 
   for (const mem of shortTermMemories) {
-    const tags: string[] = mem.tags ? JSON.parse(mem.tags) : [];
+    const tags = safeParseTagList(mem.tags);
     memoryTagMap.set(mem.id, tags);
     for (const tag of tags) {
       tagFrequency.set(tag, (tagFrequency.get(tag) || 0) + 1);
@@ -385,24 +426,27 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
     if (a.targetId) allAffectedIds.add(a.targetId);
   }
 
-  // 创建快照以便回滚
-  createSnapshots(db, reportId, Array.from(allAffectedIds));
-
   let promoted = 0;
   let archived = 0;
   let merged = 0;
 
   // 评分并升级高质量记忆
   const candidates = scoreCandidates(db);
+  const promotableIds = new Set(
+    candidates
+      .filter(candidate => isDreamPromotionReady(candidate))
+      .map(candidate => candidate.memoryId),
+  );
+  for (const id of promotableIds) allAffectedIds.add(id);
+
+  // 创建快照以便回滚
+  createSnapshots(db, reportId, Array.from(allAffectedIds));
+
   for (const candidate of candidates) {
-    const isPromoted =
-      candidate.score >= DREAM_THRESHOLDS.minScore &&
-      candidate.hitCount >= DREAM_THRESHOLDS.minRecallCount &&
-      candidate.uniqueQueryCount >= DREAM_THRESHOLDS.minUniqueQueries &&
-      candidate.layer === 'short';
+    const isPromoted = promotableIds.has(candidate.memoryId);
 
     if (isPromoted) {
-      moveLayer(candidate.memoryId, 'long', `整理升级：评分${candidate.score.toFixed(2)}`);
+      moveLayer(candidate.memoryId, 'long', `整理升级：评分${candidate.score.toFixed(2)}，质量${candidate.qualityScore}%`);
       promoted++;
       details.promoted.push({ memoryId: candidate.memoryId, title: candidate.title, score: candidate.score });
     }
@@ -412,9 +456,9 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deep', ?, ?)
     `).run(
       uuid(), reportId, candidate.memoryId,
-      candidate.signals.relevance, candidate.signals.frequency,
-      candidate.signals.queryDiversity, candidate.signals.recency,
-      candidate.signals.consolidation, candidate.signals.conceptualRichness,
+    candidate.signals.relevance, candidate.signals.frequency,
+    candidate.signals.queryDiversity, candidate.signals.recency,
+    candidate.signals.consolidation, candidate.signals.conceptualRichness,
       candidate.score, isPromoted ? 1 : 0, now,
     );
   }
@@ -516,14 +560,15 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
     return { session, mergedCount: 0 };
   }
 
-  const mergeGroups: { keeper: string; related: string[]; similarity: number }[] = [];
+  const relationGroups: { keeper: string; related: string[]; maxSimilarity: number }[] = [];
   const processedIds = new Set<string>();
 
-  // 基于语义相似度找到关联组
+  // 基于语义相似度找到关联组。这里仅建立关系，不自动合并，避免相关但不等价的记忆被误归档。
   for (let i = 0; i < memories.length; i++) {
     if (processedIds.has(memories[i].id)) continue;
 
     const related: string[] = [];
+    let maxSimilarity = 0;
     const vecA = bufferToEmbedding(memories[i].embedding);
 
     for (let j = i + 1; j < memories.length; j++) {
@@ -532,68 +577,33 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
       const vecB = bufferToEmbedding(memories[j].embedding);
       const sim = cosineSimilarity(vecA, vecB);
 
-      // 使用配置的相似度阈值来找到"相关但不完全相同"的记忆
       if (sim > DREAM_CONFIG.semanticMergeThreshold && sim < CONSOLIDATION_CONFIG.duplicateSimilarity) {
         related.push(memories[j].id);
+        maxSimilarity = Math.max(maxSimilarity, sim);
         processedIds.add(memories[j].id);
       }
     }
 
     if (related.length > 0) {
-      mergeGroups.push({ keeper: memories[i].id, related, similarity: 0 });
+      relationGroups.push({ keeper: memories[i].id, related, maxSimilarity });
       processedIds.add(memories[i].id);
     }
   }
 
-  // 执行语义合并
-  for (const group of mergeGroups) {
+  let relationsCreated = 0;
+  for (const group of relationGroups) {
     try {
       const keeper = getMemory(group.keeper);
       if (!keeper) continue;
 
-      const allContents: string[] = [keeper.content];
-      const allTags = new Set(keeper.tags || []);
-      let totalHits = keeper.hitCount;
-      const relatedTitles: string[] = [];
-
       for (const relatedId of group.related) {
         const related = getMemory(relatedId);
         if (!related) continue;
-
-        allContents.push(related.content);
-        (related.tags || []).forEach(t => allTags.add(t));
-        totalHits += related.hitCount;
-        relatedTitles.push(related.title);
-
-        // 归档被合并的记忆
-        forgetMemory(relatedId, 'archive');
-        createMemoryRelation(group.keeper, relatedId, 'supersedes', 0.9, `dream:${reportId}:semantic-merge`);
-        details.merged.push({ memoryId: relatedId, title: related.title, intoId: group.keeper, intoTitle: keeper.title });
-        details.archived.push({ memoryId: relatedId, title: related.title, reason: '语义合并' });
+        createMemoryRelation(group.keeper, relatedId, 'relates_to', Math.min(0.95, group.maxSimilarity), `dream:${reportId}:semantic-related`);
+        relationsCreated++;
       }
-
-      // 智能合并
-      const mergedContent = smartMergeContents(allContents);
-      const mergedTags = Array.from(allTags);
-
-      // 更新标题以反映合并（如果原始标题太简单）
-      let newTitle = keeper.title;
-      if (keeper.title.length < 15 && relatedTitles.length > 0) {
-        newTitle = `${keeper.title}（及相关${relatedTitles.length}条记录）`;
-      }
-
-      updateMemory(group.keeper, {
-        title: newTitle,
-        content: mergedContent,
-        tags: mergedTags,
-      }, `语义合并：整合 ${group.related.length} 条关联记忆`);
-
-      // 更新命中次数
-      db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, group.keeper);
-
-      mergedCount += group.related.length;
     } catch (err) {
-      console.error(`[Semantic Phase] Failed to merge group ${group.keeper}:`, err);
+      console.error(`[Semantic Phase] Failed to relate group ${group.keeper}:`, err);
     }
   }
 
@@ -601,7 +611,8 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
 
   const signals: Record<string, number> = {
     scanned: candidatesProcessed,
-    groupsFound: mergeGroups.length,
+    groupsFound: relationGroups.length,
+    relationsCreated,
     merged: mergedCount,
   };
 
@@ -609,11 +620,11 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
     id: sessionId,
     phase: 'deep',
     candidatesProcessed,
-    candidatesPromoted: mergeGroups.length,
+    candidatesPromoted: relationsCreated,
     signals,
     startedAt: now,
     completedAt: new Date().toISOString(),
-    summary: `语义合并：分析${candidatesProcessed}条记忆，发现${mergeGroups.length}组关联，整合${mergedCount}条`,
+    summary: `语义关联：分析${candidatesProcessed}条记忆，发现${relationGroups.length}组关联，建立${relationsCreated}条关系`,
   };
 
   return { session, mergedCount };
@@ -700,16 +711,16 @@ function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds:
   const threshold = CONSOLIDATION_CONFIG.duplicateSimilarity;
   const actions: ConsolidationAction[] = [];
 
-  let memories: { id: string; title: string; embedding: Buffer }[];
+  let memories: { id: string; title: string; content: string; embedding: Buffer }[];
   try {
     memories = db.prepare(`
-      SELECT m.id, m.title, e.embedding
+      SELECT m.id, m.title, m.content, e.embedding
       FROM memories m
       JOIN embeddings e ON e.memory_id = m.id
       WHERE m.status = 'active'
       ORDER BY m.created_at ASC
       LIMIT 200
-    `).all() as { id: string; title: string; embedding: Buffer }[];
+    `).all() as { id: string; title: string; content: string; embedding: Buffer }[];
   } catch {
     return actions;
   }
@@ -727,7 +738,10 @@ function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds:
       const vecB = bufferToEmbedding(memories[j].embedding);
       const sim = cosineSimilarity(vecA, vecB);
 
-      if (sim > threshold) {
+      const textSim = computeTextSimilarity(memories[i].content, memories[j].content);
+      const titleSim = computeTextSimilarity(memories[i].title, memories[j].title);
+
+      if (sim > threshold && (textSim > 0.58 || (titleSim > 0.88 && textSim > 0.42))) {
         const keeper = memories[i].id;
         const removed = memories[j].id;
 
@@ -1025,7 +1039,13 @@ function isTodoItemStillActionable(db: ReturnType<typeof getDatabase>, item: Dre
 }
 
 function currentTodoItems(db: ReturnType<typeof getDatabase>, raw: unknown): DreamTodoItem[] {
-  const items = raw ? JSON.parse(raw as string) as DreamTodoItem[] : [];
+  let items: DreamTodoItem[] = [];
+  try {
+    const parsed = raw ? JSON.parse(raw as string) : [];
+    items = Array.isArray(parsed) ? parsed as DreamTodoItem[] : [];
+  } catch {
+    items = [];
+  }
   return items.filter(item => isTodoItemStillActionable(db, item));
 }
 
@@ -1040,8 +1060,8 @@ function createSnapshots(db: ReturnType<typeof getDatabase>, reportId: string, m
   const now = new Date().toISOString();
 
   const stmt = db.prepare(`
-    INSERT INTO consolidation_snapshots (id, plan_id, memory_id, title, content, layer, status, tags, metadata, project, agent_space, confidence, decay_factor, captured_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO consolidation_snapshots (id, plan_id, memory_id, title, content, layer, status, tags, metadata, project, project_id, agent_space, confidence, decay_factor, captured_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const mid of memoryIds) {
@@ -1058,6 +1078,7 @@ function createSnapshots(db: ReturnType<typeof getDatabase>, reportId: string, m
       mem.status,
       mem.tags ? JSON.stringify(mem.tags) : null,
       mem.metadata ? JSON.stringify(mem.metadata) : null,
+      mem.projectId,
       mem.projectId,
       mem.agentSpace,
       mem.confidence,
@@ -1111,17 +1132,41 @@ function executeAction(db: ReturnType<typeof getDatabase>, action: Consolidation
   }
 }
 
-function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
+function isDreamPromotionReady(candidate: ScoredDreamCandidate): boolean {
+  return candidate.score >= DREAM_THRESHOLDS.minScore
+    && candidate.hitCount >= DREAM_THRESHOLDS.minRecallCount
+    && candidate.uniqueQueryCount >= DREAM_THRESHOLDS.minUniqueQueries
+    && candidate.layer === 'short'
+    && candidate.qualityScore >= 65
+    && !candidate.qualityIssues.includes('sparse_content');
+}
+
+function scoreCandidates(db: ReturnType<typeof getDatabase>): ScoredDreamCandidate[] {
   const lookback = DREAM_THRESHOLDS.lookbackDays;
 
   const memories = db.prepare(`
     SELECT m.id, m.title, m.content, m.layer, m.tags, m.hit_count, m.created_at,
-           m.confidence, m.decay_factor, m.project_id
+           m.updated_at, m.confidence, m.decay_factor, m.project_id, m.source, m.source_id, m.metadata
     FROM memories m
     WHERE m.status = 'active'
       AND m.layer IN ('short', 'long')
       AND m.created_at >= datetime('now', ? || ' days')
-  `).all(`-${lookback}`) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; confidence: number; decay_factor: number; project_id: string }[];
+  `).all(`-${lookback}`) as {
+    id: string;
+    title: string;
+    content: string;
+    layer: string;
+    tags: string | null;
+    hit_count: number;
+    created_at: string;
+    updated_at: string;
+    confidence: number;
+    decay_factor: number;
+    project_id: string;
+    source: string | null;
+    source_id: string | null;
+    metadata: string | null;
+  }[];
 
   // 批量查询各记忆的唯一查询数
   const uniqueQueryMap = new Map<string, number>();
@@ -1141,11 +1186,27 @@ function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
     }
   }
 
-  const candidates: DreamCandidate[] = [];
+  const candidates: ScoredDreamCandidate[] = [];
 
   for (const mem of memories) {
     const daysSinceCreation = Math.max(1, (Date.now() - new Date(mem.created_at).getTime()) / (1000 * 60 * 60 * 24));
-    const tags: string[] = mem.tags ? JSON.parse(mem.tags) : [];
+    const tags = safeParseTagList(mem.tags);
+    const metadata = safeParseRecord(mem.metadata);
+    const quality = analyzeMemoryQuality({
+      title: mem.title,
+      content: mem.content,
+      layer: mem.layer as DreamCandidate['layer'],
+      projectId: mem.project_id,
+      confidence: mem.confidence,
+      decayFactor: mem.decay_factor,
+      createdAt: mem.created_at,
+      updatedAt: mem.updated_at,
+      tags,
+      source: mem.source ?? undefined,
+      sourceId: mem.source_id ?? undefined,
+      metadata,
+    });
+    const qualityMultiplier = 0.75 + (quality.score / 100) * 0.25;
 
     // 优先使用 query_logs 统计的真实唯一查询数，否则以 hit_count 为下限估计
     const uniqueQueryCount = uniqueQueryMap.get(mem.id) ?? Math.max(1, Math.round(mem.hit_count * 0.6));
@@ -1159,13 +1220,14 @@ function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
       conceptualRichness: Math.min(1.0, tags.length / 5),
     };
 
-    const score =
+    const rawScore =
       DREAM_SIGNAL_WEIGHTS.relevance * signals.relevance +
       DREAM_SIGNAL_WEIGHTS.frequency * signals.frequency +
       DREAM_SIGNAL_WEIGHTS.queryDiversity * signals.queryDiversity +
       DREAM_SIGNAL_WEIGHTS.recency * signals.recency +
       DREAM_SIGNAL_WEIGHTS.consolidation * signals.consolidation +
       DREAM_SIGNAL_WEIGHTS.conceptualRichness * signals.conceptualRichness;
+    const score = rawScore * qualityMultiplier;
 
     candidates.push({
       memoryId: mem.id,
@@ -1178,6 +1240,8 @@ function scoreCandidates(db: ReturnType<typeof getDatabase>): DreamCandidate[] {
       daysSinceCreation: Math.round(daysSinceCreation),
       score,
       signals,
+      qualityScore: quality.score,
+      qualityIssues: quality.issues.map(issue => issue.code),
     });
   }
 
@@ -1278,8 +1342,8 @@ export function rollbackDream(reportId: string): DreamReport {
       updateMemory(memId, {
         title: snap.title as string,
         content: snap.content as string,
-        tags: snap.tags ? JSON.parse(snap.tags as string) : undefined,
-        metadata: snap.metadata ? JSON.parse(snap.metadata as string) : undefined,
+        tags: safeParseTagList(snap.tags as string | null),
+        metadata: safeParseRecord(snap.metadata as string | null),
       }, `回滚整理 ${reportId}`);
     }
   }

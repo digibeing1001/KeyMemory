@@ -1,4 +1,4 @@
-import type { Memory, Layer, MemoryKind, SearchResult } from '@keymemory/shared';
+import type { Memory, Layer, MemoryKind, SearchResult, CreateMemoryInput } from '@keymemory/shared';
 import type { IsolationMode } from '@keymemory/shared';
 
 export interface MemorySearchOptions {
@@ -13,7 +13,7 @@ export interface MemorySearchOptions {
 export interface MemoryAdapter {
   name: string;
   read(id: string): Promise<Memory | null>;
-  write(data: { title: string; content: string; layer: Layer; project?: string }): Promise<Memory>;
+  write(data: CreateMemoryInput): Promise<Memory>;
   search(query: string, options?: MemorySearchOptions): Promise<SearchResult[]>;
   delete(id: string): Promise<boolean>;
 }

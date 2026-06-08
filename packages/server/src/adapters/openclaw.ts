@@ -1,5 +1,5 @@
 import type { MemoryAdapter } from './base.js';
-import type { Memory, Layer, SearchResult } from '@keymemory/shared';
+import type { Memory, SearchResult, CreateMemoryInput } from '@keymemory/shared';
 import { createMemory, getMemory, deleteMemory } from '../core/atom.js';
 import { searchHybrid } from '../core/query.js';
 import type { MemorySearchOptions } from './base.js';
@@ -11,7 +11,7 @@ export const openClawAdapter: MemoryAdapter = {
     return getMemory(id);
   },
 
-  async write(data: { title: string; content: string; layer: Layer; projectId?: string }): Promise<Memory> {
+  async write(data: CreateMemoryInput): Promise<Memory> {
     return createMemory(data);
   },
 

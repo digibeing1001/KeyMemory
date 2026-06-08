@@ -63,8 +63,7 @@ function TreeItem({
 
   return (
     <div>
-      <button
-        type="button"
+      <div
         className="project-tree-item flex items-center gap-1 select-none"
         style={{
           width: '100%',
@@ -76,14 +75,16 @@ function TreeItem({
           color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
           fontWeight: isActive ? 650 : 400,
           fontSize: 13,
-          cursor: 'pointer',
           textAlign: 'left',
           minHeight: 30,
         }}
-        onClick={() => onSelectProject(node.project.id)}
       >
         {hasChildren ? (
-          <span
+          <button
+            type="button"
+            className="project-tree-expand"
+            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.project.name}`}
+            aria-expanded={isExpanded}
             onClick={(event) => {
               event.stopPropagation();
               onToggleExpand(node.project.id);
@@ -91,20 +92,26 @@ function TreeItem({
             style={{ display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
           >
             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </span>
+          </button>
         ) : (
           <span style={{ width: 14 }} />
         )}
-        <Folder size={14} style={{ color: isActive ? 'var(--accent)' : 'var(--text-muted)' }} />
-        <span className="truncate" style={{ flex: 1, minWidth: 0 }}>
-          {node.project.name}
-        </span>
-        {childCount > 0 && (
-          <span className="project-tree-count">
-            {childCount}
+        <button
+          type="button"
+          className="project-tree-select"
+          onClick={() => onSelectProject(node.project.id)}
+        >
+          <Folder size={14} style={{ color: isActive ? 'var(--accent)' : 'var(--text-muted)' }} />
+          <span className="truncate" style={{ flex: 1, minWidth: 0 }}>
+            {node.project.name}
           </span>
-        )}
-      </button>
+          {childCount > 0 && (
+            <span className="project-tree-count">
+              {childCount}
+            </span>
+          )}
+        </button>
+      </div>
       {isExpanded && hasChildren && (
         <div>
           {node.children.map((child) => (
@@ -179,7 +186,7 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
         }}
       >
         <span>{t('sidebar.projects')}</span>
-        <button onClick={fetchProjects} style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+        <button type="button" className="project-tree-refresh" onClick={fetchProjects} style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
           {t('common.refresh')}
         </button>
       </div>
@@ -210,6 +217,7 @@ export default function ProjectTree({ activeProjectId, onSelectProject, refreshT
       {activeProjectId && (
         <button
           type="button"
+          className="project-tree-clear"
           style={{
             width: '100%',
             border: 'none',

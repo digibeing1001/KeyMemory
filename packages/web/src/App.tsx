@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import type { Layer, SearchResult, HealthReport, Memory } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
-import { Search, Close, Key } from './components/Icons';
+import { Search, Close, Key, Menu } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
@@ -71,6 +71,7 @@ function AppInner() {
   const [graphLoading, setGraphLoading] = useState(false);
   const [authLocked, setAuthLocked] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -121,6 +122,7 @@ function AppInner() {
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
     localStorage.setItem('keymemory_view_mode', mode);
+    setSidebarOpen(false);
   };
 
   const submitApiKey = (event: FormEvent) => {
@@ -168,6 +170,7 @@ function AppInner() {
     setSearchInput('');
     setViewMode('memories');
     store.selectLayer(layer);
+    setSidebarOpen(false);
   };
 
   const handleProjectSelect = (projectId: string | null) => {
@@ -177,6 +180,7 @@ function AppInner() {
     setViewMode('memories');
     store.setActiveProject(projectId);
     store.selectMemory(null);
+    setSidebarOpen(false);
   };
 
   const handleSave = async (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
@@ -267,11 +271,21 @@ function AppInner() {
 
   return (
     <div className="app-layout flex h-screen" style={{ background: 'var(--bg-primary)' }}>
+      <button
+        type="button"
+        className={`mobile-sidebar-backdrop${sidebarOpen ? ' is-visible' : ''}`}
+        aria-label={t('common.close')}
+        aria-hidden={!sidebarOpen}
+        onClick={() => setSidebarOpen(false)}
+      />
       <Sidebar
         layerStats={store.layerStats}
         activeLayer={store.selectedLayer}
         onSelectLayer={handleLayerSelect}
-        onCreateNew={store.createNew}
+        onCreateNew={() => {
+          store.createNew();
+          setSidebarOpen(false);
+        }}
         totalMemories={totalMemories}
         healthReport={healthReport}
         viewMode={viewMode}
@@ -281,6 +295,8 @@ function AppInner() {
         activeProjectId={store.activeProject}
         onSelectProject={handleProjectSelect}
         projectRefreshToken={projectRefreshToken}
+        isMobileOpen={sidebarOpen}
+        onCloseMobile={() => setSidebarOpen(false)}
       />
 
       <div className="app-main flex flex-col flex-1" style={{ marginLeft: 248 }}>
@@ -292,8 +308,16 @@ function AppInner() {
             borderBottom: '1px solid var(--border)',
           }}
         >
+          <button
+            type="button"
+            className="mobile-nav-button"
+            onClick={() => setSidebarOpen(true)}
+            aria-label={t('common.expand')}
+          >
+            <Menu size={17} />
+          </button>
           <div className="flex items-center gap-4 flex-1" style={{ minWidth: 0 }}>
-            <form onSubmit={handleSearch} className="relative flex-1" style={{ maxWidth: 520 }}>
+            <form onSubmit={handleSearch} className="app-search-form relative flex-1" style={{ maxWidth: 520 }}>
               <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type="text"
@@ -315,6 +339,7 @@ function AppInner() {
                   type="button"
                   aria-label={t('common.close')}
                   onClick={handleClearSearch}
+                  className="search-clear-button"
                   style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer', background: 'none', border: 'none' }}
                 >
                   <Close size={14} />
@@ -329,7 +354,7 @@ function AppInner() {
             )}
           </div>
 
-          <div className="flex items-center gap-2" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          <div className="app-header-status flex items-center gap-2" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: store.healthOk ? 'var(--success)' : 'var(--danger)' }} />
             {store.healthOk ? t('app.connected') : t('app.disconnected')}
           </div>

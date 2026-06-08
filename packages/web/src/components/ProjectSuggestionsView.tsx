@@ -100,9 +100,9 @@ export default function ProjectSuggestionsView({ onChanged, onToast }: ProjectSu
   const activeStatusLabel = statuses.find((item) => item.value === status)?.label ?? status;
 
   return (
-    <main className="project-suggestions-view" style={{ padding: 24, overflowY: 'auto', height: '100%' }}>
+    <main className="project-suggestions-view app-page" style={{ padding: 24, overflowY: 'auto', height: '100%' }}>
       <div style={{ maxWidth: 940 }}>
-        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
+        <header className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="km-icon-tile" style={{ width: 42, height: 42, borderRadius: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
               <GitMerge size={21} />
@@ -114,7 +114,7 @@ export default function ProjectSuggestionsView({ onChanged, onToast }: ProjectSu
               </p>
             </div>
           </div>
-          <button className="btn" onClick={() => load()} disabled={loading || busyId !== null}>
+          <button type="button" className="btn" onClick={() => load()} disabled={loading || busyId !== null}>
             {loading ? <Sparkles size={15} /> : <RefreshCw size={15} />}
             {t('common.refresh')}
           </button>
@@ -123,6 +123,7 @@ export default function ProjectSuggestionsView({ onChanged, onToast }: ProjectSu
         <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
           {statuses.map((item) => (
             <button
+              type="button"
               key={item.value}
               className={`btn${status === item.value ? ' btn-primary' : ''}`}
               onClick={() => setStatus(item.value)}
@@ -166,6 +167,7 @@ export default function ProjectSuggestionsView({ onChanged, onToast }: ProjectSu
               return (
                 <section
                   key={suggestion.id}
+                  className="project-suggestion-card"
                   style={{
                     border: '1px solid var(--border)',
                     borderRadius: 'var(--radius-lg)',
@@ -202,6 +204,7 @@ export default function ProjectSuggestionsView({ onChanged, onToast }: ProjectSu
                       {t('organize.projectCount', { count: suggestion.projectIds.length })}
                     </span>
                     <button
+                      type="button"
                       className="btn"
                       onClick={() => setShowIds((prev) => ({ ...prev, [suggestion.id]: !prev[suggestion.id] }))}
                       style={{ padding: '4px 8px', fontSize: 12 }}
@@ -230,11 +233,11 @@ export default function ProjectSuggestionsView({ onChanged, onToast }: ProjectSu
                         style={{ ...inputStyle, flex: '1 1 240px' }}
                         disabled={busyId !== null}
                       />
-                      <button className="btn btn-primary" onClick={() => accept(suggestion)} disabled={busyId !== null}>
+                      <button type="button" className="btn btn-primary" onClick={() => accept(suggestion)} disabled={busyId !== null}>
                         {busyId === suggestion.id ? <Sparkles size={14} /> : <CheckCircle size={14} />}
                         {t('organize.accept')}
                       </button>
-                      <button className="btn" onClick={() => reject(suggestion)} disabled={busyId !== null}>
+                      <button type="button" className="btn" onClick={() => reject(suggestion)} disabled={busyId !== null}>
                         <XCircle size={14} />
                         {t('organize.reject')}
                       </button>

@@ -2,6 +2,48 @@
 
 Generated: 2026-05-30
 
+## 2026-06-08 Follow-Up Research
+
+This follow-up focused on what makes an agent memory plugin trustworthy enough for daily coding-agent use: durable recall, auditable writes, reversible consolidation, and a UI that explains why a memory is safe or risky for agents to reuse.
+
+### Current OSS Signals
+
+GitHub counts were checked on 2026-06-08.
+
+- mem0 (`mem0ai/mem0`, 58k+ stars): productizes memory as a universal layer for agents. Useful lesson: memory quality is a product surface, not just a storage concern. https://github.com/mem0ai/mem0
+- Graphiti (`getzep/graphiti`, 27k+ stars): emphasizes temporal knowledge graphs and changing facts. Useful lesson: related memories should often become graph edges before they become destructive merges. https://github.com/getzep/graphiti
+- Letta/MemGPT (`letta-ai/letta`, 23k+ stars): treats stateful agents as systems with explicit memory management. Useful lesson: agent read/write paths should be shared, validated, and host-agnostic. https://github.com/letta-ai/letta
+- supermemory (`supermemoryai/supermemory`, 26k+ stars): frames memory as user-facing infrastructure across apps. Useful lesson: users need simple, inspectable controls for what the system remembers. https://github.com/supermemoryai/supermemory
+- Cognee (`topoteretes/cognee`, 17k+ stars): combines memory, knowledge graphs, and data pipelines. Useful lesson: memory ingestion and later organization need stable provenance. https://github.com/topoteretes/cognee
+- Hindsight (`vectorize-io/hindsight`, 15k+ stars): focuses on agent memory that learns from past work. Useful lesson: memory systems need feedback signals and quality gates before long-term promotion. https://github.com/vectorize-io/hindsight
+- OpenMemory (`CaviraOSS/OpenMemory`, 4k+ stars): validates the local persistent memory store direction for desktop agent tools. Useful lesson: local-first privacy remains a strong differentiator. https://github.com/CaviraOSS/OpenMemory
+- MemoryOS (`BAI-LAB/MemoryOS`): frames memory as an operating layer with activation and consolidation. Useful lesson: Dream should behave like an auditable maintenance pass, not a magical cleanup button. https://github.com/BAI-LAB/MemoryOS
+
+### Paper Signals
+
+- Generative Agents shows that retrieval, reflection, and planning become stronger together. KeyMemory implication: Dream should generate explicit maintenance signals and user-review items, not silent rewrites. https://arxiv.org/abs/2304.03442
+- MemGPT/Letta motivates virtual context management and separation between limited active context and larger archival memory. KeyMemory implication: the MCP execution layer should be stable and consistent across stdio and HTTP so agents get the same semantics. https://arxiv.org/abs/2310.08560
+- Reflexion shows value in storing lessons from prior attempts. KeyMemory implication: low-confidence or sparse memories should stay visible as seeds until confirmed, rather than being prematurely promoted. https://arxiv.org/abs/2303.11366
+- MemoryBank highlights long-term user memory with forgetting and updating. KeyMemory implication: every durable memory needs freshness, confidence, source, and project-routing signals. https://arxiv.org/abs/2305.10250
+
+### Product Choices Landed In This Pass
+
+- Added shared memory quality analysis so server logic and Web UI can reason about source evidence, project routing, memory kind, domain tags, confidence, decay, and stale short-lived memories in one place.
+- Added Web memory insight panels in the memory detail drawer and Dream preview drawer, making "why this memory needs attention" visible before an agent or user acts on it.
+- Consolidated HTTP MCP and stdio MCP tool execution behind one validated executor, reducing drift between agent connection paths and hardening read/write input checks.
+- Made agent writes accept the full `CreateMemoryInput` shape through adapters, preserving `projectPath`, `metadata`, `sourceId`, and other routing/provenance fields instead of narrowing writes too early.
+- Made Dream promotion quality-gated: short-term memories now need recall signals and a minimum quality score before moving to long-term memory.
+- Made Dream semantic organization conservative: high semantic similarity now creates `relates_to` links instead of archiving related memories as if they were duplicates.
+- Hardened Dream duplicate handling with text/title checks, operational-tag filtering, safe JSON parsing, and broader rollback snapshots including project identifiers.
+
+### Next Research-Backed Priorities
+
+1. Add temporal validity windows and contradiction handling so KeyMemory can represent changed facts without only relying on supersession.
+2. Add a small recall-quality eval for Dream output: duplicate false positives, promotion precision, rollback fidelity, and context-pack usefulness.
+3. Surface relation provenance in the UI so users can see whether a link came from Dream, import, manual action, or agent write.
+4. Add "confirm before long-term" workflows for memories with low confidence or missing source evidence.
+5. Track agent write health per host app, including last successful read/write, validation errors, and permissions/isolation mode.
+
 ## Product Direction
 
 KeyMemory should become a project-native memory substrate for coding and work agents. The core job is not "save notes"; it is to let agents recover durable context across months of project work, while keeping memory organized, current, and safe to use.

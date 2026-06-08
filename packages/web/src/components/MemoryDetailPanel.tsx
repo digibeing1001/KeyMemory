@@ -5,6 +5,7 @@ import { LAYERS } from '@keymemory/shared';
 import { Archive, Close, Edit, Link, Tag, Trash } from './Icons';
 import MarkdownEditor from './MarkdownEditor';
 import MarkdownRenderer from './MarkdownRenderer';
+import MemoryQualityPanel from './MemoryQualityPanel';
 import { getRelatedMemories, type RelatedMemory } from '../lib/api';
 import { useI18n } from '../i18n';
 import { formatDateTime, formatMemoryTitle, getMemoryKind, LAYER_COLORS, redactSensitiveText, summarizeMemory } from '../lib/memoryFormat';
@@ -92,7 +93,7 @@ export default function MemoryDetailPanel({
       >
         <div className="flex items-center justify-between" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650, color: 'var(--text-primary)' }}>{t('detail.editing')}</h2>
-          <button className="btn" onClick={() => setEditing(false)} aria-label={t('common.close')}>
+          <button type="button" className="btn" onClick={() => setEditing(false)} aria-label={t('common.close')}>
             <Close size={14} />
           </button>
         </div>
@@ -131,7 +132,7 @@ export default function MemoryDetailPanel({
             {title}
           </h2>
         </div>
-        <button className="btn" onClick={onClose} aria-label={t('common.close')}>
+        <button type="button" className="btn" onClick={onClose} aria-label={t('common.close')}>
           <Close size={14} />
         </button>
       </div>
@@ -159,6 +160,8 @@ export default function MemoryDetailPanel({
             {summarizeMemory(memory, 220)}
           </p>
         </section>
+
+        <MemoryQualityPanel memory={memory} />
 
         <section className="memory-meta-grid" style={{ display: 'grid', gap: 9, marginBottom: 18 }}>
           {metaRow(t('editor.layer'), (
@@ -199,8 +202,10 @@ export default function MemoryDetailPanel({
           }}
         >
           <button
+            type="button"
             className="memory-body-toggle"
             onClick={() => setShowBody((value) => !value)}
+            aria-expanded={showBody}
             style={{
               width: '100%',
               display: 'flex',
@@ -256,6 +261,7 @@ export default function MemoryDetailPanel({
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {LAYERS.filter((layer) => layer !== memory.layer).map((layer) => (
               <button
+                type="button"
                 key={layer}
                 className="tag-pill"
                 onClick={() => onMoveLayer(memory.id, layer)}
@@ -275,15 +281,15 @@ export default function MemoryDetailPanel({
       </div>
 
       <div className="memory-detail-actions flex items-center gap-2" style={{ padding: 14, borderTop: '1px solid var(--border)' }}>
-        <button className="btn btn-primary" onClick={() => setEditing(true)}>
+        <button type="button" className="btn btn-primary" onClick={() => setEditing(true)}>
           <Edit size={14} />
           {t('common.edit')}
         </button>
-        <button className="btn" onClick={() => onArchive(memory.id)}>
+        <button type="button" className="btn" onClick={() => onArchive(memory.id)}>
           <Archive size={14} />
           {t('common.archive')}
         </button>
-        <button className="btn" onClick={() => onDelete(memory.id)} style={{ color: 'var(--danger)', marginLeft: 'auto' }}>
+        <button type="button" className="btn" onClick={() => onDelete(memory.id)} style={{ color: 'var(--danger)', marginLeft: 'auto' }}>
           <Trash size={14} />
           {t('common.delete')}
         </button>

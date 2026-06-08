@@ -1,6 +1,6 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close } from './Icons';
 import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
@@ -21,6 +21,8 @@ interface SidebarProps {
   activeProjectId: string | null;
   onSelectProject: (projectId: string | null) => void;
   projectRefreshToken: number;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
 const LAYER_ICONS: Record<Layer, typeof Flash> = {
@@ -51,7 +53,9 @@ function LanguageButton({ value, label }: { value: Language; label: string }) {
   const active = language === value;
   return (
     <button
+      type="button"
       onClick={() => setLanguage(value)}
+      className="sidebar-language-button"
       style={{
         height: 26,
         minWidth: 40,
@@ -83,6 +87,8 @@ export default function Sidebar({
   activeProjectId,
   onSelectProject,
   projectRefreshToken,
+  isMobileOpen = false,
+  onCloseMobile,
 }: SidebarProps) {
   const { t, layerLabel, layerHelp } = useI18n();
   const healthReviewCount = healthReport
@@ -98,7 +104,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className="app-sidebar"
+      className={`app-sidebar${isMobileOpen ? ' is-mobile-open' : ''}`}
       style={{
         position: 'fixed',
         left: 0,
@@ -112,13 +118,23 @@ export default function Sidebar({
         borderRight: '1px solid var(--border)',
       }}
     >
-      <div style={{ padding: '16px 16px 12px' }}>
-        <h1 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0, lineHeight: 1.4 }}>
-          KeyMemory
-        </h1>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.45 }}>
-          {t('sidebar.subtitle')}
-        </p>
+      <div className="sidebar-brand-row" style={{ padding: '16px 16px 12px' }}>
+        <div>
+          <h1 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0, lineHeight: 1.4 }}>
+            KeyMemory
+          </h1>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.45 }}>
+            {t('sidebar.subtitle')}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="sidebar-mobile-close"
+          onClick={onCloseMobile}
+          aria-label={t('common.close')}
+        >
+          <Close size={15} />
+        </button>
       </div>
 
       <div style={{ padding: '0 12px 12px' }}>
@@ -141,6 +157,7 @@ export default function Sidebar({
             const Icon = item.icon;
             return (
               <button
+                type="button"
                 key={item.mode}
                 className={`sidebar-item${isActive ? ' active' : ''}`}
                 onClick={() => onViewModeChange(item.mode)}
@@ -167,6 +184,7 @@ export default function Sidebar({
 
         <nav className="sidebar-layer-list" style={{ padding: '0 8px 12px' }}>
           <button
+            type="button"
             className={`sidebar-item sidebar-layer-item${activeLayer === null ? ' active' : ''}`}
             onClick={() => onSelectLayer(null)}
             style={{ justifyContent: 'space-between', width: '100%', border: 'none', background: 'transparent' }}
@@ -185,6 +203,7 @@ export default function Sidebar({
 
             return (
               <button
+                type="button"
                 key={layer}
                 className={`sidebar-item sidebar-layer-item${isActive ? ' active' : ''}`}
                 onClick={() => onSelectLayer(layer)}
@@ -232,7 +251,9 @@ export default function Sidebar({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('sidebar.total', { count: totalMemories })}</span>
           <button
+            type="button"
             onClick={onToggleTheme}
+            className="sidebar-theme-button"
             title={isDark ? t('sidebar.switchToLight') : t('sidebar.switchToDark')}
             style={{
               display: 'flex',

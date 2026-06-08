@@ -18,6 +18,10 @@ import { createBackupFile, inspectBackupFile, restoreBackupFile } from './core/b
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './core/project.js';
 import { canonicalToolName, MCP_TOOLS } from './core/mcp-tools.js';
 import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from './core/secrets.js';
+import { executeMcpTool } from './core/mcp-executor.js';
+import { createHermesAdapter } from './adapters/hermes.js';
+import { openClawAdapter } from './adapters/openclaw.js';
+import type { IsolationMode } from '@keymemory/shared';
 
 function formatLogArg(arg: unknown): string {
   if (arg instanceof Error) return arg.stack || arg.message;
@@ -34,6 +38,12 @@ console.warn = (...args: unknown[]) => writeLog('warn', args);
 console.error = (...args: unknown[]) => writeLog('error', args);
 
 const launchedByKeyMemoryLauncher = process.env.KEYMEMORY_STDIO === '1';
+const stdioAdapter = process.env.KEYMEMORY_AGENT_ID
+  ? createHermesAdapter({
+    agentId: process.env.KEYMEMORY_AGENT_ID,
+    isolationMode: (process.env.KEYMEMORY_ISOLATION_MODE as IsolationMode | undefined) ?? 'hybrid',
+  })
+  : openClawAdapter;
 
 function shutdown(exitCode = 0): void {
   try {
@@ -401,6 +411,7 @@ async function handleRequest(request: any) {
     case 'tools/call': {
       const toolName = canonicalToolName(params?.name);
       const args = params?.arguments || {};
+      if (toolName) return executeMcpTool(toolName, args, stdioAdapter, { responseStyle: 'agentText' });
 
       switch (toolName) {
         case 'memory_create': {

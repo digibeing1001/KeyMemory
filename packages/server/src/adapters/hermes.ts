@@ -1,5 +1,5 @@
 import type { MemoryAdapter } from './base.js';
-import type { Memory, Layer, SearchResult, IsolationMode } from '@keymemory/shared';
+import type { Memory, SearchResult, IsolationMode, CreateMemoryInput } from '@keymemory/shared';
 import { createMemory, getMemory, listMemories, deleteMemory } from '../core/atom.js';
 import { searchHybrid } from '../core/query.js';
 import { routeMemory, createAgentContext } from './base.js';
@@ -26,7 +26,7 @@ export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapte
       return mem;
     },
 
-    async write(data: { title: string; content: string; layer: Layer; projectId?: string }): Promise<Memory> {
+    async write(data: CreateMemoryInput): Promise<Memory> {
       const decision = routeMemory(data.content, data.layer, ctx);
 
       const writeData = {
