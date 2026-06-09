@@ -183,7 +183,7 @@ export function extractEntities(content: string): ExtractedEntity[] {
     try {
       const hostname = new URL(match[0]).hostname;
       addEntity(hostname, 'tool', 0.7, match.index);
-    } catch {}
+    } catch (err) { console.error('[Entity] Failed to link memory entity:', (err as Error).message); }
   }
 
   return entities.filter(e => e.confidence >= 0.5);

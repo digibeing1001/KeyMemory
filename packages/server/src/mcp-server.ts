@@ -62,7 +62,7 @@ if (launchedByKeyMemoryLauncher) {
   console.log('stdio MCP mode: background REST server and scheduler disabled');
 } else {
   setInterval(async () => {
-    try { await runDailyInspection(); applyDecay(); } catch {}
+    try { await runDailyInspection(); applyDecay(); } catch (err) { console.error('[MCP] Daily inspection failed:', (err as Error).message); }
   }, 86400000);
 
   startScheduler();

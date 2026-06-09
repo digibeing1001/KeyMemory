@@ -62,7 +62,7 @@ export function routeMemory(
         if (new RegExp(rule.pattern, 'i').test(content)) {
           return { targetSpace: rule.targetSpace, confidence: 1.0, needsConfirmation: false, reason: `custom rule: ${rule.pattern}` };
         }
-      } catch {}
+      } catch (err) { console.error('[Adapter] Failed to sync:', (err as Error).message); }
     }
   }
 
