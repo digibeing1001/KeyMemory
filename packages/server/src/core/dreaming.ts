@@ -176,42 +176,71 @@ function runLightPhase(reportId: string, details: DreamReportDetails): { session
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
-  const lookback = DREAM_THRESHOLDS.lookbackDays;
 
+  // 扫描所有活跃记忆（不仅 flash/short），确保全库去重
   const recentMemories = db.prepare(`
     SELECT m.id, m.title, m.content, m.layer, m.tags, m.hit_count, m.created_at, m.updated_at
     FROM memories m
     WHERE m.status = 'active'
-      AND m.layer IN ('flash', 'short')
-      AND m.created_at >= datetime('now', ? || ' days')
-    ORDER BY m.created_at DESC
-  `).all(`-${lookback}`) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; updated_at: string }[];
+    ORDER BY m.created_at ASC
+    LIMIT ?
+  `).all(DREAM_CONFIG.fullScanLimit) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; updated_at: string }[];
 
   let mergedCount = 0;
   const processedIds = new Set<string>();
   const mergeGroups: { keeper: string; duplicates: string[] }[] = [];
 
-  // 检测重复组
+  const textSimThreshold = DREAM_THRESHOLDS.textSimilarityThreshold;
+  const titleSimThreshold = DREAM_THRESHOLDS.titleSimilarityThreshold;
+  const jaccardThreshold = DREAM_THRESHOLDS.lightJaccardThreshold;
+
+  // 检测重复组：多维度匹配
   for (let i = 0; i < recentMemories.length; i++) {
     if (processedIds.has(recentMemories[i].id)) continue;
     
     const duplicates: string[] = [];
     const tagsA = dreamSignalTags(safeParseTagList(recentMemories[i].tags));
+    const titleA = recentMemories[i].title.toLowerCase().trim();
+    const contentA = recentMemories[i].content.toLowerCase().trim();
     
     for (let j = i + 1; j < recentMemories.length; j++) {
       if (processedIds.has(recentMemories[j].id)) continue;
 
+      const titleB = recentMemories[j].title.toLowerCase().trim();
+      const contentB = recentMemories[j].content.toLowerCase().trim();
+
+      // 快速预筛选：标题完全相同或内容完全包含
+      const titleExactMatch = titleA === titleB && titleA.length > 0;
+      const contentExactMatch = contentA === contentB && contentA.length > 0;
+      const contentContains = contentA.length > 50 && contentB.length > 50 && (contentA.includes(contentB) || contentB.includes(contentA));
+
+      if (titleExactMatch || contentExactMatch || contentContains) {
+        duplicates.push(recentMemories[j].id);
+        processedIds.add(recentMemories[j].id);
+        continue;
+      }
+
+      // 精细计算：标签 Jaccard + 文本相似度
       const tagsB = dreamSignalTags(safeParseTagList(recentMemories[j].tags));
-      const jaccard = computeJaccard(tagsA, tagsB);
+      const jaccard = tagsA.length > 0 && tagsB.length > 0 ? computeJaccard(tagsA, tagsB) : 0;
 
       const textSim = computeTextSimilarity(recentMemories[i].content, recentMemories[j].content);
       const titleSim = computeTextSimilarity(recentMemories[i].title, recentMemories[j].title);
-      if (
-        (tagsA.length > 0 && tagsB.length > 0 && jaccard > DREAM_THRESHOLDS.lightJaccardThreshold && textSim > 0.78)
-        || (titleSim > 0.9 && textSim > 0.82)
-      ) {
-          duplicates.push(recentMemories[j].id);
-          processedIds.add(recentMemories[j].id);
+
+      // 多维度去重判定（满足任一条件即视为重复）
+      const isDuplicate =
+        // 条件1：标题高度相似 + 内容中等相似
+        (titleSim > titleSimThreshold && textSim > textSimThreshold) ||
+        // 条件2：标签高度重叠 + 内容中等相似
+        (jaccard > jaccardThreshold && textSim > textSimThreshold) ||
+        // 条件3：内容高度相似（即使标题不同）
+        (textSim > 0.82) ||
+        // 条件4：标题几乎相同 + 内容有一定相似
+        (titleSim > 0.9 && textSim > 0.5);
+
+      if (isDuplicate) {
+        duplicates.push(recentMemories[j].id);
+        processedIds.add(recentMemories[j].id);
       }
     }
 
@@ -241,14 +270,12 @@ function runLightPhase(reportId: string, details: DreamReportDetails): { session
         (dup.tags || []).forEach(t => allTags.add(t));
         totalHits += dup.hitCount;
         
-        // 归档重复项
         forgetMemory(dupId, 'archive');
         createMemoryRelation(group.keeper, dupId, 'supersedes', 1.0, `dream:${reportId}:light-duplicate-merge`);
         details.merged.push({ memoryId: dupId, title: dup.title, intoId: group.keeper, intoTitle: keeper.title });
         details.archived.push({ memoryId: dupId, title: dup.title, reason: '重复合并' });
       }
 
-      // 智能合并内容
       const mergedContent = smartMergeContents(allContents);
       const mergedTags = Array.from(allTags);
 
@@ -257,12 +284,11 @@ function runLightPhase(reportId: string, details: DreamReportDetails): { session
         tags: mergedTags,
       }, `整理合并：合并 ${group.duplicates.length} 条重复记忆`);
 
-      // 更新命中次数
       db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, group.keeper);
 
       mergedCount += group.duplicates.length;
     } catch (err) {
-      console.error(`[Light Phase] Failed to merge group ${group.keeper}:`, err);
+      console.error(`[Light Phase] Failed to merge group ${group.keeper}:`, (err as Error).message);
     }
   }
 
@@ -521,8 +547,9 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
   const sessionId = uuid();
   const now = new Date().toISOString();
   let mergedCount = 0;
+  let relationsCreated = 0;
 
-  // 获取所有活跃的、有嵌入向量的短期记忆
+  // 获取所有活跃的、有嵌入向量的记忆
   let memories: { id: string; title: string; embedding: Buffer }[];
   try {
     memories = db.prepare(`
@@ -530,13 +557,11 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
       FROM memories m
       JOIN embeddings e ON e.memory_id = m.id
       WHERE m.status = 'active'
-        AND m.layer IN ('short', 'flash')
-      ORDER BY m.created_at DESC
-      LIMIT 150
-    `).all() as { id: string; title: string; embedding: Buffer }[];
+      ORDER BY m.created_at ASC
+      LIMIT ?
+    `).all(DREAM_CONFIG.fullScanLimit) as { id: string; title: string; embedding: Buffer }[];
   } catch (err) {
     const msg = (err as Error).message || '';
-    // 仅对无表/无数据错误跳过，其他数据库错误应抛出
     if (msg.includes('no such table') || msg.includes('SQLITE_ERROR')) {
       const session: DreamSession = {
         id: sessionId,
@@ -567,15 +592,18 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
     return { session, mergedCount: 0 };
   }
 
-  const relationGroups: { keeper: string; related: string[]; maxSimilarity: number }[] = [];
+  const autoMergeThreshold = DREAM_CONFIG.semanticAutoMergeThreshold;
+  const relateThreshold = DREAM_CONFIG.semanticMergeThreshold;
   const processedIds = new Set<string>();
+  const mergeGroups: { keeper: string; duplicates: string[]; maxSimilarity: number }[] = [];
+  const relateGroups: { keeper: string; related: string[]; maxSimilarity: number }[] = [];
 
-  // 基于语义相似度找到关联组。这里仅建立关系，不自动合并，避免相关但不等价的记忆被误归档。
   for (let i = 0; i < memories.length; i++) {
     if (processedIds.has(memories[i].id)) continue;
 
+    const duplicates: string[] = [];
     const related: string[] = [];
-    let maxSimilarity = 0;
+    let maxSim = 0;
     const vecA = bufferToEmbedding(memories[i].embedding);
 
     for (let j = i + 1; j < memories.length; j++) {
@@ -584,33 +612,78 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
       const vecB = bufferToEmbedding(memories[j].embedding);
       const sim = cosineSimilarity(vecA, vecB);
 
-      if (sim > DREAM_CONFIG.semanticMergeThreshold && sim < CONSOLIDATION_CONFIG.duplicateSimilarity) {
-        related.push(memories[j].id);
-        maxSimilarity = Math.max(maxSimilarity, sim);
+      if (sim > autoMergeThreshold) {
+        // 高相似度：直接合并
+        duplicates.push(memories[j].id);
+        maxSim = Math.max(maxSim, sim);
         processedIds.add(memories[j].id);
+      } else if (sim > relateThreshold) {
+        // 中等相似度：建立关系
+        related.push(memories[j].id);
+        maxSim = Math.max(maxSim, sim);
       }
     }
 
-    if (related.length > 0) {
-      relationGroups.push({ keeper: memories[i].id, related, maxSimilarity });
+    if (duplicates.length > 0) {
+      mergeGroups.push({ keeper: memories[i].id, duplicates, maxSimilarity: maxSim });
       processedIds.add(memories[i].id);
+    }
+    if (related.length > 0) {
+      relateGroups.push({ keeper: memories[i].id, related, maxSimilarity: maxSim });
     }
   }
 
-  let relationsCreated = 0;
-  for (const group of relationGroups) {
+  // 执行合并
+  createSnapshots(db, reportId, mergeGroups.flatMap(g => [g.keeper, ...g.duplicates]));
+
+  for (const group of mergeGroups) {
     try {
       const keeper = getMemory(group.keeper);
       if (!keeper) continue;
 
+      const allContents: string[] = [keeper.content];
+      const allTags = new Set(keeper.tags || []);
+      let totalHits = keeper.hitCount;
+
+      for (const dupId of group.duplicates) {
+        const dup = getMemory(dupId);
+        if (!dup) continue;
+
+        allContents.push(dup.content);
+        (dup.tags || []).forEach(t => allTags.add(t));
+        totalHits += dup.hitCount;
+
+        forgetMemory(dupId, 'archive');
+        createMemoryRelation(group.keeper, dupId, 'supersedes', 1.0, `dream:${reportId}:semantic-merge`);
+        details.merged.push({ memoryId: dupId, title: dup.title, intoId: group.keeper, intoTitle: keeper.title });
+        details.archived.push({ memoryId: dupId, title: dup.title, reason: '语义重复合并' });
+      }
+
+      const mergedContent = smartMergeContents(allContents);
+      updateMemory(group.keeper, {
+        content: mergedContent,
+        tags: Array.from(allTags),
+      }, `语义合并：合并 ${group.duplicates.length} 条语义重复记忆`);
+
+      db.prepare(`UPDATE memories SET hit_count = ? WHERE id = ?`).run(totalHits, group.keeper);
+      mergedCount += group.duplicates.length;
+    } catch (err) {
+      console.error(`[Semantic Phase] Failed to merge group ${group.keeper}:`, (err as Error).message);
+    }
+  }
+
+  // 建立关系
+  for (const group of relateGroups) {
+    try {
       for (const relatedId of group.related) {
-        const related = getMemory(relatedId);
-        if (!related) continue;
         createMemoryRelation(group.keeper, relatedId, 'relates_to', Math.min(0.95, group.maxSimilarity), `dream:${reportId}:semantic-related`);
         relationsCreated++;
       }
     } catch (err) {
-      console.error(`[Semantic Phase] Failed to relate group ${group.keeper}:`, err);
+      const message = (err as Error).message || '';
+      if (!message.includes('Memory relation')) {
+        console.error(`[Semantic Phase] Failed to relate:`, (err as Error).message);
+      }
     }
   }
 
@@ -618,7 +691,8 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
 
   const signals: Record<string, number> = {
     scanned: candidatesProcessed,
-    groupsFound: relationGroups.length,
+    mergeGroupsFound: mergeGroups.length,
+    relateGroupsFound: relateGroups.length,
     relationsCreated,
     merged: mergedCount,
   };
@@ -627,11 +701,11 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
     id: sessionId,
     phase: 'deep',
     candidatesProcessed,
-    candidatesPromoted: relationsCreated,
+    candidatesPromoted: mergedCount + relationsCreated,
     signals,
     startedAt: now,
     completedAt: new Date().toISOString(),
-    summary: `语义关联：分析${candidatesProcessed}条记忆，发现${relationGroups.length}组关联，建立${relationsCreated}条关系`,
+    summary: `语义整理：分析${candidatesProcessed}条记忆，合并${mergedCount}条重复，建立${relationsCreated}条关联`,
   };
 
   return { session, mergedCount };
@@ -726,8 +800,8 @@ function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds:
       JOIN embeddings e ON e.memory_id = m.id
       WHERE m.status = 'active'
       ORDER BY m.created_at ASC
-      LIMIT 200
-    `).all() as { id: string; title: string; content: string; embedding: Buffer }[];
+      LIMIT ?
+    `).all(DREAM_CONFIG.fullScanLimit) as { id: string; title: string; content: string; embedding: Buffer }[];
   } catch {
     return actions;
   }
@@ -748,7 +822,8 @@ function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds:
       const textSim = computeTextSimilarity(memories[i].content, memories[j].content);
       const titleSim = computeTextSimilarity(memories[i].title, memories[j].title);
 
-      if (sim > threshold && (textSim > 0.58 || (titleSim > 0.88 && textSim > 0.42))) {
+      // 语义+文本双重验证，避免误合并
+      if (sim > threshold && (textSim > 0.5 || titleSim > 0.7)) {
         const keeper = memories[i].id;
         const removed = memories[j].id;
 
@@ -758,7 +833,7 @@ function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds:
             type: 'deduplicate',
             sourceIds: [keeper, removed],
             targetId: keeper,
-            description: `「${memories[i].title}」与「${memories[j].title}」相似度${sim.toFixed(2)}，保留前者`,
+            description: `「${memories[i].title}」与「${memories[j].title}」语义相似度${sim.toFixed(2)}，保留前者`,
             status: 'pending',
           });
           affectedIds.add(removed);
@@ -1318,6 +1393,8 @@ export function rollbackDream(reportId: string): DreamReport {
 
     if (!existing) {
       const now = new Date().toISOString();
+      const tags = safeParseTagList(snap.tags as string | null);
+      const metadata = safeParseRecord(snap.metadata as string | null);
       db.prepare(`
         INSERT INTO memories (id, title, content, layer, project_id, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, ?, ?, ?, ?)
@@ -1333,8 +1410,8 @@ export function rollbackDream(reportId: string): DreamReport {
         snap.decay_factor as number,
         snap.captured_at as string,
         now,
-        snap.tags ? snap.tags as string : null,
-        snap.metadata ? snap.metadata as string : null,
+        tags ? JSON.stringify(tags) : null,
+        metadata ? JSON.stringify(metadata) : null,
         null,
         null,
       );
@@ -1366,9 +1443,18 @@ export function getDreamReport(reportId: string): DreamReport | null {
   const row = db.prepare(`SELECT * FROM dream_reports WHERE id = ?`).get(reportId) as Record<string, unknown> | undefined;
   if (!row) return null;
 
+  let sessions: DreamSession[] = [];
+  try { sessions = JSON.parse(row.sessions as string); } catch { /* corrupted */ }
+
+  let todoItems: DreamTodoItem[] = [];
+  try { todoItems = currentTodoItems(db, row.todo_items); } catch { /* corrupted */ }
+
+  let details: DreamReportDetails | undefined;
+  try { details = row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined; } catch { /* corrupted */ }
+
   return {
     id: row.id as string,
-    sessions: JSON.parse(row.sessions as string),
+    sessions,
     totalCandidates: row.total_candidates as number,
     promoted: row.promoted as number,
     archived: row.archived as number,
@@ -1376,30 +1462,39 @@ export function getDreamReport(reportId: string): DreamReport | null {
     status: row.status as DreamReport['status'],
     createdAt: row.created_at as string,
     completedAt: row.completed_at as string | undefined,
-    todoItems: currentTodoItems(db, row.todo_items),
-    details: row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined,
+    todoItems,
+    details,
   };
 }
 
 export function listDreamReports(limit = 20): DreamReport[] {
   const db = getDatabase();
   const rows = db.prepare(`SELECT * FROM dream_reports ORDER BY created_at DESC LIMIT ?`).all(limit) as Record<string, unknown>[];
-  const ids = rows.map(r => r.id as string);
-  console.log('[Dream] listDreamReports returned IDs:', ids);
 
-  return rows.map(row => ({
-    id: row.id as string,
-    sessions: JSON.parse(row.sessions as string),
-    totalCandidates: row.total_candidates as number,
-    promoted: row.promoted as number,
-    archived: row.archived as number,
-    merged: row.merged as number,
-    status: row.status as DreamReport['status'],
-    todoItems: currentTodoItems(db, row.todo_items),
-    createdAt: row.created_at as string,
-    completedAt: row.completed_at as string | undefined,
-    details: row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined,
-  }));
+  return rows.map(row => {
+    let sessions: DreamSession[] = [];
+    try { sessions = JSON.parse(row.sessions as string); } catch { /* corrupted */ }
+
+    let todoItems: DreamTodoItem[] = [];
+    try { todoItems = currentTodoItems(db, row.todo_items); } catch { /* corrupted */ }
+
+    let details: DreamReportDetails | undefined;
+    try { details = row.details ? JSON.parse(row.details as string) as DreamReportDetails : undefined; } catch { /* corrupted */ }
+
+    return {
+      id: row.id as string,
+      sessions,
+      totalCandidates: row.total_candidates as number,
+      promoted: row.promoted as number,
+      archived: row.archived as number,
+      merged: row.merged as number,
+      status: row.status as DreamReport['status'],
+      todoItems,
+      createdAt: row.created_at as string,
+      completedAt: row.completed_at as string | undefined,
+      details,
+    };
+  });
 }
 
 export function getDreamSignalsForReport(reportId: string): { memoryId: string; title: string; score: number; promoted: boolean; signals: DreamSignals }[] {

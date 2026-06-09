@@ -40,11 +40,11 @@ export const SEARCH_CONFIG = {
 } as const;
 
 export const CONSOLIDATION_CONFIG = {
-  duplicateSimilarity: 0.85,
+  duplicateSimilarity: 0.78,
   staleDays: 60,
   flashMaxDays: 14,
   solidifyMinHits: 8,
-  maxActionsPerPlan: 50,
+  maxActionsPerPlan: 100,
 } as const;
 
 export const DREAM_SIGNAL_WEIGHTS = {
@@ -60,16 +60,20 @@ export const DREAM_THRESHOLDS = {
   minScore: 0.8,
   minRecallCount: 3,
   minUniqueQueries: 3,
-  lightJaccardThreshold: 0.9,
-  lookbackDays: 7,
+  lightJaccardThreshold: 0.65,
+  lookbackDays: 30,
   recencyHalfLifeDays: 30,
+  textSimilarityThreshold: 0.65,
+  titleSimilarityThreshold: 0.72,
 } as const;
 
 export const DREAM_CONFIG = {
   defaultCron: '0 3 * * *',
   minIntervalHours: 4,
   minSessionsBeforeDream: 3,
-  semanticMergeThreshold: 0.75,
+  semanticMergeThreshold: 0.72,
+  semanticAutoMergeThreshold: 0.88,
+  fullScanLimit: 2000,
 } as const;
 
 export const DEFAULT_PORT = 3210;
