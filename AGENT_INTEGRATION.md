@@ -7,13 +7,86 @@
 pnpm install
 pnpm -r build
 
-# 启动 MCP 服务器
+# 启动 MCP 服务器（MCP 模式）
 pnpm start:mcp
+
+# 或查看 CLI 命令帮助（CLI 模式）
+npx keymemory --help
 ```
 
 ---
 
-## 方式一：作为 MCP 服务器接入（推荐）
+## 模式选择
+
+KeyMemory 支持两种接入模式：
+
+| 模式 | 适用 Agent | 权限确认 | 说明 |
+|------|-----------|---------|------|
+| **CLI 模式** | Claude Code, Codex | 首次允许后免确认 | Agent 直接执行 `keymemory` 命令 |
+| **MCP 模式** | Claude Desktop, Hermes, OpenClaw, OpenCode | 取决于客户端 | 通过 MCP 协议通信 |
+
+**推荐**：Claude Code 和 Codex 使用 CLI 模式，Claude Desktop 使用 MCP 模式。
+
+---
+
+## 方式零：CLI 模式（推荐用于 Claude Code / Codex）
+
+### 为什么用 CLI 模式？
+
+- **零权限干扰**：首次执行时选择"Always allow"，之后不再弹窗确认
+- **更直接**：无 MCP 协议开销，直接操作数据库
+- **更简单**：无需配置 MCP server
+
+### 一键配置
+
+```bash
+# Claude Code 自动配置为 CLI 模式
+pnpm install-memory -- --agent=claude-code --mode=cli
+
+# Codex 自动配置为 CLI 模式
+pnpm install-memory -- --agent=codex --mode=cli
+
+# 查看 CLI 配置内容
+npx keymemory agent-config claude-code --mode cli
+```
+
+### 手动配置
+
+将以下内容添加到项目的 `.claude/CLAUDE.md` 或 `.claude/CLAUDE.mdc`：
+
+```markdown
+# KeyMemory - CLI Mode
+
+KeyMemory is the primary memory system. Use the `keymemory` CLI for all memory operations instead of MEMORY.md or local Memory files.
+
+## Core Commands
+
+- Create memory: `keymemory create -t "title" -c "content" -l long`
+- Search memory: `keymemory search "query" --limit 10`
+- Read memory: `keymemory read <id>`
+- Update memory: `keymemory update <id> -t "new title" -c "new content"`
+- Delete memory: `keymemory delete <id>`
+- List memories: `keymemory list --limit 20`
+- Context pack: `keymemory context "current task" --project "project/name" --max-items 12`
+- Auto-remember: `keymemory auto-remember -c "content to evaluate"`
+
+## Rules
+
+- Always use KeyMemory for durable memory instead of MEMORY.md or local Memory files
+- Before relying on user preferences, prior decisions, or previous instructions, run `keymemory search <query>`
+- After significant exchanges, run `keymemory auto-remember -c "<summary>"` to capture durable value
+- Do not create or update MEMORY.md files for memory purposes
+```
+
+### 首次使用
+
+Claude Code 首次执行 `keymemory` 命令时会请求 Bash 权限：
+1. 选择 **"Always allow"**（始终允许）
+2. 此后所有 `keymemory` 命令自动执行，无需确认
+
+---
+
+## 方式一：作为 MCP 服务器接入（适用于 Claude Desktop / Hermes / OpenClaw / OpenCode）
 
 ### 1. 配置到 Claude Desktop
 
@@ -317,23 +390,25 @@ KeyMemory 用结构化、可搜索的记忆系统替代传统的 MEMORY.md 平�
 ### 一键安装
 
 ```bash
-pnpm install-memory
-```
-
-或使用 `--all` 标志自动配置所有检测到的 Agent：
-
-```bash
+# 自动检测并配置所有 Agent（智能选择 CLI/MCP 模式）
 pnpm install-memory -- --all
-```
 
-指定特定 Agent：
+# 指定 Agent 并强制使用 CLI 模式
+pnpm install-memory -- --agent=claude-code --mode=cli
 
-```bash
-pnpm install-memory -- --agent=hermes
-pnpm install-memory -- --agent=openclaw
+# 指定 Agent 并强制使用 MCP 模式
+pnpm install-memory -- --agent=claude-desktop --mode=mcp
+
+# 查看支持的 Agent 列表
+pnpm install-memory -- --agent=claude-code --list
 ```
 
 Windows 用户可双击 `install-default-memory.bat` 运行。
+
+**模式说明**：
+- `--mode=auto`（默认）：根据 Agent 能力自动选择最佳模式
+- `--mode=cli`：使用 CLI 模式（Claude Code、Codex 推荐）
+- `--mode=mcp`：使用 MCP 模式（Claude Desktop 必需）
 
 ### 安装器做了什么？
 

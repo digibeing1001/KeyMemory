@@ -77,7 +77,7 @@ function runMigrations(db: Database.Database): void {
 
     CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
       title, content, project,
-      tokenize='unicode61'
+      tokenize='trigram'
     );
 
     CREATE TABLE IF NOT EXISTS entities (
@@ -343,17 +343,25 @@ function runMigrations(db: Database.Database): void {
 function ensureMemoryFtsSchema(db: Database.Database): void {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memories_fts'")
     .get() as { sql: string } | undefined;
-  const usesExternalContent = /content\s*=\s*'?memories'?/i.test(row?.sql ?? '');
-  if (!usesExternalContent) return;
+  if (!row) return;
+
+  // Detect old schemas that need rebuilding: either uses external content (legacy)
+  // or uses unicode61 tokenizer (no Chinese support)
+  const needsRebuild =
+    /content\s*=\s*'?memories'?/i.test(row.sql) ||
+    /tokenize\s*=\s*['"]?unicode61['"]?/i.test(row.sql);
+
+  if (!needsRebuild) return;
 
   db.exec(`
     DROP TABLE IF EXISTS memories_fts;
     CREATE VIRTUAL TABLE memories_fts USING fts5(
       title, content, project,
-      tokenize='unicode61'
+      tokenize='trigram'
     );
   `);
   rebuildMemoryFtsRows(db);
+  console.log('[KeyMemory] FTS5 索引已重建为 trigram（支持中文搜索）');
 }
 
 function rebuildMemoryFtsRows(db: Database.Database): void {

@@ -13,7 +13,7 @@ import { getHealthReport } from './core/health.js';
 import { listEntities, getEntityGraph, extractEntities, createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from './graph/entity.js';
 import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from './core/migration.js';
 import { buildAgentContextPack } from './core/context-pack.js';
-import { buildAgentConfigSnippets, listAgentConfigTargets } from './core/agent-config.js';
+import { buildAgentConfigSnippets, listAgentConfigTargets, type AgentMode } from './core/agent-config.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile, verifyBackupFile } from './core/backup.js';
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './core/project.js';
 import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from './core/secrets.js';
@@ -890,8 +890,9 @@ program
 
 program
   .command('agent-config [target]')
-  .description('Print MCP config snippets for Agent hosts: generic, claude-desktop, claude-code, hermes, openclaw, codex, or all')
+  .description('Print config snippets for Agent hosts: generic, claude-desktop, claude-code, hermes, openclaw, codex, opencode, or all')
   .option('--root <path>', 'KeyMemory project root for generated launcher path')
+  .option('--mode <mode>', 'config mode: cli, mcp, or auto (default: auto)', 'auto')
   .option('--list', 'list supported targets')
   .action((target = 'generic', opts) => {
     const format: OutputFormat = program.opts().format || 'json';
@@ -904,14 +905,19 @@ program
       printError(`Unsupported agent-config target: ${target}`);
     }
 
-    const snippets = buildAgentConfigSnippets(target, opts.root);
+    const mode = opts.mode as AgentMode;
+    if (mode !== 'cli' && mode !== 'mcp' && mode !== 'auto') {
+      printError(`Invalid mode: ${mode}. Must be one of: cli, mcp, auto`);
+    }
+
+    const snippets = buildAgentConfigSnippets(target, mode, opts.root);
     if (format === 'json') {
       printAndExit(target === 'all' ? snippets : snippets[0], format);
     }
 
     const text = snippets.map(item => [
-      `# ${item.label} (${item.target})`,
-      item.configPathHints.length > 0 ? `Paths: ${item.configPathHints.join(', ')}` : 'Paths: MCP-compatible config file',
+      `# ${item.label} (${item.target}) [${item.mode}]`,
+      item.configPathHints.length > 0 ? `Paths: ${item.configPathHints.join(', ')}` : 'Paths: config file',
       item.snippet,
       item.notes.map(note => `- ${note}`).join('\n'),
     ].filter(Boolean).join('\n')).join('\n\n');

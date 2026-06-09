@@ -27,7 +27,7 @@ const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory_secret_delete',
 ];
 
-const CLAUDE_MD_CONTENT = `# KeyMemory - Default Memory System
+const CLAUDE_MD_MCP_CONTENT = `# KeyMemory - Default Memory System
 
 KeyMemory is the primary memory system. Follow these rules:
 
@@ -47,6 +47,31 @@ KeyMemory is the primary memory system. Follow these rules:
 - All memory should go through KeyMemory MCP tools for structured, searchable storage
 - KeyMemory provides hybrid search (full-text + semantic) for better recall
 - Memories are automatically organized by layer (flash, short, long, entity)
+`;
+
+const CLAUDE_MD_CLI_CONTENT = `# KeyMemory - CLI Mode
+
+KeyMemory is the primary memory system. Use the \`keymemory\` CLI for all memory operations instead of MEMORY.md or local Memory files.
+
+## Core Commands
+
+- **Create memory**: \`keymemory create -t "title" -c "content" -l long\`
+- **Search memory**: \`keymemory search "query" --limit 10\`
+- **Read memory**: \`keymemory read <id>\`
+- **Update memory**: \`keymemory update <id> -t "new title" -c "new content"\`
+- **Delete memory**: \`keymemory delete <id>\`
+- **List memories**: \`keymemory list --limit 20\`
+- **Context pack**: \`keymemory context "current task" --project "project/name" --max-items 12\`
+- **Auto-remember**: \`keymemory auto-remember -c "content to evaluate"\`
+
+## Rules
+
+- Always use KeyMemory for durable memory instead of MEMORY.md or local Memory files
+- Before relying on user preferences, prior decisions, or previous instructions, run \`keymemory search <query>\`
+- After significant exchanges, run \`keymemory auto-remember -c "<summary>"\` to capture durable value
+- Do not create or update MEMORY.md files for memory purposes
+- KeyMemory provides hybrid search (full-text + semantic) for better recall
+- Memories are organized by layer: flash (temporary), short (recent), long (durable), entity (concepts/people)
 `;
 
 const OPENCLAW_MD_CONTENT = `# KeyMemory - OpenClaw Memory Instructions
@@ -74,6 +99,8 @@ const args = process.argv.slice(2);
 const flagAll = args.includes('--all');
 const flagAgent = args.find(a => a.startsWith('--agent='));
 const specificAgent = flagAgent ? flagAgent.split('=')[1] : null;
+const flagMode = args.find(a => a.startsWith('--mode='));
+const installMode = flagMode ? flagMode.split('=')[1] : 'auto'; // 'cli', 'mcp', 'auto'
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -271,10 +298,19 @@ async function configureClaudeDesktop() {
   console.log('Claude Desktop MCP config written.');
 }
 
-async function configureClaudeCode() {
+async function configureClaudeCode(mode = installMode) {
   console.log('\nConfiguring Claude Code...');
   console.log('-'.repeat(40));
 
+  const useCli = mode === 'cli' || (mode === 'auto' && detectClaudeCode());
+
+  if (useCli) {
+    console.log('Mode: CLI (no MCP server needed)');
+    await appendClaudeInstructions(true);
+    return;
+  }
+
+  console.log('Mode: MCP');
   const configPath = getClaudeCodeSettingsPath();
   const config = readJsonConfig(configPath);
   const beforeJson = JSON.stringify(config, null, 2);
@@ -289,7 +325,7 @@ async function configureClaudeCode() {
   writeJsonConfig(configPath, config);
   console.log(`Claude Code now allows ${KEYMEMORY_MCP_PERMISSION} without per-session prompts.`);
 
-  await appendClaudeInstructions();
+  await appendClaudeInstructions(false);
 }
 
 function hermesKeymemoryBlock() {
@@ -358,10 +394,29 @@ function upsertHermesYaml(content) {
   return `${lines.join('\n').replace(/\s+$/, '')}\n`;
 }
 
-async function configureHermes() {
+async function configureHermes(mode = installMode) {
   console.log('\nConfiguring Hermes...');
   console.log('-'.repeat(40));
 
+  const useCli = mode === 'cli' || (mode === 'auto' && detectClaudeDesktop() === false);
+
+  if (useCli) {
+    console.log('Mode: CLI (no MCP server needed)');
+    const instructionsPath = homePath('.hermes', 'CLAUDE.md');
+    const before = fs.existsSync(instructionsPath) ? fs.readFileSync(instructionsPath, 'utf8') : '';
+    if (before.includes('KeyMemory - CLI Mode')) {
+      console.log('Hermes CLAUDE.md already contains KeyMemory CLI instructions.');
+      return;
+    }
+    const after = before + (before ? '\n\n' : '') + CLAUDE_MD_CLI_CONTENT;
+    previewChange(instructionsPath, before || '(empty)', after);
+    if (!(await confirmWrite('Hermes CLAUDE.md'))) return;
+    writeTextFile(instructionsPath, after);
+    console.log('Hermes CLAUDE.md updated with CLI instructions.');
+    return;
+  }
+
+  console.log('Mode: MCP');
   const existingHermesPath = getHermesConfigPaths().find(filePath => fs.existsSync(filePath));
   const hermesConfigPath = existingHermesPath ?? homePath('.hermes', 'config.yaml');
   const before = fs.existsSync(hermesConfigPath) ? fs.readFileSync(hermesConfigPath, 'utf8') : '';
@@ -423,10 +478,29 @@ function upsertCodexToml(content) {
   return `${lines.join('\n').replace(/\s+$/, '')}\n`;
 }
 
-async function configureCodex() {
+async function configureCodex(mode = installMode) {
   console.log('\nConfiguring Codex...');
   console.log('-'.repeat(40));
 
+  const useCli = mode === 'cli' || mode === 'auto';
+
+  if (useCli) {
+    console.log('Mode: CLI (no MCP server needed)');
+    const instructionsPath = homePath('.codex', 'instructions.md');
+    const before = fs.existsSync(instructionsPath) ? fs.readFileSync(instructionsPath, 'utf8') : '';
+    if (before.includes('KeyMemory - CLI Mode')) {
+      console.log('Codex instructions.md already contains KeyMemory CLI instructions.');
+      return;
+    }
+    const after = before + (before ? '\n\n' : '') + CLAUDE_MD_CLI_CONTENT;
+    previewChange(instructionsPath, before || '(empty)', after);
+    if (!(await confirmWrite('Codex instructions.md'))) return;
+    writeTextFile(instructionsPath, after);
+    console.log('Codex instructions.md updated with CLI instructions.');
+    return;
+  }
+
+  console.log('Mode: MCP');
   const configPath = getCodexConfigPath();
   const before = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
   const after = upsertCodexToml(before);
@@ -460,23 +534,32 @@ async function configureOpenClaw() {
   console.log('OpenClaw memory instructions written.');
 }
 
-async function appendClaudeInstructions() {
+async function appendClaudeInstructions(cliMode = false) {
   const claudeMdPath = homePath('CLAUDE.md');
+  const content = cliMode ? CLAUDE_MD_CLI_CONTENT : CLAUDE_MD_MCP_CONTENT;
+  const marker = cliMode ? 'KeyMemory - CLI Mode' : 'KeyMemory - Default Memory System';
+
   let existingClaudeMd = '';
   if (fs.existsSync(claudeMdPath)) {
     existingClaudeMd = fs.readFileSync(claudeMdPath, 'utf8');
-    if (existingClaudeMd.includes('KeyMemory - Default Memory System')) {
-      console.log('CLAUDE.md already contains KeyMemory instructions.');
+    if (existingClaudeMd.includes(marker)) {
+      console.log(`CLAUDE.md already contains KeyMemory ${cliMode ? 'CLI' : 'MCP'} instructions.`);
       return;
+    }
+    // Remove old KeyMemory section if present
+    if (existingClaudeMd.includes('KeyMemory - Default Memory System') || existingClaudeMd.includes('KeyMemory - CLI Mode')) {
+      existingClaudeMd = existingClaudeMd
+        .replace(/# KeyMemory - (?:Default Memory System|CLI Mode)[\s\S]*?(?=\n# |\n## |$)/, '')
+        .trim();
     }
   }
 
-  const keymemorySection = `\n\n${CLAUDE_MD_CONTENT}`;
-  previewChange(claudeMdPath, existingClaudeMd || '{}', existingClaudeMd + keymemorySection);
+  const keymemorySection = `${existingClaudeMd ? '\n\n' : ''}${content}`;
+  previewChange(claudeMdPath, existingClaudeMd || '(empty)', existingClaudeMd + keymemorySection);
   if (!(await confirmWrite('CLAUDE.md instructions'))) return;
 
   writeTextFile(claudeMdPath, existingClaudeMd + keymemorySection);
-  console.log('CLAUDE.md updated.');
+  console.log(`CLAUDE.md updated with ${cliMode ? 'CLI' : 'MCP'} instructions.`);
 }
 
 function printGenericConfig() {
@@ -493,17 +576,46 @@ function printGenericConfig() {
   console.log(JSON.stringify(genericConfig, null, 2));
 }
 
+function detectOpenCode() {
+  return fs.existsSync(homePath('.opencode')) || fs.existsSync(homePath('.config', 'opencode'));
+}
+
+async function configureOpenCode() {
+  console.log('\nConfiguring OpenCode...');
+  console.log('-'.repeat(40));
+
+  const configPath = homePath('.opencode', 'config.json');
+  const config = readJsonConfig(configPath);
+  const beforeJson = JSON.stringify(config, null, 2);
+
+  mergeMcpServer(config);
+  mergeKeyMemoryPermissions(config);
+
+  const afterJson = JSON.stringify(config, null, 2);
+  previewChange(configPath, beforeJson, afterJson);
+  if (!(await confirmWrite('OpenCode config'))) return;
+
+  writeJsonConfig(configPath, config);
+  console.log(`OpenCode now allows ${KEYMEMORY_MCP_PERMISSION} without per-session prompts.`);
+}
+
 const agentInstallers = [
   { id: 'claude-desktop', label: 'Claude Desktop', detect: detectClaudeDesktop, configure: configureClaudeDesktop },
   { id: 'claude-code', label: 'Claude Code', detect: detectClaudeCode, configure: configureClaudeCode },
   { id: 'hermes', label: 'Hermes', detect: detectHermes, configure: configureHermes },
   { id: 'openclaw', label: 'OpenClaw', detect: detectOpenClaw, configure: configureOpenClaw },
   { id: 'codex', label: 'Codex', detect: detectCodex, configure: configureCodex },
+  { id: 'opencode', label: 'OpenCode', detect: detectOpenCode, configure: configureOpenCode },
 ];
 
 async function main() {
   console.log('KeyMemory default memory installer');
   console.log('='.repeat(40));
+
+  if (installMode !== 'cli' && installMode !== 'mcp' && installMode !== 'auto') {
+    console.error(`\nError: Invalid mode "${installMode}". Must be one of: cli, mcp, auto`);
+    process.exit(1);
+  }
 
   if (!fs.existsSync(mcpLauncherPath)) {
     console.error(`\nError: MCP launcher not found at ${mcpLauncherPath}`);
@@ -517,6 +629,7 @@ async function main() {
   console.log(`\nProject path: ${projectPath}`);
   console.log(`MCP launcher: ${mcpLauncherPath}`);
   console.log(`MCP service: ${mcpServerPath}`);
+  console.log(`Install mode: ${installMode}`);
   console.log(`Native memory allow pattern: ${KEYMEMORY_MCP_PERMISSION}`);
 
   const detected = agentInstallers.map(agent => ({ ...agent, installed: agent.detect() }));

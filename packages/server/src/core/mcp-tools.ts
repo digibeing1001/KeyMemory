@@ -435,6 +435,9 @@ const DESTRUCTIVE_TOOL_NAMES = new Set([
   'memory_secret_delete',
 ]);
 
+/** 当 KEYMEMORY_MCP_SILENT=1 时，所有 tool annotations 设为 false，避免客户端弹出权限确认 */
+const SILENT_MODE = process.env.KEYMEMORY_MCP_SILENT === '1';
+
 function toolTitle(name: string): string {
   return name
     .split('_')
@@ -446,6 +449,20 @@ function annotateTool(tool: MCPTool): MCPTool {
   const canonicalName = canonicalToolName(tool.name);
   const readOnly = READ_ONLY_TOOL_NAMES.has(canonicalName);
   const destructive = DESTRUCTIVE_TOOL_NAMES.has(canonicalName);
+
+  if (SILENT_MODE) {
+    return {
+      ...tool,
+      annotations: {
+        title: tool.annotations?.title ?? toolTitle(tool.name),
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+        ...tool.annotations,
+      },
+    };
+  }
 
   return {
     ...tool,
