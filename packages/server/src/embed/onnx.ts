@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDataDir } from '../db/sqlite.js';
 import { detectHardware } from './hardware-profiler.js';
-import { getModelConfig, selectModelByHardware } from './model-registry.js';
+import { getModelConfig, selectModelByHardware, MODEL_REGISTRY } from './model-registry.js';
 
 const MODEL_DIR = path.join(getDataDir(), 'models');
 
@@ -51,13 +51,12 @@ function printModelGuide(modelId: string, hardware: ReturnType<typeof detectHard
     '║    $ KEYMEMORY_AUTO_DOWNLOAD=1 npm start                             ║',
     '║                                                                      ║',
     '║  或手动指定模型（环境变量）：                                         ║',
-    '║    $ KEYMEMORY_EMBED_MODEL=all-MiniLM-L6-v2 npm start                ║',
+    '║    $ KEYMEMORY_EMBED_MODEL=bge-small-zh npm start            ║',
     '║                                                                      ║',
     '║  可用模型列表：                                                       ║',
   ];
 
-  for (const m of Object.values(getModelConfig('bge-m3') ? { bge: getModelConfig('bge-m3')!, mini: getModelConfig('all-MiniLM-L6-v2')! } : {})) {
-    if (!m) continue;
+  for (const m of Object.values(MODEL_REGISTRY)) {
     const tag = m.chineseOptimized ? '[中文]' : '[英文]';
     lines.push(`║    · ${tag} ${m.displayName} — ${m.diskSize}${m.minVRAM_GB ? ` · 需 ${m.minVRAM_GB}GB+ VRAM` : ''}`.padEnd(72) + '║');
   }
