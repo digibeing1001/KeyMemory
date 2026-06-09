@@ -81,6 +81,21 @@ export function registerRoutes(app: FastifyInstance): void {
     return mem;
   });
 
+  app.get('/api/memories/search', async (request) => {
+    const query = request.query as Record<string, string>;
+    const q = query.q;
+    if (!q) return [];
+    return searchHybrid(q, {
+      layer: query.layer as Layer | undefined,
+      projectId: query.projectId,
+      includeDescendants: query.includeDescendants !== 'false',
+      includeSuperseded: query.includeSuperseded === 'true',
+      memoryKind: query.memoryKind as SearchQuery['memoryKind'],
+      status: query.status as MemoryStatus | undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : 20,
+    });
+  });
+
   app.get('/api/memories', async (request) => {
     const query = request.query as Record<string, string>;
     return listMemories({
@@ -154,21 +169,6 @@ export function registerRoutes(app: FastifyInstance): void {
     return { success: true };
   });
 
-  app.get('/api/memories/search', async (request) => {
-    const query = request.query as Record<string, string>;
-    const q = query.q;
-    if (!q) return [];
-    return searchHybrid(q, {
-      layer: query.layer as Layer | undefined,
-      projectId: query.projectId,
-      includeDescendants: query.includeDescendants !== 'false',
-      includeSuperseded: query.includeSuperseded === 'true',
-      memoryKind: query.memoryKind as SearchQuery['memoryKind'],
-      status: query.status as MemoryStatus | undefined,
-      limit: query.limit ? parseInt(query.limit, 10) : 20,
-    });
-  });
-
   app.get('/api/layers/stats', async () => {
     return getLayerStats();
   });
@@ -238,10 +238,14 @@ export function registerRoutes(app: FastifyInstance): void {
     return { success: ok };
   });
 
-  app.post('/api/memories/:id/forget', async (request) => {
+  app.post('/api/memories/:id/forget', async (request, reply) => {
     const { id } = request.params as { id: string };
     const { method } = request.body as { method: ForgetMethod };
-    if (!method) return { error: 'method is required (archive|decay|delete)' };
+    const validMethods: ForgetMethod[] = ['archive', 'decay', 'delete'];
+    if (!method || !validMethods.includes(method)) {
+      reply.code(400);
+      return { error: `method is required and must be one of: ${validMethods.join('|')}` };
+    }
     return { success: forgetMemory(id, method) };
   });
 

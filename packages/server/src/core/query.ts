@@ -218,6 +218,7 @@ export async function searchSemantic(query: string, options?: SearchOptions): Pr
     FROM memories m
     LEFT JOIN embeddings e ON e.memory_id = m.id
     WHERE ${conditions.join(' AND ')}
+    LIMIT 500
   `).all(params) as (Record<string, unknown> & { embedding: Buffer | undefined })[];
 
   const scored = rows.map(r => {
@@ -256,6 +257,7 @@ export async function findDuplicateMemories(threshold: number = 0.9, limit: numb
     FROM embeddings e1
     JOIN embeddings e2 ON e1.memory_id < e2.memory_id
     WHERE e1.memory_id != e2.memory_id
+    LIMIT 5000
   `).all() as { id1: string; id2: string; emb1: Buffer; emb2: Buffer }[];
 
   const duplicates: { memoryId1: string; memoryId2: string; similarity: number }[] = [];
@@ -264,19 +266,20 @@ export async function findDuplicateMemories(threshold: number = 0.9, limit: numb
     const vec1 = bufferToEmbedding(row.emb1);
     const vec2 = bufferToEmbedding(row.emb2);
     const sim = cosineSimilarity(vec1, vec2);
-    
+
     if (sim >= threshold) {
       duplicates.push({
         memoryId1: row.id1,
         memoryId2: row.id2,
         similarity: sim,
       });
+      if (duplicates.length >= limit) break;
     }
   }
 
   duplicates.sort((a, b) => b.similarity - a.similarity);
 
-  return duplicates.slice(0, limit);
+  return duplicates;
 }
 
 function productionRankBoost(memory: SearchResult['memory']): number {

@@ -50,26 +50,29 @@ export function rollbackToVersion(memoryId: string, targetVersion: number, reaso
   if (!target) return false;
 
   const now = new Date().toISOString();
-  const versionCount = (db.prepare(`SELECT COUNT(*) as cnt FROM versions WHERE memory_id = ?`).get(memoryId) as { cnt: number }).cnt;
 
-  db.prepare(`
-    INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
-    VALUES (?, ?, ?, ?, ?, 'restore', ?, ?)
-  `).run(
-    uuid(),
-    memoryId,
-    versionCount + 1,
-    target.title,
-    target.content,
-    reason ?? `Rollback to version ${targetVersion}`,
-    now
-  );
+  return db.transaction(() => {
+    const versionCount = (db.prepare(`SELECT COUNT(*) as cnt FROM versions WHERE memory_id = ?`).get(memoryId) as { cnt: number }).cnt;
 
-  db.prepare(`
-    UPDATE memories SET title = ?, content = ?, updated_at = ? WHERE id = ?
-  `).run(target.title, target.content, now, memoryId);
+    db.prepare(`
+      INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
+      VALUES (?, ?, ?, ?, ?, 'restore', ?, ?)
+    `).run(
+      uuid(),
+      memoryId,
+      versionCount + 1,
+      target.title,
+      target.content,
+      reason ?? `Rollback to version ${targetVersion}`,
+      now
+    );
 
-  return true;
+    db.prepare(`
+      UPDATE memories SET title = ?, content = ?, updated_at = ? WHERE id = ?
+    `).run(target.title, target.content, now, memoryId);
+
+    return true;
+  })();
 }
 
 function simpleDiff(oldText: string, newText: string): string[] {

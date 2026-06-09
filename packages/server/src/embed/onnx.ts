@@ -1,28 +1,17 @@
-import ort from 'onnxruntime-node';
+import { pipeline, env } from '@xenova/transformers';
 import path from 'path';
 import fs from 'fs';
-import https from 'https';
-import { fileURLToPath } from 'url';
 import { getDataDir } from '../db/sqlite.js';
+import { detectHardware } from './hardware-profiler.js';
+import { getModelConfig, selectModelByHardware } from './model-registry.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const MODEL_DIR = path.join(getDataDir(), 'models');
 
-const BUILTIN_MODEL_DIR = path.resolve(__dirname, '..', '..', 'models');
-const USER_MODEL_DIR = path.join(getDataDir(), 'models');
-
-const MODEL_FILENAME = 'all-MiniLM-L6-v2.onnx';
-const TOKENIZER_FILENAME = 'tokenizer.json';
-
-const MODEL_URL = 'https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx';
-const TOKENIZER_URL = 'https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json';
-
-const EMBEDDING_DIM = 384;
-
-let session: ort.InferenceSession | null = null;
-let tokenizer: BertTokenizer | null = null;
+let extractor: any = null;
 let modelAvailable = false;
 let modelLoadError: string | null = null;
+let currentModelId: string | null = null;
+let currentDim = 384;
 
 export function isEmbeddingAvailable(): boolean {
   return modelAvailable;
@@ -32,252 +21,116 @@ export function getEmbeddingLoadError(): string | null {
   return modelLoadError;
 }
 
-function resolveModelPath(filename: string): string | null {
-  const builtin = path.join(BUILTIN_MODEL_DIR, filename);
-  if (fs.existsSync(builtin)) return builtin;
-
-  const user = path.join(USER_MODEL_DIR, filename);
-  if (fs.existsSync(user)) return user;
-
-  return null;
-}
-
-async function downloadFile(url: string, dest: string, maxRetries: number = 3): Promise<void> {
-  const dir = path.dirname(dest);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  let retryCount = 0;
-
-  const attemptDownload = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest);
-      https.get(url, (response) => {
-        if (response.statusCode === 302 || response.statusCode === 301) {
-          const redirectUrl = response.headers.location;
-          if (redirectUrl) {
-            downloadFile(redirectUrl, dest, maxRetries).then(resolve).catch(reject);
-            return;
-          }
-        }
-
-        if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download, status code: ${response.statusCode}`));
-          return;
-        }
-
-        response.pipe(file);
-        file.on('finish', () => {
-          file.close();
-          resolve();
-        });
-      }).on('error', (err) => {
-        try { fs.unlinkSync(dest); } catch {}
-        reject(err);
-      });
-    });
+export function getCurrentModelInfo(): { id: string | null; dim: number; name: string } {
+  const config = currentModelId ? getModelConfig(currentModelId) : undefined;
+  return {
+    id: currentModelId,
+    dim: currentDim,
+    name: config?.displayName ?? '未知',
   };
-
-  while (retryCount < maxRetries) {
-    try {
-      return await attemptDownload();
-    } catch (err) {
-      retryCount++;
-      if (retryCount >= maxRetries) throw err;
-      console.log(`Download failed, retrying (${retryCount}/${maxRetries})...`);
-      await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
-    }
-  }
-
-  throw new Error('Max retries exceeded');
 }
 
-async function ensureModel(): Promise<string> {
-  const existing = resolveModelPath(MODEL_FILENAME);
-  if (existing) return existing;
+function printModelGuide(modelId: string, hardware: ReturnType<typeof detectHardware>): void {
+  const config = getModelConfig(modelId);
+  if (!config) return;
 
-  console.log('Built-in model not found, downloading all-MiniLM-L6-v2...');
-  const dest = path.join(USER_MODEL_DIR, MODEL_FILENAME);
-  await downloadFile(MODEL_URL, dest);
-  console.log('Model downloaded successfully.');
-  return dest;
-}
+  const lines = [
+    '',
+    '╔══════════════════════════════════════════════════════════════════════╗',
+    '║              嵌入模型未就绪 · 开发阶段引导                            ║',
+    '╠══════════════════════════════════════════════════════════════════════╣',
+    `║  推荐模型 : ${config.displayName.padEnd(55)}║`,
+    `║  向量维度 : ${String(config.dim).padEnd(55)}║`,
+    `║  磁盘占用 : ${config.diskSize.padEnd(55)}║`,
+    `║  中文优化 : ${(config.chineseOptimized ? '✓ 是' : '✗ 否').padEnd(55)}║`,
+    `║  您的硬件 : ${`${hardware.ramGB}GB RAM · ${hardware.cpuCores}核 CPU${hardware.gpuName ? ' · ' + hardware.gpuName : ''}`.padEnd(55)}║`,
+    '╠══════════════════════════════════════════════════════════════════════╣',
+    '║  开发阶段：模型未自动下载，语义搜索暂不可用                           ║',
+    '║                                                                      ║',
+    '║  部署时自动下载：                                                     ║',
+    '║    $ KEYMEMORY_AUTO_DOWNLOAD=1 npm start                             ║',
+    '║                                                                      ║',
+    '║  或手动指定模型（环境变量）：                                         ║',
+    '║    $ KEYMEMORY_EMBED_MODEL=all-MiniLM-L6-v2 npm start                ║',
+    '║                                                                      ║',
+    '║  可用模型列表：                                                       ║',
+  ];
 
-async function ensureTokenizer(): Promise<string> {
-  const existing = resolveModelPath(TOKENIZER_FILENAME);
-  if (existing) return existing;
-
-  console.log('Built-in tokenizer not found, downloading...');
-  const dest = path.join(USER_MODEL_DIR, TOKENIZER_FILENAME);
-  await downloadFile(TOKENIZER_URL, dest);
-  console.log('Tokenizer downloaded successfully.');
-  return dest;
-}
-
-interface TokenizerConfig {
-  model: {
-    type: string;
-    vocab: Record<string, number>;
-    unk_token: string;
-  };
-  normalizer?: { type: string; [key: string]: unknown };
-  pre_tokenizer?: { type: string; [key: string]: unknown };
-}
-
-class BertTokenizer {
-  private vocab: Record<string, number> = {};
-  private idToToken: Map<number, string> = new Map();
-  private unkTokenId: number = 100;
-  private clsTokenId: number = 101;
-  private sepTokenId: number = 102;
-  private maxInputCharsPerWord = 200;
-
-  load(config: TokenizerConfig): void {
-    this.vocab = config.model.vocab;
-
-    for (const [token, id] of Object.entries(this.vocab)) {
-      this.idToToken.set(id, token);
-    }
-
-    const unkToken = config.model.unk_token || '[UNK]';
-    this.unkTokenId = this.vocab[unkToken] ?? 100;
-    this.clsTokenId = this.vocab['[CLS]'] ?? 101;
-    this.sepTokenId = this.vocab['[SEP]'] ?? 102;
+  for (const m of Object.values(getModelConfig('bge-m3') ? { bge: getModelConfig('bge-m3')!, mini: getModelConfig('all-MiniLM-L6-v2')! } : {})) {
+    if (!m) continue;
+    const tag = m.chineseOptimized ? '[中文]' : '[英文]';
+    lines.push(`║    · ${tag} ${m.displayName} — ${m.diskSize}${m.minVRAM_GB ? ` · 需 ${m.minVRAM_GB}GB+ VRAM` : ''}`.padEnd(72) + '║');
   }
 
-  tokenize(text: string): number[] {
-    const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-    const tokens: number[] = [this.clsTokenId];
-
-    const words = this.preTokenize(normalized);
-
-    for (const word of words) {
-      if (tokens.length >= 510) break;
-
-      const wordTokens = this.wordPiece(word);
-      for (const t of wordTokens) {
-        if (tokens.length >= 510) break;
-        tokens.push(t);
-      }
-    }
-
-    tokens.push(this.sepTokenId);
-    return tokens;
-  }
-
-  private preTokenize(text: string): string[] {
-    return text
-      .replace(/([.,!?;:"'()\[\]{}\-\/\\@#$%^&*+=<>~`|])/g, ' $1 ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .split(' ')
-      .filter(Boolean);
-  }
-
-  private wordPiece(word: string): number[] {
-    if (word.length > this.maxInputCharsPerWord) {
-      return [this.unkTokenId];
-    }
-
-    const tokens: number[] = [];
-    let start = 0;
-
-    while (start < word.length) {
-      let end = word.length;
-      let found = false;
-
-      while (start < end) {
-        let substr = word.slice(start, end);
-        if (start > 0) substr = '##' + substr;
-
-        if (this.vocab.hasOwnProperty(substr)) {
-          tokens.push(this.vocab[substr]);
-          found = true;
-          break;
-        }
-        end--;
-      }
-
-      if (!found) {
-        tokens.push(this.unkTokenId);
-        start++;
-      } else {
-        start = end;
-      }
-    }
-
-    return tokens;
-  }
+  lines.push('╚══════════════════════════════════════════════════════════════════════╝', '');
+  console.log(lines.join('\n'));
 }
 
 export async function initEmbedding(): Promise<void> {
   try {
-    const modelPath = await ensureModel();
-    const tokenizerPath = await ensureTokenizer();
+    const hardware = detectHardware();
+    const selectedModelId = selectModelByHardware(hardware);
+    const config = getModelConfig(selectedModelId);
 
-    tokenizer = new BertTokenizer();
-    const tokenizerConfig = JSON.parse(fs.readFileSync(tokenizerPath, 'utf8'));
-    tokenizer.load(tokenizerConfig);
+    if (!config) {
+      throw new Error(`未知模型: ${selectedModelId}`);
+    }
 
-    const modelBuffer = fs.readFileSync(modelPath);
-    session = await ort.InferenceSession.create(
-      new Uint8Array(modelBuffer.buffer, modelBuffer.byteOffset, modelBuffer.byteLength),
-      {
-        executionProviders: ['cpu'],
-        graphOptimizationLevel: 'all',
-      },
-    );
+    currentModelId = selectedModelId;
+    currentDim = config.dim;
 
-    modelAvailable = true;
-    modelLoadError = null;
-    const source = modelPath.includes(BUILTIN_MODEL_DIR) ? 'built-in' : 'user data';
-    console.log(`[KeyMemory] ONNX embedding model loaded successfully (source: ${source}).`);
+    // Configure Transformers.js environment
+    env.cacheDir = MODEL_DIR;
+    const allowRemote = process.env.KEYMEMORY_AUTO_DOWNLOAD === '1';
+    env.allowRemoteModels = allowRemote;
+    env.allowLocalModels = true;
+
+    console.log(`[KeyMemory] 硬件检测: ${hardware.ramGB}GB RAM · ${hardware.cpuCores}核 CPU${hardware.gpuName ? ' · GPU: ' + hardware.gpuName : ''}`);
+    console.log(`[KeyMemory] 推荐模型: ${config.displayName} (${config.dim}维)`);
+
+    try {
+      extractor = await pipeline('feature-extraction', config.hfRepo);
+      modelAvailable = true;
+      modelLoadError = null;
+      console.log(`[KeyMemory] 嵌入模型加载成功: ${config.displayName}`);
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (
+        msg.includes('fetch') ||
+        msg.includes('download') ||
+        msg.includes('remote') ||
+        msg.includes('Could not locate file') ||
+        msg.includes('ENOENT')
+      ) {
+        printModelGuide(selectedModelId, hardware);
+        modelLoadError = `模型未就绪: ${config.displayName}。开发阶段跳过下载；部署时设置 KEYMEMORY_AUTO_DOWNLOAD=1。`;
+      } else {
+        modelLoadError = msg;
+        console.error(`[KeyMemory] 模型加载失败: ${msg}`);
+      }
+      modelAvailable = false;
+      console.log('[KeyMemory] 语义搜索已禁用，全文搜索仍可用。');
+    }
   } catch (err) {
     modelAvailable = false;
     modelLoadError = (err as Error).message;
-    console.error(`[KeyMemory] Failed to load ONNX embedding model: ${modelLoadError}`);
-    console.log(`[KeyMemory] Semantic search will be disabled. Full-text search still available.`);
+    console.error(`[KeyMemory] 嵌入初始化失败: ${modelLoadError}`);
   }
 }
 
 export async function embed(text: string): Promise<Float32Array | null> {
-  if (!modelAvailable || !session || !tokenizer) {
-    return null;
-  }
+  if (!modelAvailable || !extractor) return null;
 
   try {
-    const tokens = tokenizer.tokenize(text);
-    const inputIds = new ort.Tensor('int64', BigInt64Array.from(tokens.map(BigInt)), [1, tokens.length]);
-    const attentionMask = new ort.Tensor('int64', BigInt64Array.from(tokens.map(() => 1n)), [1, tokens.length]);
-    const tokenTypeIds = new ort.Tensor('int64', BigInt64Array.from(tokens.map(() => 0n)), [1, tokens.length]);
-
-    const output = await session.run({
-      input_ids: inputIds,
-      attention_mask: attentionMask,
-      token_type_ids: tokenTypeIds,
-    });
-
-    const lastHidden = output['last_hidden_state'];
-    const data = lastHidden.data as Float32Array;
-    const seqLen = lastHidden.dims[1];
-    const hiddenSize = lastHidden.dims[2];
-
-    const pooled = new Float32Array(hiddenSize);
-    for (let i = 0; i < hiddenSize; i++) {
-      let sum = 0;
-      for (let j = 0; j < seqLen; j++) {
-        sum += data[j * hiddenSize + i];
-      }
-      pooled[i] = sum / seqLen;
+    const output = await extractor(text, { pooling: 'mean', normalize: true });
+    const data = output.data;
+    if (data instanceof Float32Array) {
+      return data;
     }
-
-    let norm = 0;
-    for (let i = 0; i < pooled.length; i++) norm += pooled[i] * pooled[i];
-    norm = Math.sqrt(norm);
-    if (norm > 0) {
-      for (let i = 0; i < pooled.length; i++) pooled[i] /= norm;
+    if (Array.isArray(data)) {
+      return new Float32Array(data);
     }
-
-    return pooled;
+    return null;
   } catch (err) {
     console.error(`[KeyMemory] Embedding error: ${(err as Error).message}`);
     return null;
@@ -285,11 +138,46 @@ export async function embed(text: string): Promise<Float32Array | null> {
 }
 
 export async function embedBatch(texts: string[]): Promise<(Float32Array | null)[]> {
-  const results: (Float32Array | null)[] = [];
-  for (const text of texts) {
-    results.push(await embed(text));
+  if (!modelAvailable || !extractor || texts.length === 0) {
+    return texts.map(() => null);
   }
-  return results;
+
+  try {
+    const output = await extractor(texts, { pooling: 'mean', normalize: true });
+    const results: (Float32Array | null)[] = [];
+
+    if (Array.isArray(output)) {
+      for (const item of output) {
+        const data = item?.data;
+        if (data instanceof Float32Array) {
+          results.push(data);
+        } else if (Array.isArray(data)) {
+          results.push(new Float32Array(data));
+        } else {
+          results.push(null);
+        }
+      }
+    } else {
+      // Single tensor returned for batch — should not happen with pooling,
+      // but handle defensively
+      const data = output?.data;
+      if (data instanceof Float32Array) {
+        results.push(data);
+      } else {
+        results.push(null);
+      }
+    }
+
+    // Pad to expected length if batch result is short
+    while (results.length < texts.length) {
+      results.push(null);
+    }
+
+    return results;
+  } catch (err) {
+    console.error(`[KeyMemory] Batch embedding error: ${(err as Error).message}`);
+    return texts.map(() => null);
+  }
 }
 
 export function embeddingToBuffer(vec: Float32Array): Buffer {
@@ -302,8 +190,18 @@ export function bufferToEmbedding(buf: Buffer): Float32Array {
 
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   let dot = 0;
-  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
-  return dot;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  if (denom === 0) return 0;
+  return dot / denom;
 }
 
-export { EMBEDDING_DIM };
+export function getEmbeddingDim(): number {
+  return currentDim;
+}

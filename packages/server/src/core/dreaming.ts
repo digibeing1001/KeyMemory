@@ -60,16 +60,23 @@ export function runDreamCycle(): DreamReport {
     todoItems = deepResult.todoItems;
     totalCandidates += deepResult.deepSession.candidatesProcessed;
 
-    // Phase 4: Semantic - 基于语义相似度的关联合并
-    const semanticResult = runSemanticMergePhase(reportId, details);
-    sessions.push(semanticResult.session);
-    merged += semanticResult.mergedCount;
-    totalCandidates += semanticResult.session.candidatesProcessed;
+    // Phase 4 & 5: 非关键阶段，失败不影响前面结果
+    try {
+      const semanticResult = runSemanticMergePhase(reportId, details);
+      sessions.push(semanticResult.session);
+      merged += semanticResult.mergedCount;
+      totalCandidates += semanticResult.session.candidatesProcessed;
+    } catch (err) {
+      console.error('[Dream] Semantic phase failed (non-fatal):', (err as Error).message);
+    }
 
-    // Phase 5: Project Clustering - 项目聚类建议
-    const clusteringResult = runProjectClusteringPhase(reportId);
-    sessions.push(clusteringResult.session);
-    totalCandidates += clusteringResult.session.candidatesProcessed;
+    try {
+      const clusteringResult = runProjectClusteringPhase(reportId);
+      sessions.push(clusteringResult.session);
+      totalCandidates += clusteringResult.session.candidatesProcessed;
+    } catch (err) {
+      console.error('[Dream] Project clustering phase failed (non-fatal):', (err as Error).message);
+    }
 
     db.exec(`RELEASE SAVEPOINT ${savepointName}`);
 

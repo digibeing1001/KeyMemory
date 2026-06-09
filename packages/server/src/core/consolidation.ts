@@ -223,10 +223,11 @@ export function executeConsolidation(planId: string): ConsolidationPlan {
 
   for (const action of actions) {
     try {
-      executeAction(db, action);
+      executeAction(action);
       action.status = 'executed';
-    } catch {
+    } catch (err) {
       action.status = 'skipped';
+      console.error(`[Consolidation] Action ${action.id} (${action.type}) skipped:`, (err as Error).message);
     }
   }
 
@@ -287,7 +288,8 @@ function createSnapshots(db: Database.Database, planId: string, memoryIds: strin
   }
 }
 
-function executeAction(db: Database.Database, action: ConsolidationAction): void {
+function executeAction(action: ConsolidationAction): void {
+  const db = getDatabase();
   switch (action.type) {
     case 'deduplicate': {
       const [keeperId, removedId] = action.sourceIds;
@@ -298,12 +300,14 @@ function executeAction(db: Database.Database, action: ConsolidationAction): void
       const mergedTags = [...new Set([...(keeper.tags || []), ...(removed.tags || [])])];
       const mergedContent = keeper.content + '\n\n---\n' + removed.content;
 
-      updateMemory(keeperId, {
-        content: mergedContent,
-        tags: mergedTags,
-      }, `合并自去重：与「${removed.title}」合并`);
+      db.transaction(() => {
+        updateMemory(keeperId, {
+          content: mergedContent,
+          tags: mergedTags,
+        }, `合并自去重：与「${removed.title}」合并`);
 
-      forgetMemory(removedId, 'archive');
+        forgetMemory(removedId, 'archive');
+      })();
       break;
     }
 
@@ -323,14 +327,16 @@ function executeAction(db: Database.Database, action: ConsolidationAction): void
         }
       }
 
-      updateMemory(targetId, {
-        content: allContent.join('\n\n---\n'),
-        tags: [...new Set(allTags)],
-      }, `合并${sourceIds.length}条记忆`);
+      db.transaction(() => {
+        updateMemory(targetId, {
+          content: allContent.join('\n\n---\n'),
+          tags: [...new Set(allTags)],
+        }, `合并${sourceIds.length}条记忆`);
 
-      for (const sid of sourceIds) {
-        forgetMemory(sid, 'archive');
-      }
+        for (const sid of sourceIds) {
+          forgetMemory(sid, 'archive');
+        }
+      })();
       break;
     }
 
@@ -410,11 +416,20 @@ export function rollbackConsolidation(planId: string, actionIds?: string[]): Con
     }
 
     if (!existing || existing.status === 'active') {
+      let tags: string[] | undefined;
+      let metadata: Record<string, unknown> | undefined;
+      try {
+        tags = snap.tags ? JSON.parse(snap.tags as string) : undefined;
+      } catch { /* tags corrupted, skip */ }
+      try {
+        metadata = snap.metadata ? JSON.parse(snap.metadata as string) : undefined;
+      } catch { /* metadata corrupted, skip */ }
+
       updateMemory(memId, {
         title: snap.title as string,
         content: snap.content as string,
-        tags: snap.tags ? JSON.parse(snap.tags as string) : undefined,
-        metadata: snap.metadata ? JSON.parse(snap.metadata as string) : undefined,
+        tags,
+        metadata,
       }, `回滚整理计划 ${planId}`);
     }
   }

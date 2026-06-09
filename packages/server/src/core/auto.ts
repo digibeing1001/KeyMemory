@@ -298,7 +298,9 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   try {
     const { ensureEmbedding } = await import('./query.js');
     await ensureEmbedding(mem.id, title, content.trim(), mem.tags, mem.metadata as Record<string, unknown> | undefined);
-  } catch {}
+  } catch (err) {
+    console.error('[AutoRemember] Embedding generation failed:', (err as Error).message);
+  }
 
   return {
     recorded: true,

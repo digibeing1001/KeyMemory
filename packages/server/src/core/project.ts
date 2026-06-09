@@ -287,6 +287,11 @@ export function deleteProject(id: string, strategy: 'cascade' | 'promote' = 'cas
         db.prepare(`DELETE FROM query_logs WHERE memory_id IN (SELECT id FROM memories WHERE project_id = ?)`).run(pid);
         db.prepare(`DELETE FROM memories WHERE project_id = ?`).run(pid);
       }
+      // Delete descendant projects (children first, then deeper)
+      const descendants = getProjectDescendants(id);
+      for (const desc of descendants.reverse()) {
+        db.prepare('DELETE FROM projects WHERE id = ?').run(desc.id);
+      }
     }
 
     db.prepare('DELETE FROM projects WHERE id = ?').run(id);

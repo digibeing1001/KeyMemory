@@ -126,21 +126,40 @@ function hashTable(table: BackupTableSnapshot): string {
 
 function parseBackupFile(filePath: string): { backup: Partial<KeyMemoryBackup>; summary: BackupSummary } {
   const target = path.resolve(filePath);
-  const raw = fs.readFileSync(target, 'utf8');
-  const backup = JSON.parse(raw) as Partial<KeyMemoryBackup>;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(target, 'utf8');
+  } catch (err) {
+    const msg = (err as Error).message;
+    throw new Error(`无法读取备份文件: ${msg}`);
+  }
+  let backup: Partial<KeyMemoryBackup>;
+  try {
+    backup = JSON.parse(raw) as Partial<KeyMemoryBackup>;
+  } catch {
+    throw new Error('备份文件格式损坏，无法解析 JSON');
+  }
   return {
     backup,
     summary: summarizeBackup(backup, target, Buffer.byteLength(raw, 'utf8')),
   };
 }
 
+const VALID_TABLE_NAMES = new Set([...CORE_TABLES, ...OPTIONAL_TABLES]);
+
 function listColumns(table: string): string[] {
+  if (!VALID_TABLE_NAMES.has(table as any)) {
+    throw new Error(`Invalid table name: ${table}`);
+  }
   const db = getDatabase();
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   return rows.map(row => row.name);
 }
 
 function readTable(table: string): BackupTableSnapshot {
+  if (!VALID_TABLE_NAMES.has(table as any)) {
+    throw new Error(`Invalid table name: ${table}`);
+  }
   const db = getDatabase();
   const rows = db.prepare(`SELECT * FROM ${table}`).all() as Record<string, unknown>[];
   return {

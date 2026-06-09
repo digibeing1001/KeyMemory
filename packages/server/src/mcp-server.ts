@@ -215,10 +215,20 @@ stdin.on('data', (data) => {
     if (!line.trim()) continue;
     try {
       const request = JSON.parse(line);
+      const requestId = request?.id ?? null;
+      if (!request || typeof request !== 'object' || !request.method) {
+        sendJsonRpc(requestId, undefined, { code: -32600, message: 'Invalid Request' });
+        continue;
+      }
       handleRequest(request)
-        .then((result) => sendJsonRpc(request.id, result))
-        .catch((error) => sendJsonRpc(request.id, undefined, error));
-    } catch (err) {
+        .then((result) => sendJsonRpc(request.id ?? null, result))
+        .catch((error) => {
+          const errObj = error instanceof Error
+            ? { code: -32603, message: error.message }
+            : (error && typeof error === 'object' && 'code' in error ? error : { code: -32603, message: String(error) });
+          sendJsonRpc(request.id ?? null, undefined, errObj);
+        });
+    } catch {
       sendJsonRpc(null, undefined, { code: -32700, message: 'Parse error' });
     }
   }

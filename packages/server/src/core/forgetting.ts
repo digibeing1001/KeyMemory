@@ -58,9 +58,19 @@ export function forgetMemory(id: string, method: ForgetMethod): boolean {
   }
 
   if (method === 'archive') {
-    db.prepare(`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
+    return db.transaction(() => {
+      db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
+      db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
+      db.prepare(`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
+      return true;
+    })();
   } else if (method === 'decay') {
-    db.prepare(`UPDATE memories SET confidence = 0, decay_factor = 0, updated_at = ? WHERE id = ?`).run(now, id);
+    return db.transaction(() => {
+      db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
+      db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
+      db.prepare(`UPDATE memories SET confidence = 0, decay_factor = 0, status = 'decayed', updated_at = ? WHERE id = ?`).run(now, id);
+      return true;
+    })();
   }
 
   return true;

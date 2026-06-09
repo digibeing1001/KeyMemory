@@ -373,7 +373,7 @@ export function listEntities(type?: EntityType): Entity[] {
     ? `SELECT * FROM entities WHERE type = ? ORDER BY name`
     : `SELECT * FROM entities ORDER BY name`;
   
-  const rows = db.prepare(query).all(type ?? []) as Record<string, unknown>[];
+  const rows = db.prepare(query).all(...(type ? [type] : [])) as Record<string, unknown>[];
   
   return rows.map(r => ({
     id: r.id as string,

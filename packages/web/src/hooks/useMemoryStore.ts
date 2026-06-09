@@ -84,13 +84,15 @@ export function useMemoryStore(): UseMemoryStoreReturn {
       return;
     }
 
+    let cancelled = false;
     api.getMemory(selectedId)
       .then((memory) => {
-        if (mountedRef.current) setSelectedMemory(memory);
+        if (!cancelled && mountedRef.current) setSelectedMemory(memory);
       })
       .catch(() => {
-        if (mountedRef.current) setSelectedMemory(null);
+        if (!cancelled && mountedRef.current) setSelectedMemory(null);
       });
+    return () => { cancelled = true; };
   }, [selectedId, memories]);
 
   const fetchMemories = useCallback(async () => {
@@ -207,10 +209,13 @@ export function useMemoryStore(): UseMemoryStoreReturn {
       }
       setIsCreating(false);
       fetchStats();
+    } catch (err) {
+      toast(`${t('error.save')}: ${(err as Error).message || t('error.unknown')}`, 'error');
+      throw err;
     } finally {
       updateLoading(-1);
     }
-  }, [selectedMemory, fetchStats, updateLoading]);
+  }, [selectedMemory, fetchStats, updateLoading, toast, t]);
 
   const deleteMemory = useCallback(async (id: string) => {
     updateLoading(1);

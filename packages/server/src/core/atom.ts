@@ -203,16 +203,16 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
     db.prepare(`UPDATE memories SET ${updates.join(', ')} WHERE id = @id`).run(params);
 
     if (input.title !== undefined || input.content !== undefined || input.tags !== undefined || nextProjectId !== undefined) {
-      const updated = getMemory(id)!;
-      const updatedProjectName = updated.projectId ? (db.prepare('SELECT name FROM projects WHERE id = ?').get(updated.projectId) as { name: string } | undefined)?.name || '' : '';
+      const afterUpdate = getMemory(id)!;
+      const updatedProjectName = afterUpdate.projectId ? (db.prepare('SELECT name FROM projects WHERE id = ?').get(afterUpdate.projectId) as { name: string } | undefined)?.name || '' : '';
       db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
       db.prepare(`
         INSERT INTO memories_fts (rowid, title, content, project)
         VALUES ((SELECT rowid FROM memories WHERE id = @id), @title, @content, @project)
       `).run({
         id,
-        title: updated.title,
-        content: `${updated.content}${updated.tags && updated.tags.length > 0 ? ' ' + updated.tags.join(' ') : ''}`,
+        title: afterUpdate.title,
+        content: `${afterUpdate.content}${afterUpdate.tags && afterUpdate.tags.length > 0 ? ' ' + afterUpdate.tags.join(' ') : ''}`,
         project: updatedProjectName,
       });
     }
