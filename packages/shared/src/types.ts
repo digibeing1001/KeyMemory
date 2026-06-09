@@ -317,10 +317,17 @@ export interface DreamSession {
 }
 
 export interface DreamTodoItem {
-  type: 'orphan' | 'conflict';
+  type: 'orphan' | 'conflict' | 'archive' | 'merge' | 'promote' | 'assign_project';
   memoryId: string;
   title: string;
   reason: string;
+  description?: string;
+  targetId?: string;
+  confidence?: number;
+  status?: 'pending' | 'auto_executed' | 'auto_execute_failed' | 'auto_resolved_stale' | 'confirmed' | 'rejected';
+  autoExecutedAt?: string;
+  autonomyLevel?: string;
+  requiresNotification?: boolean;
 }
 
 export interface DreamReportDetails {

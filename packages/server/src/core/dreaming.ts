@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, DreamReportDetails, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, analyzeMemoryQuality } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
@@ -58,6 +58,9 @@ export function runDreamCycle(): DreamReport {
     archived += deepResult.archived;
     merged += deepResult.merged;
     todoItems = deepResult.todoItems;
+
+    // 分级自治：自动执行高置信度待办项，无需用户干预
+    todoItems = applyAutonomyPolicy(todoItems, details);
     totalCandidates += deepResult.deepSession.candidatesProcessed;
 
     // Phase 4 & 5: 非关键阶段，失败不影响前面结果
@@ -1724,4 +1727,173 @@ export function formatDreamReport(report: DreamReport): string {
   lines.push(`如需回滚: keymemory dream --rollback ${report.id}`);
 
   return lines.join('\n');
+}
+
+// ============================================================
+// 分级自治系统：让 Dream 在无用户干预时也能正常运行
+// ============================================================
+
+type AutonomyLevel = 'auto_execute' | 'auto_execute_with_note' | 'defer';
+
+function classifyAutonomy(todo: DreamTodoItem): AutonomyLevel {
+  const confidence = todo.confidence ?? 0.5;
+
+  if (confidence >= DREAM_AUTONOMY.autoExecuteConfidence) {
+    return 'auto_execute';
+  }
+  if (confidence >= DREAM_AUTONOMY.autoExecuteWithNoteConfidence) {
+    return 'auto_execute_with_note';
+  }
+  return 'defer';
+}
+
+/**
+ * 分级自治策略：Dream 生成 todo 后，自动执行高置信度项
+ * - auto_execute: 静默执行，仅记录日志
+ * - auto_execute_with_note: 自动执行，标记为需通知 Agent
+ * - defer: 保留待办，等待用户确认
+ */
+function applyAutonomyPolicy(todoItems: DreamTodoItem[], details: DreamReportDetails): DreamTodoItem[] {
+  const remaining: DreamTodoItem[] = [];
+
+  for (const todo of todoItems) {
+    const level = classifyAutonomy(todo);
+
+    if (level === 'auto_execute' || level === 'auto_execute_with_note') {
+      try {
+        executeTodoAction(todo);
+        todo.status = 'auto_executed';
+        todo.autoExecutedAt = new Date().toISOString();
+        todo.autonomyLevel = level;
+
+        if (level === 'auto_execute_with_note') {
+          todo.requiresNotification = true;
+        }
+
+        console.log(`[Dream Autonomy] Auto-executed (${level}): ${todo.type} - ${todo.description}`);
+      } catch (err) {
+        console.error(`[Dream Autonomy] Auto-execute failed for ${todo.type}:`, (err as Error).message);
+        todo.status = 'auto_execute_failed';
+        remaining.push(todo);
+      }
+    } else {
+      remaining.push(todo);
+    }
+  }
+
+  return remaining;
+}
+
+function executeTodoAction(todo: DreamTodoItem): void {
+  switch (todo.type) {
+    case 'archive':
+      if (todo.memoryId) forgetMemory(todo.memoryId, 'archive');
+      break;
+    case 'merge':
+      if (todo.memoryId && todo.targetId) {
+        const keeper = getMemory(todo.targetId);
+        const removed = getMemory(todo.memoryId);
+        if (keeper && removed) {
+          const mergedTags = [...new Set([...(keeper.tags || []), ...(removed.tags || [])])];
+          const mergedContent = keeper.content + '\n\n---\n' + removed.content;
+          updateMemory(todo.targetId, { content: mergedContent, tags: mergedTags }, `自动合并：与「${removed.title}」合并`);
+          forgetMemory(todo.memoryId, 'archive');
+        }
+      }
+      break;
+    case 'promote':
+      if (todo.memoryId) moveLayer(todo.memoryId, 'long');
+      break;
+    case 'assign_project':
+      if (todo.memoryId && todo.targetId) {
+        updateMemory(todo.memoryId, { projectId: todo.targetId }, `自动归类到项目`);
+      }
+      break;
+    default:
+      console.warn(`[Dream Autonomy] Unknown todo type: ${todo.type}, skipping`);
+  }
+}
+
+/**
+ * 自动处理过期待办项：超过 TTL 仍未被用户处理的项，以安全默认值自动执行
+ * 由定时任务调用
+ */
+export function autoResolveStaleTodos(): { resolved: number; remaining: number } {
+  const db = getDatabase();
+  const now = Date.now();
+  const ttlMs = DREAM_AUTONOMY.staleTodoTTLHours * 60 * 60 * 1000;
+  let resolved = 0;
+
+  const reports = db.prepare(`
+    SELECT id, todo_items, created_at FROM dream_reports
+    WHERE status = 'completed'
+    ORDER BY created_at DESC
+    LIMIT 50
+  `).all() as { id: string; todo_items: string; created_at: string }[];
+
+  for (const report of reports) {
+    const reportAge = now - new Date(report.created_at).getTime();
+    if (reportAge < ttlMs) continue;
+
+    let todos: DreamTodoItem[];
+    try {
+      todos = JSON.parse(report.todo_items || '[]');
+    } catch { continue; }
+
+    const pending = todos.filter(t => t.status === 'pending');
+    if (pending.length === 0) continue;
+
+    for (const todo of pending) {
+      try {
+        // 安全默认操作：archive 而非 delete
+        if (todo.memoryId) {
+          forgetMemory(todo.memoryId, DREAM_AUTONOMY.staleDefaultAction);
+        }
+        todo.status = 'auto_resolved_stale';
+        todo.autoExecutedAt = new Date().toISOString();
+        todo.autonomyLevel = 'stale_resolution';
+        resolved++;
+        console.log(`[Dream Autonomy] Stale todo auto-resolved: ${todo.type} - ${todo.description}`);
+      } catch (err) {
+        console.error(`[Dream Autonomy] Stale resolution failed:`, (err as Error).message);
+      }
+    }
+
+    db.prepare(`UPDATE dream_reports SET todo_items = ? WHERE id = ?`).run(JSON.stringify(todos), report.id);
+  }
+
+  const remainingCount = reports.reduce((sum, r) => {
+    try { return sum + JSON.parse(r.todo_items || '[]').filter((t: DreamTodoItem) => t.status === 'pending').length; } catch { return sum; }
+  }, 0);
+
+  return { resolved, remaining: remainingCount };
+}
+
+/**
+ * 获取待确认项，用于注入 Agent 上下文
+ * 返回最近、最紧急的待办项
+ */
+export function getPendingTodosForContext(limit?: number): DreamTodoItem[] {
+  const db = getDatabase();
+  const maxItems = limit ?? DREAM_AUTONOMY.maxTodosInContext;
+  const allTodos: DreamTodoItem[] = [];
+
+  const reports = db.prepare(`
+    SELECT todo_items FROM dream_reports
+    WHERE status = 'completed'
+    ORDER BY created_at DESC
+    LIMIT 10
+  `).all() as { todo_items: string }[];
+
+  for (const report of reports) {
+    try {
+      const todos = JSON.parse(report.todo_items || '[]') as DreamTodoItem[];
+      allTodos.push(...todos.filter(t => t.status === 'pending' || t.requiresNotification));
+    } catch { /* skip corrupted */ }
+  }
+
+  // 按置信度降序排列，优先展示高置信度项
+  allTodos.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+
+  return allTodos.slice(0, maxItems);
 }

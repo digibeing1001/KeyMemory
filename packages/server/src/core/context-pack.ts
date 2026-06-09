@@ -4,6 +4,7 @@ import { searchHybrid } from './query.js';
 import { findProjectRef, getProject } from './project.js';
 import { getDatabase } from '../db/sqlite.js';
 import { findRelatedMemories } from '../graph/entity.js';
+import { getPendingTodosForContext } from './dreaming.js';
 
 const KIND_ORDER: MemoryKind[] = [
   'preference',
@@ -161,12 +162,23 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>): string {
 
   if (pack.sections.length === 0) {
     lines.push('No relevant memories found.');
-    return lines.join('\n');
+  } else {
+    for (const section of pack.sections) {
+      lines.push(`## ${section.title}`);
+      for (const item of section.items) lines.push(formatItem(item));
+      lines.push('');
+    }
   }
 
-  for (const section of pack.sections) {
-    lines.push(`## ${section.title}`);
-    for (const item of section.items) lines.push(formatItem(item));
+  // 注入待确认项：让 Agent 在对话中自然地提醒用户
+  const pendingTodos = getPendingTodosForContext();
+  if (pendingTodos.length > 0) {
+    lines.push('## Pending Review Items');
+    lines.push('The following memory management actions were auto-executed or need your confirmation:');
+    for (const todo of pendingTodos) {
+      const statusTag = todo.status === 'pending' ? '[NEEDS REVIEW]' : '[AUTO-DONE]';
+      lines.push(`- ${statusTag} ${todo.type}: ${todo.description || todo.reason} (${todo.title})`);
+    }
     lines.push('');
   }
 

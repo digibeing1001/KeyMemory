@@ -76,6 +76,28 @@ export const DREAM_CONFIG = {
   fullScanLimit: 2000,
 } as const;
 
+/**
+ * 梦境自治配置：控制 Dream 在无用户干预时的自动执行策略
+ *
+ * 三级自治：
+ * - auto_execute: 高置信度，自动执行，仅记录日志
+ * - auto_execute_with_note: 中置信度，自动执行，下次 Agent 对话时通知
+ * - defer: 低置信度，等待用户确认
+ */
+export const DREAM_AUTONOMY = {
+  /** 置信度高于此值 → 自动执行（静默） */
+  autoExecuteConfidence: 0.85,
+  /** 置信度高于此值 → 自动执行 + Agent 通知 */
+  autoExecuteWithNoteConfidence: 0.72,
+  /** 低于 autoExecuteWithNoteConfidence → 等待用户确认 */
+  /** 待办项超过此天数未处理 → 自动以安全默认值处理 */
+  staleTodoTTLHours: 72,
+  /** 安全默认操作：archive（保守）而非 delete */
+  staleDefaultAction: 'archive' as const,
+  /** Agent 上下文中最多注入多少条待确认项 */
+  maxTodosInContext: 5,
+} as const;
+
 export const DEFAULT_PORT = 3210;
 export const DEFAULT_HOST = '127.0.0.1';
 export const DATA_DIR_NAME = '.keymemory';

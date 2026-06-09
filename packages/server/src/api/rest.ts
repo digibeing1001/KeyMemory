@@ -12,7 +12,7 @@ import { compressProjectMemories, compressEntityMemories, listCompressibleProjec
 import { getHealthReport, injectContext } from '../core/health.js';
 import { buildAgentContextPack } from '../core/context-pack.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
-import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport } from '../core/dreaming.js';
+import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport, getPendingTodosForContext } from '../core/dreaming.js';
 import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../core/scheduler.js';
 import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from '../core/migration.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from '../core/backup.js';
@@ -884,6 +884,12 @@ export function registerRoutes(app: FastifyInstance): void {
       return { error: 'Report not found' };
     }
     return { success: true };
+  });
+
+  app.get('/api/dream/todos', async (request) => {
+    const query = request.query as Record<string, string>;
+    const limit = query.limit ? parseInt(query.limit, 10) : undefined;
+    return { todos: getPendingTodosForContext(limit) };
   });
 
   // Project Suggestion routes

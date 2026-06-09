@@ -1,6 +1,6 @@
 import { getDatabase } from '../db/sqlite.js';
-import { runDreamCycle } from './dreaming.js';
-import { DREAM_CONFIG } from '@keymemory/shared';
+import { runDreamCycle, autoResolveStaleTodos } from './dreaming.js';
+import { DREAM_CONFIG, DREAM_AUTONOMY } from '@keymemory/shared';
 
 export interface SchedulerConfig {
   dreamingEnabled: boolean;
@@ -116,6 +116,7 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
 }
 
 let dreamTimer: ReturnType<typeof setTimeout> | null = null;
+let staleTodoTimer: ReturnType<typeof setInterval> | null = null;
 
 function scheduleNextDream(): void {
   if (dreamTimer) clearTimeout(dreamTimer);
@@ -136,6 +137,28 @@ function scheduleNextDream(): void {
     }
     scheduleNextDream();
   }, delay);
+}
+
+/**
+ * 启动过期待办自动处理的定时任务
+ * 每隔 staleTodoTTLHours / 2 小时检查一次，自动处理超期待办
+ */
+function startStaleTodoResolution(): void {
+  if (staleTodoTimer) clearInterval(staleTodoTimer);
+  const intervalMs = Math.max(30 * 60 * 1000, (DREAM_AUTONOMY.staleTodoTTLHours / 2) * 60 * 60 * 1000);
+
+  staleTodoTimer = setInterval(() => {
+    try {
+      const result = autoResolveStaleTodos();
+      if (result.resolved > 0) {
+        console.log(`[Scheduler] Auto-resolved ${result.resolved} stale todo items (${result.remaining} remaining)`);
+      }
+    } catch (err) {
+      console.error('[Scheduler] Stale todo resolution failed:', (err as Error).message);
+    }
+  }, intervalMs);
+
+  console.log(`[Scheduler] Stale todo auto-resolution enabled (interval: ${Math.round(intervalMs / 60000)} minutes)`);
 }
 
 let signalHandlersRegistered = false;
@@ -172,6 +195,7 @@ export function startScheduler(): void {
   }
 
   scheduleNextDream();
+  startStaleTodoResolution();
 
   if (!signalHandlersRegistered) {
     process.on('SIGINT', stopScheduler);
@@ -188,5 +212,7 @@ export function restartScheduler(): void {
 export function stopScheduler(): void {
   if (dreamTimer) clearTimeout(dreamTimer);
   dreamTimer = null;
+  if (staleTodoTimer) clearInterval(staleTodoTimer);
+  staleTodoTimer = null;
   console.log('[Scheduler] Stopped');
 }
