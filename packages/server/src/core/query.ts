@@ -2,7 +2,7 @@ import { v4 as uuid } from 'uuid';
 import type { SearchResult, Layer, MemoryStatus } from '@keymemory/shared';
 import { SEARCH_WEIGHTS, SEARCH_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
-import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, EMBEDDING_DIM, initEmbedding, isEmbeddingAvailable } from '../embed/onnx.js';
+import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, getEmbeddingDim, getCurrentModelInfo, isEmbeddingAvailable } from '../embed/onnx.js';
 import { recordHit } from './atom.js';
 import { rowToMemory } from '../db/mapper.js';
 
@@ -96,10 +96,11 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
     return;
   }
   const now = new Date().toISOString();
+  const modelInfo = getCurrentModelInfo();
   db.prepare(`
     INSERT INTO embeddings (memory_id, embedding, model, created_at)
-    VALUES (?, ?, 'all-MiniLM-L6-v2', ?)
-  `).run(memoryId, embeddingToBuffer(vector), now);
+    VALUES (?, ?, ?, ?)
+  `).run(memoryId, embeddingToBuffer(vector), modelInfo.id ?? 'unknown', now);
 }
 
 export async function searchFulltext(query: string, options?: SearchOptions): Promise<SearchResult[]> {
@@ -239,10 +240,7 @@ export async function searchSemantic(query: string, options?: SearchOptions): Pr
   scored.sort((a, b) => b.score - a.score);
 
   const limited = scored.slice(0, options?.limit ?? 20);
-  for (const r of limited) {
-    recordHit(r.memory.id);
-    logQuery(query, r.memory.id, 'semantic');
-  }
+  // Do not recordHit here; searchHybrid handles it once for fused results.
 
   return limited;
 }
