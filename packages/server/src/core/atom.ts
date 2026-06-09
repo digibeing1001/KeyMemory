@@ -6,6 +6,7 @@ import { rowToMemory } from '../db/mapper.js';
 import { extractEntities, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
 import { ensureProjectPath } from './project.js';
 import { extractProjectPathFromContent, normalizeMemoryInput, normalizeMemoryUpdate } from './memory-schema.js';
+import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
 
 export function createMemory(input: CreateMemoryInput): Memory {
   const db = getDatabase();
@@ -94,6 +95,9 @@ export function createMemory(input: CreateMemoryInput): Memory {
       const entity = ensureEntity(ext.name, ext.type);
       linkMemoryEntity(mem.id, entity.id, mem.projectId);
     }
+
+    // 异步分块嵌入（不阻塞主流程）
+    scheduleChunkAndEmbed(mem.id, mem.title, mem.content);
 
     return mem;
   })();
@@ -233,6 +237,11 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
       changeReason: changeReason ?? null,
       createdAt: new Date().toISOString(),
     });
+
+    // 内容变化时重新分块嵌入
+    if (input.content !== undefined || input.title !== undefined) {
+      scheduleChunkAndEmbed(id, updated.title, updated.content);
+    }
 
     return updated;
   })();
@@ -428,6 +437,7 @@ export function deleteMemory(id: string, permanent = false): boolean {
       db.prepare(`DELETE FROM versions WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM memory_entities WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
+      deleteChunks(id);
       db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
     } else {
       db.prepare(`UPDATE memories SET status = 'deleted', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), id);

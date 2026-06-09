@@ -1,6 +1,8 @@
 import type { ForgetMethod, Layer } from '@keymemory/shared';
 import { LAYER_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
+import { deleteChunks } from './chunking.js';
+import { invalidateEmbeddingCache } from './embedding-cache.js';
 import { getMemory } from './atom.js';
 
 export function applyDecay(): { flashDecayed: number; shortDecayed: number; autoArchived: number } {
@@ -52,7 +54,9 @@ export function forgetMemory(id: string, method: ForgetMethod): boolean {
       db.prepare(`DELETE FROM versions WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM memory_entities WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
+      deleteChunks(id);
       db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
+      invalidateEmbeddingCache(id);
       return true;
     })();
   }
@@ -61,14 +65,18 @@ export function forgetMemory(id: string, method: ForgetMethod): boolean {
     return db.transaction(() => {
       db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
       db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
+      deleteChunks(id);
       db.prepare(`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
+      invalidateEmbeddingCache(id);
       return true;
     })();
   } else if (method === 'decay') {
     return db.transaction(() => {
       db.prepare(`DELETE FROM memories_fts WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)`).run(id);
       db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
+      deleteChunks(id);
       db.prepare(`UPDATE memories SET confidence = 0, decay_factor = 0, status = 'decayed', updated_at = ? WHERE id = ?`).run(now, id);
+      invalidateEmbeddingCache(id);
       return true;
     })();
   }

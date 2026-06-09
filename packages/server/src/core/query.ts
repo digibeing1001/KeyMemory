@@ -2,9 +2,11 @@ import { v4 as uuid } from 'uuid';
 import type { SearchResult, Layer, MemoryStatus } from '@keymemory/shared';
 import { SEARCH_WEIGHTS, SEARCH_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
-import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity, getEmbeddingDim, getCurrentModelInfo, isEmbeddingAvailable } from '../embed/onnx.js';
+import { embed, embeddingToBuffer, cosineSimilarity, getEmbeddingDim, getCurrentModelInfo, isEmbeddingAvailable } from '../embed/onnx.js';
 import { recordHit } from './atom.js';
 import { rowToMemory } from '../db/mapper.js';
+import { getCachedEmbedding, getCachedChunkEmbedding, warmupEmbeddingCache, warmupChunkEmbeddingCache, invalidateEmbeddingCache } from './embedding-cache.js';
+import { scheduleChunkAndEmbed } from './chunking.js';
 
 type SearchOptions = {
   layer?: Layer;
@@ -101,6 +103,12 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
     INSERT INTO embeddings (memory_id, embedding, model, created_at)
     VALUES (?, ?, ?, ?)
   `).run(memoryId, embeddingToBuffer(vector), modelInfo.id ?? 'unknown', now);
+
+  // 使缓存失效，下次搜索会重新加载
+  invalidateEmbeddingCache(memoryId);
+
+  // 触发分块嵌入
+  scheduleChunkAndEmbed(memoryId, title, content);
 }
 
 export async function searchFulltext(query: string, options?: SearchOptions): Promise<SearchResult[]> {
@@ -207,36 +215,69 @@ export async function searchSemantic(query: string, options?: SearchOptions): Pr
     return [];
   }
 
+  // 首次搜索时预热缓存
+  warmupEmbeddingCache();
+  warmupChunkEmbeddingCache();
+
   const db = getDatabase();
   const conditions = [options?.status ? 'm.status = @status' : "m.status = 'active'"];
   const params: Record<string, unknown> = {};
   if (options?.status) params.status = options.status;
   addSearchFilters(conditions, params, options);
 
+  // 1. 获取所有活跃记忆（不读 embedding BLOB，走缓存）
   const rows = db.prepare(`
-    SELECT m.*, e.embedding
+    SELECT m.*
     FROM memories m
-    LEFT JOIN embeddings e ON e.memory_id = m.id
     WHERE ${conditions.join(' AND ')}
     LIMIT 500
-  `).all(params) as (Record<string, unknown> & { embedding: Buffer | undefined })[];
+  `).all(params) as Record<string, unknown>[];
 
-  const scored = rows.map(r => {
-    if (!r.embedding) {
-      return {
-        memory: rowToMemory(r),
-        score: 0,
-        matchType: 'semantic' as const,
-      };
+  // 2. 批量获取所有相关记忆的分块 ID（一次查询代替 N 次）
+  const memoryIds = rows.map(r => (r as { id: string }).id);
+  const chunkMap = new Map<string, string[]>(); // memoryId → chunkIds
+  if (memoryIds.length > 0) {
+    const placeholders = memoryIds.map(() => '?').join(',');
+    const chunkRows = db.prepare(`
+      SELECT memory_id, id FROM memory_chunks
+      WHERE memory_id IN (${placeholders}) AND embedding IS NOT NULL
+    `).all(...memoryIds) as { memory_id: string; id: string }[];
+
+    for (const cr of chunkRows) {
+      const list = chunkMap.get(cr.memory_id) || [];
+      list.push(cr.id);
+      chunkMap.set(cr.memory_id, list);
     }
-    const memVec = bufferToEmbedding(r.embedding);
-    const sim = cosineSimilarity(queryVec, memVec);
-    return {
-      memory: rowToMemory(r),
-      score: sim,
+  }
+
+  // 3. 计算相似度
+  const scored: SearchResult[] = [];
+
+  for (const r of rows) {
+    const mem = rowToMemory(r);
+    const memVec = getCachedEmbedding(mem.id);
+    const memSim = memVec ? cosineSimilarity(queryVec, memVec) : 0;
+
+    // 检查分块，取最高分
+    let bestChunkSim = 0;
+    const chunkIds = chunkMap.get(mem.id) || [];
+    for (const chunkId of chunkIds) {
+      const chunkVec = getCachedChunkEmbedding(chunkId);
+      if (chunkVec) {
+        const chunkSim = cosineSimilarity(queryVec, chunkVec);
+        if (chunkSim > bestChunkSim) bestChunkSim = chunkSim;
+      }
+    }
+
+    // 取记忆级和分块级的最高分
+    const finalScore = Math.max(memSim, bestChunkSim);
+
+    scored.push({
+      memory: mem,
+      score: finalScore,
       matchType: 'semantic' as const,
-    };
-  });
+    });
+  }
 
   scored.sort((a, b) => b.score - a.score);
 
@@ -251,30 +292,40 @@ export async function findDuplicateMemories(threshold: number = 0.9, limit: numb
     return [];
   }
 
+  // 使用缓存，避免大量磁盘 IO
+  warmupEmbeddingCache();
+
   const db = getDatabase();
   const rows = db.prepare(`
-    SELECT e1.memory_id as id1, e2.memory_id as id2, e1.embedding as emb1, e2.embedding as emb2
-    FROM embeddings e1
-    JOIN embeddings e2 ON e1.memory_id < e2.memory_id
-    WHERE e1.memory_id != e2.memory_id
+    SELECT e.memory_id as id
+    FROM embeddings e
+    JOIN memories m ON m.id = e.memory_id
+    WHERE m.status = 'active'
     LIMIT 5000
-  `).all() as { id1: string; id2: string; emb1: Buffer; emb2: Buffer }[];
+  `).all() as { id: string }[];
+
+  // 从缓存获取向量
+  const vectors: { id: string; vec: Float32Array }[] = [];
+  for (const row of rows) {
+    const vec = getCachedEmbedding(row.id);
+    if (vec) vectors.push({ id: row.id, vec });
+  }
 
   const duplicates: { memoryId1: string; memoryId2: string; similarity: number }[] = [];
 
-  for (const row of rows) {
-    const vec1 = bufferToEmbedding(row.emb1);
-    const vec2 = bufferToEmbedding(row.emb2);
-    const sim = cosineSimilarity(vec1, vec2);
-
-    if (sim >= threshold) {
-      duplicates.push({
-        memoryId1: row.id1,
-        memoryId2: row.id2,
-        similarity: sim,
-      });
-      if (duplicates.length >= limit) break;
+  for (let i = 0; i < vectors.length; i++) {
+    for (let j = i + 1; j < vectors.length; j++) {
+      const sim = cosineSimilarity(vectors[i].vec, vectors[j].vec);
+      if (sim >= threshold) {
+        duplicates.push({
+          memoryId1: vectors[i].id,
+          memoryId2: vectors[j].id,
+          similarity: sim,
+        });
+        if (duplicates.length >= limit) break;
+      }
     }
+    if (duplicates.length >= limit) break;
   }
 
   duplicates.sort((a, b) => b.similarity - a.similarity);

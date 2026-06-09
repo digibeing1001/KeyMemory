@@ -269,6 +269,19 @@ function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL,
       FOREIGN KEY (memory_id) REFERENCES memories(id)
     );
+
+    CREATE TABLE IF NOT EXISTS memory_chunks (
+      id TEXT PRIMARY KEY,
+      memory_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      embedding BLOB,
+      model TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(memory_id, chunk_index),
+      FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+    );
   `);
 
   db.exec(`
@@ -285,6 +298,7 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_dream_signals_memory ON dream_signals(memory_id);
     CREATE INDEX IF NOT EXISTS idx_query_logs_memory ON query_logs(memory_id);
     CREATE INDEX IF NOT EXISTS idx_query_logs_created ON query_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_chunks_memory ON memory_chunks(memory_id);
     CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
     CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
     CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_id);
