@@ -25,6 +25,7 @@
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "smoke:launchers": "node scripts/smoke-launchers.mjs",
     "release:check": "node scripts/release-check.mjs",
+    "postinstall": "pnpm build",
     "setup": "node bin/install.js",
     "update": "node update-keymemory.js",
     "download-model": "node scripts/download-model.js",

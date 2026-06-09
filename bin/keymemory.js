@@ -6,6 +6,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const CLI_ENTRY = path.join(ROOT, 'packages', 'server', 'dist', 'cli.js');
+const SHARED_ENTRY = path.join(ROOT, 'packages', 'shared', 'dist', 'index.js');
 
 function run(cmd, options = {}) {
   try {
@@ -212,9 +213,9 @@ function doMcp() {
 }
 
 function ensureCliBuilt() {
-  if (fs.existsSync(CLI_ENTRY)) return;
+  if (fs.existsSync(CLI_ENTRY) && fs.existsSync(SHARED_ENTRY)) return;
   console.log('');
-  console.log('  \x1b[33m⚠ CLI 构建产物不存在，正在执行 pnpm build...\x1b[0m');
+  console.log('  \x1b[33m⚠ 构建产物不存在或不完整，正在执行 pnpm build...\x1b[0m');
   run('pnpm build');
 }
 

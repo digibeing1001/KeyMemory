@@ -7,6 +7,7 @@ const os = require('os');
 
 const ROOT = path.resolve(__dirname, '..');
 const ENTRY = path.join(ROOT, 'packages', 'server', 'dist', 'mcp-server.js');
+const SHARED_ENTRY = path.join(ROOT, 'packages', 'shared', 'dist', 'index.js');
 const LOG_DIR = process.env.KEYMEMORY_LOG_DIR || path.join(os.homedir(), '.keymemory', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'mcp.log');
 
@@ -28,7 +29,7 @@ function log(message) {
 function runAutoBuild() {
   if (process.env.KEYMEMORY_AUTO_BUILD !== '1') return false;
 
-  log('[launcher] mcp-server.js missing; KEYMEMORY_AUTO_BUILD=1, running pnpm build');
+  log('[launcher] Build artifacts missing; KEYMEMORY_AUTO_BUILD=1, running pnpm build');
   const result = spawnSync('pnpm', ['build'], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -40,15 +41,20 @@ function runAutoBuild() {
 }
 
 function failMissingEntry() {
-  log('[launcher] ERROR: MCP entry not found: ' + ENTRY);
+  log('[launcher] ERROR: Build artifacts missing. The project needs to be built after sync/install.');
   log('[launcher] Run: cd "' + ROOT + '" && pnpm build');
   log('[launcher] Then run: keymemory doctor');
+  log('[launcher] Tip: Set KEYMEMORY_AUTO_BUILD=1 to auto-build on launch');
   process.exit(1);
 }
 
-if (!fs.existsSync(ENTRY)) {
+function needsBuild() {
+  return !fs.existsSync(ENTRY) || !fs.existsSync(SHARED_ENTRY);
+}
+
+if (needsBuild()) {
   const built = runAutoBuild();
-  if (!built || !fs.existsSync(ENTRY)) failMissingEntry();
+  if (!built || needsBuild()) failMissingEntry();
 }
 
 log('[launcher] starting MCP server: ' + ENTRY);
