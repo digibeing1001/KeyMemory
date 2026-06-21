@@ -171,7 +171,7 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>): string {
   }
 
   // 注入待确认项：让 Agent 在对话中自然地提醒用户
-  const pendingTodos = getPendingTodosForContext();
+  const pendingTodos = getPendingTodosForContext(undefined, pack.projectId);
   if (pendingTodos.length > 0) {
     lines.push('## Pending Review Items');
     lines.push('The following memory management actions were auto-executed or need your confirmation:');

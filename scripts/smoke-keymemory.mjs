@@ -731,20 +731,27 @@ const codexAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item =>
 const claudeCodeAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item => item.target === 'claude-code') : null;
 const hermesAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item => item.target === 'hermes') : null;
 const openClawAgentConfig = Array.isArray(agentConfigs) ? agentConfigs.find(item => item.target === 'openclaw') : null;
-if (!codexAgentConfig?.snippet?.includes('[mcp_servers.keymemory]')) {
-  throw new Error(`expected agent-config all to include Codex TOML snippet, got ${JSON.stringify(agentConfigs)}`);
+if (codexAgentConfig?.mode !== 'cli' || !codexAgentConfig.snippet?.includes('KeyMemory - CLI Mode')) {
+  throw new Error(`expected agent-config all to use Codex CLI mode by default, got ${JSON.stringify(agentConfigs)}`);
 }
-if (!codexAgentConfig.snippet.includes('default_tools_approval_mode = "approve"')) {
-  throw new Error(`expected Codex KeyMemory config to pre-approve local memory tools, got ${JSON.stringify(codexAgentConfig)}`);
+if (claudeCodeAgentConfig?.mode !== 'cli' || hermesAgentConfig?.mode !== 'cli') {
+  throw new Error(`expected Claude Code and Hermes to use CLI mode by default, got ${JSON.stringify(agentConfigs)}`);
 }
-if (!claudeCodeAgentConfig?.snippet?.includes('"mcp__keymemory__*"')) {
-  throw new Error(`expected Claude Code KeyMemory config to allow native memory tools, got ${JSON.stringify(claudeCodeAgentConfig)}`);
+
+const codexMcpAgentConfig = await run(['agent-config', 'codex', '--mode', 'mcp']);
+const claudeCodeMcpAgentConfig = await run(['agent-config', 'claude-code', '--mode', 'mcp']);
+const hermesMcpAgentConfig = await run(['agent-config', 'hermes', '--mode', 'mcp']);
+if (!codexMcpAgentConfig?.snippet?.includes('[mcp_servers.keymemory]') || !codexMcpAgentConfig.snippet.includes('default_tools_approval_mode = "approve"')) {
+  throw new Error(`expected explicit Codex MCP config to pre-approve local memory tools, got ${JSON.stringify(codexMcpAgentConfig)}`);
 }
-if (!hermesAgentConfig?.snippet?.includes('"mcp_servers"') || !hermesAgentConfig.snippet.includes('"supports_parallel_tool_calls": true')) {
-  throw new Error(`expected Hermes KeyMemory config to include native MCP server settings, got ${JSON.stringify(hermesAgentConfig)}`);
+if (!claudeCodeMcpAgentConfig?.snippet?.includes('"mcp__keymemory__*"')) {
+  throw new Error(`expected explicit Claude Code MCP config to allow native memory tools, got ${JSON.stringify(claudeCodeMcpAgentConfig)}`);
 }
-if (!hermesAgentConfig.snippet.includes('"keymemory_secret_get"')) {
-  throw new Error(`expected Hermes KeyMemory config to include secret credential tools, got ${JSON.stringify(hermesAgentConfig)}`);
+if (!hermesMcpAgentConfig?.snippet?.includes('"mcp_servers"') || !hermesMcpAgentConfig.snippet.includes('"supports_parallel_tool_calls": true')) {
+  throw new Error(`expected explicit Hermes MCP config to include native MCP server settings, got ${JSON.stringify(hermesMcpAgentConfig)}`);
+}
+if (!hermesMcpAgentConfig.snippet.includes('"keymemory_secret_get"')) {
+  throw new Error(`expected explicit Hermes MCP config to include secret credential tools, got ${JSON.stringify(hermesMcpAgentConfig)}`);
 }
 if (!openClawAgentConfig?.snippet?.includes('"provider": "keymemory"')) {
   throw new Error(`expected agent-config all to include OpenClaw memory provider, got ${JSON.stringify(agentConfigs)}`);

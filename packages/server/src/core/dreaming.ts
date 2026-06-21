@@ -1873,7 +1873,7 @@ export function autoResolveStaleTodos(): { resolved: number; remaining: number }
  * 获取待确认项，用于注入 Agent 上下文
  * 返回最近、最紧急的待办项
  */
-export function getPendingTodosForContext(limit?: number): DreamTodoItem[] {
+export function getPendingTodosForContext(limit?: number, projectId?: string): DreamTodoItem[] {
   const db = getDatabase();
   const maxItems = limit ?? DREAM_AUTONOMY.maxTodosInContext;
   const allTodos: DreamTodoItem[] = [];
@@ -1890,6 +1890,24 @@ export function getPendingTodosForContext(limit?: number): DreamTodoItem[] {
       const todos = JSON.parse(report.todo_items || '[]') as DreamTodoItem[];
       allTodos.push(...todos.filter(t => t.status === 'pending' || t.requiresNotification));
     } catch { /* skip corrupted */ }
+  }
+
+  if (projectId && allTodos.length > 0) {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!project) return [];
+    const memoryIds = Array.from(new Set(allTodos.map(todo => todo.memoryId)));
+    const placeholders = memoryIds.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT m.id
+      FROM memories m
+      JOIN projects p ON p.id = m.project_id
+      WHERE m.id IN (${placeholders})
+        AND (p.id = ? OR p.path LIKE ?)
+    `).all(...memoryIds, projectId, `${project.path}/%`) as { id: string }[];
+    const allowed = new Set(rows.map(row => row.id));
+    for (let index = allTodos.length - 1; index >= 0; index--) {
+      if (!allowed.has(allTodos[index].memoryId)) allTodos.splice(index, 1);
+    }
   }
 
   // 按置信度降序排列，优先展示高置信度项

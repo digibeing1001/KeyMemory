@@ -268,7 +268,7 @@ function checkCapabilities() {
     const scheduler = runJsonCli(['scheduler'], tempDir);
     mark('dream scheduler', Boolean(scheduler.nextDreamRunAt) && scheduler.dreamingEnabled === true, scheduler.nextDreamRunAt || 'missing next run');
 
-    const agentConfig = runJsonCli(['agent-config', 'codex'], tempDir);
+    const agentConfig = runJsonCli(['agent-config', 'codex', '--mode', 'mcp'], tempDir);
     mark('agent config generator', String(agentConfig.snippet || '').includes('[mcp_servers.keymemory]'), agentConfig.target || 'missing target');
 
     const backup = runJsonCli(['backup-create', backupFile], tempDir);

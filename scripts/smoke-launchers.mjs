@@ -197,7 +197,7 @@ const onboard = runKeymemory([
 if (onboard.mode !== 'preview' || !onboard.migration?.dryRun || onboard.migration.imported < 1) {
   throw new Error(`expected launcher onboard preview, got ${JSON.stringify(onboard)}`);
 }
-if (!onboard.agentConfigs?.some(item => item.target === 'codex' && item.snippet.includes('[mcp_servers.keymemory]') && item.snippet.includes('default_tools_approval_mode = "approve"'))) {
+if (!onboard.agentConfigs?.some(item => item.target === 'codex' && item.mode === 'cli' && item.snippet.includes('KeyMemory - CLI Mode'))) {
   throw new Error(`expected launcher onboard Codex config, got ${JSON.stringify(onboard.agentConfigs)}`);
 }
 

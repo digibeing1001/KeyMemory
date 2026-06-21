@@ -7,6 +7,7 @@ import { recordHit } from './atom.js';
 import { rowToMemory } from '../db/mapper.js';
 import { getCachedEmbedding, getCachedChunkEmbedding, warmupEmbeddingCache, warmupChunkEmbeddingCache, invalidateEmbeddingCache } from './embedding-cache.js';
 import { scheduleChunkAndEmbed } from './chunking.js';
+import { redactSensitiveText } from './privacy.js';
 
 type SearchOptions = {
   layer?: Layer;
@@ -23,10 +24,11 @@ function logQuery(query: string, memoryId: string, matchType: string): void {
   try {
     const db = getDatabase();
     const now = new Date().toISOString();
+    const safeQuery = redactSensitiveText(query.trim()).text.slice(0, 200);
     db.prepare(`
       INSERT INTO query_logs (id, query, memory_id, match_type, created_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(uuid(), query.trim().slice(0, 200), memoryId, matchType, now);
+    `).run(uuid(), safeQuery, memoryId, matchType, now);
   } catch {
     // 查询日志失败不应影响搜索功能
   }

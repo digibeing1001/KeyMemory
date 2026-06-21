@@ -84,14 +84,14 @@ export async function initEmbedding(): Promise<void> {
     env.allowRemoteModels = allowRemote;
     env.allowLocalModels = true;
 
-    console.log(`[KeyMemory] 硬件检测: ${hardware.ramGB}GB RAM · ${hardware.cpuCores}核 CPU${hardware.gpuName ? ' · GPU: ' + hardware.gpuName : ''}`);
-    console.log(`[KeyMemory] 推荐模型: ${config.displayName} (${config.dim}维)`);
+    console.error(`[KeyMemory] 硬件检测: ${hardware.ramGB}GB RAM · ${hardware.cpuCores}核 CPU${hardware.gpuName ? ' · GPU: ' + hardware.gpuName : ''}`);
+    console.error(`[KeyMemory] 推荐模型: ${config.displayName} (${config.dim}维)`);
 
     try {
       extractor = await pipeline('feature-extraction', config.hfRepo);
       modelAvailable = true;
       modelLoadError = null;
-      console.log(`[KeyMemory] 嵌入模型加载成功: ${config.displayName}`);
+      console.error(`[KeyMemory] 嵌入模型加载成功: ${config.displayName}`);
     } catch (err) {
       const msg = (err as Error).message;
       if (
@@ -108,7 +108,7 @@ export async function initEmbedding(): Promise<void> {
         console.error(`[KeyMemory] 模型加载失败: ${msg}`);
       }
       modelAvailable = false;
-      console.log('[KeyMemory] 语义搜索已禁用，全文搜索仍可用。');
+      console.error('[KeyMemory] 语义搜索已禁用，全文搜索仍可用。');
     }
   } catch (err) {
     modelAvailable = false;

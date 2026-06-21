@@ -1,4 +1,4 @@
-import type { CreateMemoryInput, IsolationMode, Layer, MemoryKind, MemoryStatus, UpdateMemoryInput } from '@keymemory/shared';
+import type { CreateMemoryInput, IsolationMode, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryKind, MemoryStatus, UpdateMemoryInput } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import { getMemory, listMemories, updateMemory } from './atom.js';
 import { searchHybrid, ensureEmbedding } from './query.js';
@@ -10,6 +10,7 @@ import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestio
 import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from '../graph/entity.js';
 import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from './secrets.js';
 import { canonicalToolName } from './mcp-tools.js';
+import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, LoopProtocolError, startLoopRun } from './loop-harness.js';
 import type { MemoryAdapter } from '../adapters/base.js';
 
 export interface McpToolExecutionResult {
@@ -93,6 +94,12 @@ function optionalNumber(args: Record<string, unknown>, key: string): number | un
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new ToolInputError(`${key} must be a finite number`);
   }
+  return value;
+}
+
+function requiredNumber(args: Record<string, unknown>, key: string): number {
+  const value = optionalNumber(args, key);
+  if (value === undefined) throw new ToolInputError(`${key} is required`);
   return value;
 }
 
@@ -250,6 +257,66 @@ export async function executeMcpTool(
         });
         return { content: [{ type: 'text', text: pack.markdown }] };
       }
+
+      case 'memory_loop_start':
+        return ok(await startLoopRun({
+          objective: requiredString(args, 'objective'),
+          project: optionalString(args, 'project'),
+          projectId: optionalString(args, 'projectId'),
+          agentId: requiredString(args, 'agentId'),
+          idempotencyKey: requiredString(args, 'idempotencyKey'),
+          leaseOwner: requiredString(args, 'leaseOwner'),
+          leaseTtlSeconds: optionalNumber(args, 'leaseTtlSeconds'),
+          query: optionalString(args, 'query'),
+          maxItems: optionalNumber(args, 'maxItems'),
+          maxChars: optionalNumber(args, 'maxChars'),
+          metadata: optionalRecord(args, 'metadata'),
+        } satisfies LoopRunStartRequest));
+
+      case 'memory_loop_context':
+        return ok(await getLoopContext({
+          runId: requiredString(args, 'runId'),
+          leaseOwner: requiredString(args, 'leaseOwner'),
+          renewLeaseSeconds: optionalNumber(args, 'renewLeaseSeconds'),
+          query: optionalString(args, 'query'),
+          afterSequence: optionalNumber(args, 'afterSequence'),
+          maxEvents: optionalNumber(args, 'maxEvents'),
+          maxItems: optionalNumber(args, 'maxItems'),
+          maxChars: optionalNumber(args, 'maxChars'),
+        } satisfies LoopContextRequest));
+
+      case 'memory_loop_checkpoint':
+        return ok(await checkpointLoopRun({
+          runId: requiredString(args, 'runId'),
+          expectedVersion: requiredNumber(args, 'expectedVersion'),
+          idempotencyKey: requiredString(args, 'idempotencyKey'),
+          leaseOwner: requiredString(args, 'leaseOwner'),
+          leaseTtlSeconds: optionalNumber(args, 'leaseTtlSeconds'),
+          phase: requiredString(args, 'phase'),
+          summary: requiredString(args, 'summary'),
+          state: optionalRecord(args, 'state'),
+          nextActions: optionalStringArray(args, 'nextActions'),
+          artifacts: optionalStringArray(args, 'artifacts'),
+          memoryRefs: optionalStringArray(args, 'memoryRefs'),
+          status: optionalString(args, 'status') as LoopCheckpointRequest['status'],
+          eventName: optionalString(args, 'eventName'),
+          severity: optionalString(args, 'severity') as LoopCheckpointRequest['severity'],
+          spanId: optionalString(args, 'spanId'),
+        } satisfies LoopCheckpointRequest));
+
+      case 'memory_loop_finish':
+        return ok(await finishLoopRun({
+          runId: requiredString(args, 'runId'),
+          expectedVersion: requiredNumber(args, 'expectedVersion'),
+          idempotencyKey: requiredString(args, 'idempotencyKey'),
+          leaseOwner: requiredString(args, 'leaseOwner'),
+          status: requiredString(args, 'status') as LoopFinishRequest['status'],
+          summary: requiredString(args, 'summary'),
+          state: optionalRecord(args, 'state'),
+          artifacts: optionalStringArray(args, 'artifacts'),
+          memoryRefs: optionalStringArray(args, 'memoryRefs'),
+          spanId: optionalString(args, 'spanId'),
+        } satisfies LoopFinishRequest));
 
       case 'memory_read': {
         const id = requiredString(args, 'id');
@@ -442,6 +509,9 @@ export async function executeMcpTool(
         return fail(`Unknown tool: ${String(name)}`);
     }
   } catch (err) {
+    if (err instanceof LoopProtocolError) {
+      return { content: [{ type: 'text', text: JSON.stringify(loopErrorObservation(err), null, 2) }], isError: true };
+    }
     const message = err instanceof Error ? err.message : String(err);
     return fail(message);
   }

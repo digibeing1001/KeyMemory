@@ -23,7 +23,8 @@ import { getDatabase } from '../db/sqlite.js';
 import { autoRemember } from '../core/auto.js';
 import { extractTags } from '../core/auto.js';
 import { isApiRequestAuthorized, shouldAuthenticateHttpPath } from '../core/security.js';
-import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
+import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, startLoopRun } from '../core/loop-harness.js';
+import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
 
 function safeParseTags(tags: string | null): string[] {
   if (!tags) return [];
@@ -38,6 +39,14 @@ function safeParseTags(tags: string | null): string[] {
 function createMigrationBackup(shouldCreate: boolean | undefined, dryRun: boolean | undefined): BackupSummary | undefined {
   if (!shouldCreate || dryRun) return undefined;
   return createBackupFile();
+}
+
+function loopHttpStatus(code: string | undefined): number {
+  if (code === 'RUN_NOT_FOUND' || code === 'CHECKPOINT_NOT_FOUND' || code === 'PROJECT_NOT_FOUND' || code === 'MEMORY_NOT_FOUND') return 404;
+  if (code === 'INVALID_INPUT') return 400;
+  if (code === 'LIMIT_EXCEEDED') return 413;
+  if (code === 'INTERNAL_ERROR') return 500;
+  return 409;
 }
 
 export function registerRoutes(app: FastifyInstance): void {
@@ -288,6 +297,51 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.post('/api/context/pack', async (request) => {
     return buildAgentContextPack(request.body as AgentContextPackRequest);
+  });
+
+  app.post('/api/loop/runs', async (request, reply) => {
+    try {
+      const observation = await startLoopRun(request.body as LoopRunStartRequest);
+      reply.code(observation.status === 'warning' ? 200 : 201);
+      return observation;
+    } catch (error) {
+      const observation = loopErrorObservation(error);
+      reply.code(loopHttpStatus(observation.error?.code));
+      return observation;
+    }
+  });
+
+  app.post('/api/loop/runs/:runId/context', async (request, reply) => {
+    try {
+      const { runId } = request.params as { runId: string };
+      return await getLoopContext({ ...(request.body as Omit<LoopContextRequest, 'runId'>), runId });
+    } catch (error) {
+      const observation = loopErrorObservation(error);
+      reply.code(loopHttpStatus(observation.error?.code));
+      return observation;
+    }
+  });
+
+  app.post('/api/loop/runs/:runId/checkpoints', async (request, reply) => {
+    try {
+      const { runId } = request.params as { runId: string };
+      return await checkpointLoopRun({ ...(request.body as Omit<LoopCheckpointRequest, 'runId'>), runId });
+    } catch (error) {
+      const observation = loopErrorObservation(error);
+      reply.code(loopHttpStatus(observation.error?.code));
+      return observation;
+    }
+  });
+
+  app.post('/api/loop/runs/:runId/finish', async (request, reply) => {
+    try {
+      const { runId } = request.params as { runId: string };
+      return await finishLoopRun({ ...(request.body as Omit<LoopFinishRequest, 'runId'>), runId });
+    } catch (error) {
+      const observation = loopErrorObservation(error);
+      reply.code(loopHttpStatus(observation.error?.code));
+      return observation;
+    }
   });
 
   app.post('/api/agent/route', async (request) => {

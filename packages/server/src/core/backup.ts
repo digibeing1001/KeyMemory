@@ -24,6 +24,9 @@ const CORE_TABLES = [
   'dream_signals',
   'project_suggestions',
   'scheduler_config',
+  'loop_runs',
+  'loop_checkpoints',
+  'loop_events',
 ] as const;
 
 const OPTIONAL_TABLES = ['embeddings', 'query_logs'] as const;
@@ -179,6 +182,9 @@ function restoreDeleteOrder(): string[] {
   return [
     'embeddings',
     'query_logs',
+    'loop_events',
+    'loop_checkpoints',
+    'loop_runs',
     'memory_entities',
     'versions',
     'dream_signals',
@@ -217,6 +223,9 @@ function restoreInsertOrder(includedTables: string[]): string[] {
     'dream_reports',
     'dream_signals',
     'project_suggestions',
+    'loop_runs',
+    'loop_checkpoints',
+    'loop_events',
     'query_logs',
   ];
   return order.filter(table => includedTables.includes(table));
@@ -253,7 +262,7 @@ function rebuildFullTextIndex(): void {
     DROP TABLE IF EXISTS memories_fts;
     CREATE VIRTUAL TABLE memories_fts USING fts5(
       title, content, project,
-      tokenize='unicode61'
+      tokenize='trigram'
     );
   `);
   const rows = db.prepare(`

@@ -231,6 +231,141 @@ export interface AgentContextPack {
   markdown: string;
 }
 
+export type LoopRunStatus = 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+export type LoopEventSeverity = 'debug' | 'info' | 'warn' | 'error';
+
+export interface LoopRun {
+  id: string;
+  objective: string;
+  projectId?: string;
+  projectPath?: string;
+  agentId: string;
+  status: LoopRunStatus;
+  checkpointVersion: number;
+  lastEventSequence: number;
+  traceId: string;
+  leaseOwner: string;
+  leaseExpiresAt: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface LoopCheckpoint {
+  id: string;
+  runId: string;
+  version: number;
+  phase: string;
+  summary: string;
+  state: Record<string, unknown>;
+  nextActions: string[];
+  artifacts: string[];
+  memoryRefs: string[];
+  createdAt: string;
+}
+
+export interface LoopEvent {
+  id: string;
+  runId: string;
+  sequence: number;
+  eventName: string;
+  severity: LoopEventSeverity;
+  traceId: string;
+  spanId?: string;
+  body?: string;
+  attributes: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface LoopCursor {
+  checkpointVersion: number;
+  eventSequence: number;
+}
+
+export interface LoopHarnessError {
+  code: string;
+  message: string;
+  retryable: boolean;
+  expectedVersion?: number;
+  actualVersion?: number;
+}
+
+export interface LoopObservation<T = unknown> {
+  schemaVersion: 'keymemory.loop-observation.v1';
+  status: 'success' | 'warning' | 'error';
+  summary: string;
+  nextActions: string[];
+  artifacts: string[];
+  data?: T;
+  cursor?: LoopCursor;
+  error?: LoopHarnessError;
+}
+
+export interface LoopRunStartRequest {
+  objective: string;
+  project?: string;
+  projectId?: string;
+  agentId: string;
+  idempotencyKey: string;
+  leaseOwner: string;
+  leaseTtlSeconds?: number;
+  query?: string;
+  maxItems?: number;
+  maxChars?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LoopContextRequest {
+  runId: string;
+  leaseOwner: string;
+  renewLeaseSeconds?: number;
+  query?: string;
+  afterSequence?: number;
+  maxEvents?: number;
+  maxItems?: number;
+  maxChars?: number;
+}
+
+export interface LoopCheckpointRequest {
+  runId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+  leaseOwner: string;
+  leaseTtlSeconds?: number;
+  phase: string;
+  summary: string;
+  state?: Record<string, unknown>;
+  nextActions?: string[];
+  artifacts?: string[];
+  memoryRefs?: string[];
+  status?: 'running' | 'waiting';
+  eventName?: string;
+  severity?: LoopEventSeverity;
+  spanId?: string;
+}
+
+export interface LoopFinishRequest {
+  runId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+  leaseOwner: string;
+  status: 'completed' | 'failed' | 'cancelled';
+  summary: string;
+  state?: Record<string, unknown>;
+  artifacts?: string[];
+  memoryRefs?: string[];
+  spanId?: string;
+}
+
+export interface LoopContextData {
+  run: LoopRun;
+  checkpoint: LoopCheckpoint;
+  events: LoopEvent[];
+  contextPack: AgentContextPack;
+  contextFingerprint: string;
+}
+
 export type ConsolidationActionType = 'merge' | 'deduplicate' | 'archive_stale' | 'archive_flash' | 'solidify';
 
 export interface ConsolidationAction {

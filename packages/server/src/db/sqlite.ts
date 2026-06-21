@@ -32,6 +32,7 @@ export function initDatabase(): Database.Database {
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
 
   runMigrations(db);
 
@@ -282,6 +283,60 @@ function runMigrations(db: Database.Database): void {
       UNIQUE(memory_id, chunk_index),
       FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS loop_runs (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      request_hash TEXT,
+      objective TEXT NOT NULL,
+      project_id TEXT,
+      project_path TEXT,
+      agent_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      checkpoint_version INTEGER NOT NULL DEFAULT 0,
+      last_event_sequence INTEGER NOT NULL DEFAULT 0,
+      trace_id TEXT NOT NULL,
+      lease_owner TEXT NOT NULL,
+      lease_expires_at TEXT NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS loop_checkpoints (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      idempotency_key TEXT,
+      request_hash TEXT,
+      phase TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      state TEXT NOT NULL,
+      next_actions TEXT NOT NULL,
+      artifacts TEXT NOT NULL,
+      memory_refs TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      UNIQUE(run_id, version),
+      UNIQUE(run_id, idempotency_key),
+      FOREIGN KEY (run_id) REFERENCES loop_runs(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS loop_events (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      sequence INTEGER NOT NULL,
+      event_name TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      trace_id TEXT NOT NULL,
+      span_id TEXT,
+      body TEXT,
+      attributes TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(run_id, sequence),
+      FOREIGN KEY (run_id) REFERENCES loop_runs(id) ON DELETE CASCADE
+    );
   `);
 
   db.exec(`
@@ -306,6 +361,10 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memory_relations_target ON memory_relations(target_memory_id);
     CREATE INDEX IF NOT EXISTS idx_memory_relations_type ON memory_relations(relation_type);
     CREATE INDEX IF NOT EXISTS idx_tool_secrets_tool ON tool_secrets(tool);
+    CREATE INDEX IF NOT EXISTS idx_loop_runs_status ON loop_runs(status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_loop_runs_agent ON loop_runs(agent_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_run ON loop_checkpoints(run_id, version);
+    CREATE INDEX IF NOT EXISTS idx_loop_events_run ON loop_events(run_id, sequence);
   `);
 
   const alterStatements = [
@@ -325,6 +384,8 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memory_entities ADD COLUMN context TEXT',
     'ALTER TABLE consolidation_snapshots ADD COLUMN project_id TEXT',
     'ALTER TABLE memory_relations ADD COLUMN reason TEXT',
+    'ALTER TABLE loop_runs ADD COLUMN request_hash TEXT',
+    'ALTER TABLE loop_checkpoints ADD COLUMN memory_refs TEXT NOT NULL DEFAULT \'[]\'',
   ];
   for (const stmt of alterStatements) {
     try {
@@ -375,7 +436,7 @@ function ensureMemoryFtsSchema(db: Database.Database): void {
     );
   `);
   rebuildMemoryFtsRows(db);
-  console.log('[KeyMemory] FTS5 索引已重建为 trigram（支持中文搜索）');
+  console.error('[KeyMemory] FTS5 索引已重建为 trigram（支持中文搜索）');
 }
 
 function rebuildMemoryFtsRows(db: Database.Database): void {

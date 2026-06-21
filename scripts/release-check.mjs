@@ -25,7 +25,7 @@ function assertFile(filePath, pattern, reason) {
 function auditManifest() {
   const pkg = readJson('package.json');
   const scripts = pkg.scripts ?? {};
-  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:launchers', 'release:check']) {
+  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:loop', 'smoke:launchers', 'release:check']) {
     if (!scripts[scriptName]) throw new Error(`package.json missing script: ${scriptName}`);
   }
 }
@@ -64,11 +64,18 @@ function auditReleaseArtifacts() {
   assertFile('scripts/eval-memory.mjs', /relation-aware context[\s\S]*search suppresses superseded[\s\S]*relation expansion context[\s\S]*natural project routing[\s\S]*abstain missing project/, 'long-term memory eval coverage');
   assertFile('scripts/perf-memory.mjs', /KEYMEMORY_PERF_COUNT[\s\S]*searchP95Ms[\s\S]*runDreamCycle[\s\S]*contextItems/, 'memory performance budget coverage');
   assertFile('scripts/smoke-mcp.mjs', /keymemory_secret_set[\s\S]*keymemory_secret_get[\s\S]*memory_context_pack[\s\S]*memory_relate[\s\S]*memory_related[\s\S]*memory_migration_import[\s\S]*memory_backup_create[\s\S]*memory_backup_restore_dry_run[\s\S]*memory_project_suggestions[\s\S]*includeSuperseded[\s\S]*backupDryRun[\s\S]*projectSuggestionsListed/, 'MCP context, relation, search, migration, backup, secret, and project suggestion smoke coverage');
+  assertFile('scripts/smoke-loop-harness.mjs', /memory_loop_start[\s\S]*IDEMPOTENCY_CONFLICT[\s\S]*VERSION_CONFLICT[\s\S]*LEASE_CONFLICT[\s\S]*memory_loop_finish[\s\S]*RUN_TERMINAL/, 'durable Loop harness contract coverage');
+  assertFile('packages/server/src/core/loop-harness.ts', /keymemory\.loop-observation\.v1[\s\S]*loop_checkpoints[\s\S]*VERSION_CONFLICT[\s\S]*redactSensitiveValue/, 'Loop observation, checkpoint, concurrency, and privacy implementation');
+  assertFile('packages/server/src/db/sqlite.ts', /journal_mode = WAL[\s\S]*busy_timeout = 5000[\s\S]*loop_runs[\s\S]*loop_checkpoints[\s\S]*loop_events/, 'SQLite Loop concurrency and persistence schema');
+  assertFile('packages/server/src/core/backup.ts', /loop_runs[\s\S]*loop_checkpoints[\s\S]*loop_events[\s\S]*tokenize='trigram'/, 'Loop disaster recovery and current FTS tokenizer');
+  assertFile('packages/server/src/core/context-pack.ts', /getPendingTodosForContext\(undefined, pack\.projectId\)/, 'project-scoped pending review context');
   assertFile('packages/web/src/components/ProjectSuggestionsView.tsx', /listProjectSuggestions[\s\S]*acceptProjectSuggestion[\s\S]*rejectProjectSuggestion/, 'Web project suggestion review actions');
   assertFile('packages/web/src/App.tsx', /ProjectSuggestionsView[\s\S]*organize/, 'Web project organization route');
   assertFile('packages/web/src/components/Sidebar.tsx', /organize[\s\S]*GitMerge/, 'Web project organization sidebar entry');
   assertFile('docs/research-and-product-upgrade.md', /MemGPT[\s\S]*LongMemEval[\s\S]*Hermes[\s\S]*OpenClaw/, 'research-backed memory references and target-agent migration coverage');
   assertFile('docs/agent-context-pack.md', /context\/inject[\s\S]*memory_context_pack[\s\S]*superseded[\s\S]*relates_to[\s\S]*memoryKind/, 'agent context pack docs');
+  assertFile('docs/loop-harness.md', /memory_loop_start[\s\S]*memory_loop_context[\s\S]*VERSION_CONFLICT[\s\S]*memory_loop_finish/, 'Loop harness integration docs');
+  assertFile('docs/loop-harness-research.md', /MemGPT[\s\S]*SWE-agent[\s\S]*LongMemEval[\s\S]*LangGraph[\s\S]*Hermes Agent/, 'research-backed Loop harness design');
   assertFile('docs/memory-relations.md', /memory_relations[\s\S]*supersedes[\s\S]*memory_relate/, 'memory relation docs');
   assertFile('docs/project-organization.md', /project-suggestions[\s\S]*project-suggestion-accept[\s\S]*Web UI[\s\S]*memory_project_suggestions/, 'project organization suggestion docs');
   assertFile('docs/memory-eval.md', /LongMemEval[\s\S]*pnpm eval:memory/, 'memory eval docs');
@@ -99,6 +106,7 @@ run('pnpm eval:memory');
 run('pnpm perf:memory');
 run('pnpm smoke');
 run('pnpm smoke:mcp');
+run('pnpm smoke:loop');
 run('pnpm smoke:launchers');
 
 console.log('\n[release-check] ok');

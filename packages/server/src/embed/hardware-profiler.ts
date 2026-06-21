@@ -14,7 +14,7 @@ function tryNvidiaSmi(): { vramGB: number; name: string } | undefined {
   try {
     const result = execSync(
       'nvidia-smi --query-gpu=memory.total,name --format=csv,noheader,nounits',
-      { encoding: 'utf8', timeout: 5000, windowsHide: true }
+      { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
     );
     const lines = result.trim().split('\n').filter(Boolean);
     if (lines.length === 0) return undefined;

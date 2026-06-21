@@ -10,6 +10,7 @@ KeyMemory 是一个本地优先的 Agent 记忆底座。它可以接入 Claude C
 - 以项目树组织记忆，项目下还能继续创建子项目。
 - 支持 `[[项目/子项目]]` 和自然语言项目提示自动归类。
 - 为 Agent 生成紧凑的 `memory_context_pack`，适合长期项目上下文注入。
+- 提供可恢复的 Loop harness：持久化 run、版本化 checkpoint、租约、幂等写入、增量事件游标和结构化观测信封。
 - 支持梦境整理：合并重复记忆、关联相关记忆、替换过时记忆、归档低价值记忆，并提出项目整理建议。
 - 支持一键迁移旧记忆：Codex、Claude Code、Hermes、OpenClaw、Cursor、Gemini、Mem0/OpenMemory 风格目录，以及 Markdown、JSON、JSONL/NDJSON、纯文本文件。
 - 写入式迁移前自动创建可携备份；恢复前也会先备份现库。
@@ -142,6 +143,7 @@ bin/keymemory-mcp.js
 
 - `memory_context_pack`：读取项目上下文包
 - `memory_auto_remember`：在重要偏好、决策、约束、任务变化后自动记忆
+- `memory_loop_start`：为长期任务建立可恢复的 run、checkpoint 和上下文
 
 主要 MCP 工具：
 
@@ -151,6 +153,10 @@ bin/keymemory-mcp.js
 | `memory_search` | 按项目、子项目、类型、是否包含被替代记忆搜索 |
 | `memory_context_pack` | 生成分组上下文包 |
 | `memory_auto_remember` | 评估并保存重要对话内容 |
+| `memory_loop_start` | 幂等启动或恢复持久化 Loop run |
+| `memory_loop_context` | 读取 checkpoint、增量事件与预算化记忆上下文 |
+| `memory_loop_checkpoint` | 以租约和乐观并发安全保存 Loop 工作状态 |
+| `memory_loop_finish` | 原子写入终态 checkpoint 和 trace 事件 |
 | `memory_migration_discover` | 发现旧记忆来源 |
 | `memory_migration_import` | 导入并重组旧记忆 |
 | `memory_backup_create` | 迁移或梦境前创建备份 |
@@ -309,6 +315,7 @@ pnpm typecheck
 pnpm build
 pnpm smoke
 pnpm smoke:mcp
+pnpm smoke:loop
 pnpm smoke:launchers
 pnpm eval:memory
 pnpm perf:memory
@@ -332,6 +339,7 @@ pnpm release:check
 - 性能预算
 - fresh database smoke
 - stdio MCP smoke
+- Loop 幂等、并发、恢复、脱敏与 REST/MCP 契约 smoke
 - launcher smoke
 - 迁移、备份、关系、调度、认证、项目整理覆盖
 
@@ -344,6 +352,8 @@ pnpm release:check
 - [迁移指南](MIGRATION_GUIDE.md)
 - [Agent 配置](docs/agent-configuration.md)
 - [Agent Context Pack](docs/agent-context-pack.md)
+- [Loop Harness 接入](docs/loop-harness.md)
+- [Loop Harness 研究与设计依据](docs/loop-harness-research.md)
 - [备份与恢复](docs/backup-and-recovery.md)
 - [记忆关系](docs/memory-relations.md)
 - [隐私与安全](docs/privacy-and-safety.md)

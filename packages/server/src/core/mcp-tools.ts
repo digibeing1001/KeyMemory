@@ -72,6 +72,81 @@ const memoryContextPackSchema = {
   },
 };
 
+const loopBudgetProperties = {
+  query: { type: 'string', description: 'Optional retrieval query. Defaults to the run objective.' },
+  maxItems: { type: 'number', minimum: 1, maximum: 40, description: 'Maximum memory items in the context pack.' },
+  maxChars: { type: 'number', minimum: 800, maximum: 30000, description: 'Approximate context character budget.' },
+};
+
+const loopRunStartSchema = {
+  type: 'object',
+  properties: {
+    objective: { type: 'string', description: 'Stable objective for the durable loop run.' },
+    project: { type: 'string', description: 'Project path or name. Created when missing.' },
+    projectId: { type: 'string', description: 'Existing KeyMemory project ID.' },
+    agentId: { type: 'string', description: 'Logical agent or loop worker ID.' },
+    idempotencyKey: { type: 'string', description: 'Unique caller-generated key. Replays return the original run.' },
+    leaseOwner: { type: 'string', description: 'Worker instance currently responsible for the run.' },
+    leaseTtlSeconds: { type: 'number', minimum: 15, maximum: 3600, description: 'Lease lifetime. Default 60 seconds.' },
+    metadata: { type: 'object', description: 'Structured run metadata. Secrets are redacted before persistence.' },
+    ...loopBudgetProperties,
+  },
+  required: ['objective', 'agentId', 'idempotencyKey', 'leaseOwner'],
+  oneOf: [{ required: ['project'] }, { required: ['projectId'] }],
+};
+
+const loopContextSchema = {
+  type: 'object',
+  properties: {
+    runId: { type: 'string', description: 'Durable loop run ID.' },
+    leaseOwner: { type: 'string', description: 'Worker instance reading or resuming the run.' },
+    renewLeaseSeconds: { type: 'number', minimum: 15, maximum: 3600, description: 'Renew the worker lease. Default 60 seconds.' },
+    afterSequence: { type: 'number', minimum: 0, description: 'Return events after this cursor sequence.' },
+    maxEvents: { type: 'number', minimum: 1, maximum: 200, description: 'Maximum incremental events. Default 50.' },
+    ...loopBudgetProperties,
+  },
+  required: ['runId', 'leaseOwner'],
+};
+
+const loopCheckpointSchema = {
+  type: 'object',
+  properties: {
+    runId: { type: 'string', description: 'Durable loop run ID.' },
+    expectedVersion: { type: 'number', minimum: 0, description: 'Optimistic concurrency version from the last cursor.' },
+    idempotencyKey: { type: 'string', description: 'Unique key for this checkpoint write.' },
+    leaseOwner: { type: 'string', description: 'Worker instance holding or acquiring the run lease.' },
+    leaseTtlSeconds: { type: 'number', minimum: 15, maximum: 3600 },
+    phase: { type: 'string', description: 'Stable phase name, such as plan, execute, verify, or wait.' },
+    summary: { type: 'string', description: 'Compact authoritative working-state summary.' },
+    state: { type: 'object', description: 'Structured restorable working state. Secrets are redacted.' },
+    nextActions: { type: 'array', items: { type: 'string' }, description: 'Actionable continuation steps.' },
+    artifacts: { type: 'array', items: { type: 'string' }, description: 'Files, URLs, IDs, or other produced artifacts.' },
+    memoryRefs: { type: 'array', items: { type: 'string' }, description: 'IDs of validated durable memories used or created by this checkpoint.' },
+    status: { type: 'string', enum: ['running', 'waiting'], description: 'Whether work can continue or is waiting.' },
+    eventName: { type: 'string', description: 'Optional stable event name. Default loop.checkpoint.saved.' },
+    severity: { type: 'string', enum: ['debug', 'info', 'warn', 'error'] },
+    spanId: { type: 'string', description: 'Optional caller trace span ID.' },
+  },
+  required: ['runId', 'expectedVersion', 'idempotencyKey', 'leaseOwner', 'phase', 'summary'],
+};
+
+const loopFinishSchema = {
+  type: 'object',
+  properties: {
+    runId: { type: 'string', description: 'Durable loop run ID.' },
+    expectedVersion: { type: 'number', minimum: 0, description: 'Optimistic concurrency version from the last cursor.' },
+    idempotencyKey: { type: 'string', description: 'Unique key for this terminal write.' },
+    leaseOwner: { type: 'string', description: 'Worker instance holding the run lease.' },
+    status: { type: 'string', enum: ['completed', 'failed', 'cancelled'] },
+    summary: { type: 'string', description: 'Terminal outcome or failure summary.' },
+    state: { type: 'object', description: 'Final structured state. Secrets are redacted.' },
+    artifacts: { type: 'array', items: { type: 'string' } },
+    memoryRefs: { type: 'array', items: { type: 'string' }, description: 'IDs of validated durable memories produced by the run.' },
+    spanId: { type: 'string', description: 'Optional caller trace span ID.' },
+  },
+  required: ['runId', 'expectedVersion', 'idempotencyKey', 'leaseOwner', 'status', 'summary'],
+};
+
 const memoryImportSchema = {
   type: 'object',
   properties: {
@@ -124,6 +199,29 @@ const BASE_MCP_TOOLS: MCPTool[] = [
     name: 'memory_context_pack',
     description: 'Build an agent-ready KeyMemory context pack grouped by preferences, constraints, decisions, tasks, procedures, and project facts. Use before long-running work.',
     inputSchema: memoryContextPackSchema,
+  },
+  {
+    name: 'memory_loop_start',
+    description: 'Start or idempotently resume a durable Loop run with a lease, initial checkpoint, event cursor, and budgeted KeyMemory context.',
+    inputSchema: loopRunStartSchema,
+    annotations: { idempotentHint: true },
+  },
+  {
+    name: 'memory_loop_context',
+    description: 'Read and resume the authoritative Loop checkpoint, incremental events, and budgeted memory context. Renews the caller lease.',
+    inputSchema: loopContextSchema,
+  },
+  {
+    name: 'memory_loop_checkpoint',
+    description: 'Transactionally persist restorable Loop state using an idempotency key, worker lease, and optimistic checkpoint version.',
+    inputSchema: loopCheckpointSchema,
+    annotations: { idempotentHint: true },
+  },
+  {
+    name: 'memory_loop_finish',
+    description: 'Transactionally finish a Loop run and append its terminal checkpoint and trace event.',
+    inputSchema: loopFinishSchema,
+    annotations: { idempotentHint: true },
   },
   {
     name: 'memory_read',
