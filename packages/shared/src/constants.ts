@@ -102,3 +102,35 @@ export const DEFAULT_PORT = 3210;
 export const DEFAULT_HOST = '127.0.0.1';
 export const DATA_DIR_NAME = '.keymemory';
 export const DB_NAME = 'data.db';
+
+/**
+ * 通用/无指向性项目名黑名单。
+ * 这些词没有明确的项目指向（如 dev、test、tmp、src、notes、工作、学习），
+ * 不应被当作独立项目创建或参与项目聚类建议。
+ *
+ * 判定原则：一个能被称为"项目"的名字，应当指向一个具体的产品/事项/交付物
+ * （如 "KeyMemory"、"订单中台"、"Q3 财报"），而非一个目录、状态、类别或动作。
+ */
+export const GENERIC_PROJECT_NAMES: ReadonlySet<string> = new Set([
+  // 中文通用名
+  '未分类', '工作', '学习', '笔记', '临时', '杂项', '其他', '其它', '默认', '全部', '所有',
+  '日常', '琐事', '事项', '内容', '资料', '文档', '记录', '想法', '灵感', '待办', '任务',
+  // 英文通用名（含常见目录/占位名）
+  'uncategorized', 'unclassified', 'default', 'general', 'global', 'misc', 'miscellaneous',
+  'migrated', 'memory', 'memories', 'notes', 'note', 'temp', 'tmp', 'test', 'tests', 'testing',
+  'dev', 'devel', 'develop', 'development', 'src', 'source', 'lib', 'libs', 'bin', 'build',
+  'docs', 'doc', 'work', 'works', 'study', 'learning', 'learn', 'projects', 'project',
+  'stuff', 'things', 'other', 'others', 'all', 'inbox', 'draft', 'drafts', 'archive', 'archived',
+]);
+
+/**
+ * 判断一个项目名是否"有明确指向性"（非通用名）。
+ * 中文要求 >= 2 字且不在黑名单；英文要求 >= 4 字且不在黑名单。
+ */
+export function isSpecificProjectName(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!normalized || GENERIC_PROJECT_NAMES.has(normalized)) return false;
+  if (/[\u3400-\u9fff]/u.test(normalized)) return normalized.length >= 2;
+  return normalized.length >= 4;
+}

@@ -182,6 +182,10 @@ const zh: Record<string, string> = {
   'dream.todo.assignFailed': '分配文件夹失败',
   'dream.todo.conflict': '可能冲突',
   'dream.todo.conflictHint': '系统发现同一事实可能有不同说法，建议打开核对。',
+  'dream.todo.detail': '具体说明',
+  'dream.todo.howToFix': '怎么处理',
+  'dream.todo.conflictHowTo': '打开右侧查看，对比两条记忆的说法，保留正确的那条，把另一条改对或归档。',
+  'dream.todo.orphanHowTo': '在下方选择一个项目文件夹，或直接归档不需要的条目。',
   'dream.openInList': '在记忆列表打开',
 
   'organize.title': '项目整理',
@@ -417,6 +421,10 @@ const en: Record<string, string> = {
   'dream.todo.assignFailed': 'Failed to assign folder',
   'dream.todo.conflict': 'Possible conflict',
   'dream.todo.conflictHint': 'Different memories may disagree about the same fact. Open and verify.',
+  'dream.todo.detail': 'Details',
+  'dream.todo.howToFix': 'How to fix',
+  'dream.todo.conflictHowTo': 'Open the preview, compare the two memories, keep the correct one, and edit or archive the other.',
+  'dream.todo.orphanHowTo': 'Pick a project folder below, or archive the entry if it is not needed.',
   'dream.openInList': 'Open in memory list',
 
   'organize.title': 'Project cleanup',

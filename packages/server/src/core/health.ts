@@ -1,5 +1,5 @@
 import type { HealthReport, Layer, Memory } from '@keymemory/shared';
-import { LAYERS } from '@keymemory/shared';
+import { LAYERS, isSpecificProjectName } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { listMemories } from './atom.js';
@@ -81,32 +81,9 @@ function countOrphans(): number {
   return rows.filter(row => !hasConcreteProject(row)).length;
 }
 
-const GENERIC_PROJECT_NAMES = new Set([
-  '未分类',
-  'uncategorized',
-  'unclassified',
-  'default',
-  'general',
-  'global',
-  'migrated',
-  'memory',
-  'memories',
-]);
-
-function normalizeProjectName(value: string): string {
-  return value.toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function isUsefulProjectName(value: string): boolean {
-  const normalized = normalizeProjectName(value);
-  if (!normalized || GENERIC_PROJECT_NAMES.has(normalized)) return false;
-  if (/[\u3400-\u9fff]/u.test(normalized)) return normalized.length >= 2;
-  return normalized.length >= 4;
-}
-
 function hasConcreteProject(row: { projectId: string | null; projectName: string | null; projectPath: string | null }): boolean {
   if (!row.projectId || !row.projectName || !row.projectPath) return false;
-  return isUsefulProjectName(row.projectName) || isUsefulProjectName(row.projectPath);
+  return isSpecificProjectName(row.projectName) || isSpecificProjectName(row.projectPath);
 }
 
 function countConflicts(): number {

@@ -32,8 +32,8 @@ function detectContentType(content: string): { isProject: boolean; isEntity: boo
   const projectSignals = /(?:项目|周会|会议纪要|决策记录|里程碑|roadmap|版本发布|上线|评审|复盘|冲刺|迭代|sprint|milestone|release|launch)/i;
   // 实体特征：职位、联系方式、偏好、档案、人物介绍
   const entitySignals = /(?:职位|联系方式|电话|邮箱|偏好|风格|档案|基本信息|技术特长|工作风格|沟通建议|协作)/i;
-  // 知识特征：框架、原理、概念、学习、总结、方法论、最佳实践、教程
-  const knowledgeSignals = /(?:框架|原理|概念|学习|总结|方法论|最佳实践|教程|指南|模式|模型|体系|理论|分析|综述)/i;
+  // 知识特征：收窄到明确的"沉淀型"知识词，去掉过宽的"总结/分析/模式/概念/模型"等
+  const knowledgeSignals = /(?:方法论|最佳实践|教程|指南|框架|原理|理论|体系|原则|规范|checklist|playbook|howto|how-to)/i;
   // 任务特征：待办、本周、今天、明天、截止日期、安排、计划、task、todo
   const taskSignals = /(?:待办|本周|今天|明天|后天|截止日期|截止|安排|计划|task|todo|完成|推进|跟进|落实|执行)/i;
   // 灵感特征：灵感、想法、想到、如果、试试、也许、假设
@@ -51,34 +51,36 @@ function detectContentType(content: string): { isProject: boolean; isEntity: boo
 function suggestLayer(content: string, evaluation: SelfCheckResult): Layer {
   const signals = detectContentType(content);
 
-  // 优先级 1：长期记忆 - 含项目产出特征且提及项目名称
-  if (signals.isProject && extractProjects(content).length > 0) {
-    return 'long';
-  }
-
-  // 优先级 2：实体层 - 含人物/组织档案特征
+  // 优先级 1：实体层 - 含人物/组织档案特征（最具体，优先判定）
   if (signals.isEntity) {
     return 'entity';
   }
 
-  // 优先级 3：长期知识 - 知识特征明显
-  if (signals.isKnowledge && evaluation.total >= 0.6) {
-    return 'long';
-  }
-
-  // 优先级 4：短期任务 - 任务特征
-  if (signals.isTask && evaluation.total >= 0.5) {
-    return 'short';
-  }
-
-  // 优先级 5：闪念 - 灵感特征
-  if (signals.isIdea || evaluation.total < 0.5) {
+  // 优先级 2：闪念 - 灵感特征或评分很低（明显不值得沉淀）
+  if (signals.isIdea || evaluation.total < 0.45) {
     return 'flash';
   }
 
-  // _fallback：按评分
-  if (evaluation.total > 0.75) return 'long';
-  if (evaluation.total > 0.55) return 'short';
+  // 优先级 3：长期记忆 - 项目产出特征 + 显式项目标记 + 高分
+  // 三条都满足才进 long，避免单凭一个宽泛词就长期保留
+  if (signals.isProject && extractProjects(content).length > 0 && evaluation.total >= 0.7) {
+    return 'long';
+  }
+
+  // 优先级 4：长期知识 - 知识特征明显且评分较高
+  if (signals.isKnowledge && evaluation.total >= 0.72) {
+    return 'long';
+  }
+
+  // 优先级 5：短期任务 - 任务特征
+  if (signals.isTask) {
+    return 'short';
+  }
+
+  // fallback：中等评分默认进 short（近期有用），让 short 真正承担"中转层"职责
+  // 只有评分很高且无明确任务/灵感指向时才升 long
+  if (evaluation.total >= 0.82) return 'long';
+  if (evaluation.total >= 0.5) return 'short';
   return 'flash';
 }
 

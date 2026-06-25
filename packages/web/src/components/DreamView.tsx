@@ -560,8 +560,18 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
                               {isOrphan ? t('dream.todo.orphan') : t('dream.todo.conflict')}
                             </div>
                             <div style={{ fontSize: 13, color: 'var(--text-primary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{redactSensitiveText(item.title)}</div>
-                            <p style={{ margin: '5px 0 10px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                            <p style={{ margin: '5px 0 6px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
                               {isOrphan ? t('dream.todo.orphanHint') : t('dream.todo.conflictHint')}
+                            </p>
+                            {item.reason && (
+                              <div style={{ margin: '0 0 8px', padding: '6px 10px', background: 'var(--bg-muted)', borderRadius: 'var(--radius-sm)', borderLeft: '2px solid var(--border)' }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.3 }}>{t('dream.todo.detail')}</div>
+                                <div style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.55 }}>{redactSensitiveText(item.reason)}</div>
+                              </div>
+                            )}
+                            <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                              <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t('dream.todo.howToFix')}：</span>
+                              {isOrphan ? t('dream.todo.orphanHowTo') : t('dream.todo.conflictHowTo')}
                             </p>
                             {isOrphan && (
                               <div className="dream-assign-row">

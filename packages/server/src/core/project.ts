@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import type { Project, ProjectSuggestion } from '@keymemory/shared';
+import { isSpecificProjectName } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 
 export function createProject(input: {
@@ -87,6 +88,10 @@ export function normalizeProjectPath(pathLike: string): string[] {
 export function ensureProjectPath(pathLike: string, rootParentId: string | null = null): Project | null {
   const parts = normalizeProjectPath(pathLike);
   if (parts.length === 0) return null;
+
+  // 根级项目（单段、无父级）必须是具体名字，过滤 dev/test/notes 等无指向性通用名；
+  // 子项目（多段或有 rootParentId 提供上下文）允许通用名作叶子，如 Legacy/Default
+  if (parts.length === 1 && rootParentId === null && !isSpecificProjectName(parts[0])) return null;
 
   const db = getDatabase();
   let parentId = rootParentId;

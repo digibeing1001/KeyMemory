@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, DreamReportDetails, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality, isSpecificProjectName } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
@@ -1553,11 +1553,12 @@ function runProjectClusteringPhase(reportId: string): { session: DreamSession; s
   let suggestionsCreated = 0;
 
   try {
-    // 获取所有活跃项目（排除根级"未分类"）
-    const projects = db.prepare(`
+    // 获取所有活跃项目（排除根级"未分类"以及 dev/test/notes 等无指向性通用名）
+    const allProjects = db.prepare(`
       SELECT id, name, path FROM projects
       WHERE (parent_id IS NOT NULL OR name != '未分类') AND depth <= 2
     `).all() as { id: string; name: string; path: string }[];
+    const projects = allProjects.filter(p => isSpecificProjectName(p.name));
 
     if (projects.length < 2) {
       return {

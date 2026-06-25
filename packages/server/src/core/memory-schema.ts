@@ -1,4 +1,5 @@
 import type { CreateMemoryInput, Memory, MemoryKind, UpdateMemoryInput } from '@keymemory/shared';
+import { isSpecificProjectName } from '@keymemory/shared';
 import type { PrivacyFinding } from './privacy.js';
 import { privacyMetadata, redactSensitiveText, redactSensitiveValue } from './privacy.js';
 
@@ -40,6 +41,9 @@ function normalizeInferredProjectPath(value: string): string | undefined {
   if (/^(这个|那个|当前|本次|新的|一个|项目|工程|产品|仓库)$/u.test(cleaned)) return undefined;
   const parts = cleaned.split('/').map(part => part.trim()).filter(Boolean);
   if (parts.length === 0 || parts.some(part => part.length > 50)) return undefined;
+  // 根级项目（单段）必须是具体名字，过滤 dev/test/notes 等无指向性通用名；
+  // 子项目（多段，有父级上下文）允许通用名作叶子，如 Legacy/Default、HTTP/MCP/Other
+  if (parts.length === 1 && !isSpecificProjectName(parts[0])) return undefined;
   return parts.join('/');
 }
 
