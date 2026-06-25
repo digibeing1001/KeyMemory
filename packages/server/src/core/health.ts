@@ -21,12 +21,59 @@ export async function getHealthReport(): Promise<HealthReport> {
   const decayingCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories WHERE status = 'active' AND decay_factor < 1.0 AND decay_factor > 0.01`).get() as { cnt: number }).cnt;
   const privacyRedactedCount = (db.prepare(`SELECT COUNT(*) as cnt FROM memories WHERE status = 'active' AND tags LIKE '%sensitivity:redacted%'`).get() as { cnt: number }).cnt;
 
+  // 新增：数据流动度指标——衡量"短期中转层是否真正流动"
+  // 这些指标直接反映系统是否还能作为 loop 上下文记忆库使用：
+  //   - shortActive: 短期层 active 数量；为 0 说明短期层空转
+  //   - flashActive: 待整理层 active 数量；为 0 说明新写入不进 flash
+  //   - longZeroHit: 长期层"零命中"记忆数（从未被检索用到）；高则说明 long 只进不出
+  //   - dreamEffectiveness: 最近 10 次 dream 的总产出（promoted+archived+merged）；
+  //     全 0 说明 dream 空转
+  //   - loopRuns: loop_runs 表的运行数；为 0 说明从未作为 loop 上下文使用
+  const shortActive = layerDistribution.short ?? 0;
+  const flashActive = layerDistribution.flash ?? 0;
+  const longZeroHit = (db.prepare(`
+    SELECT COUNT(*) as cnt FROM memories
+    WHERE layer = 'long' AND status = 'active'
+      AND (last_hit_at IS NULL OR hit_count = 0)
+  `).get() as { cnt: number }).cnt;
+
+  let dreamEffectiveness = 0;
+  try {
+    const dreamRow = db.prepare(`
+      SELECT
+        COALESCE(SUM(promoted), 0) + COALESCE(SUM(archived), 0) + COALESCE(SUM(merged), 0) as total
+      FROM (SELECT promoted, archived, merged FROM dream_reports ORDER BY created_at DESC LIMIT 10)
+    `).get() as { total: number } | undefined;
+    dreamEffectiveness = dreamRow?.total ?? 0;
+  } catch {
+    // dream_reports 表可能不存在
+  }
+
+  let loopRuns = 0;
+  try {
+    loopRuns = (db.prepare(`SELECT COUNT(*) as cnt FROM loop_runs`).get() as { cnt: number }).cnt;
+  } catch {
+    // loop_runs 表可能不存在
+  }
+
   const duplicateScore = Math.max(0, 100 - duplicateCount * 5);
   const orphanScore = Math.max(0, 100 - orphanCount * 3);
   const conflictScore = Math.max(0, 100 - conflictCount * 10);
   const decayScore = Math.max(0, 100 - decayingCount * 2);
+  // 流动度评分：short 空 -25；flash 空 -10；long 零命中占比高 -最多 20；dream 空 -15；loop 未用 -10
+  const longActive = layerDistribution.long ?? 0;
+  const longZeroHitRatio = longActive > 0 ? longZeroHit / longActive : 0;
+  const flowPenalty =
+    (shortActive === 0 ? 25 : 0) +
+    (flashActive === 0 ? 10 : 0) +
+    Math.round(longZeroHitRatio * 20) +
+    (dreamEffectiveness === 0 ? 15 : 0) +
+    (loopRuns === 0 ? 10 : 0);
+  const flowScore = Math.max(0, 100 - flowPenalty);
 
-  const score = Math.round((duplicateScore + orphanScore + conflictScore + decayScore) / 4);
+  // 健康分由原来 4 维改为 5 维，加入流动度。流动度差时健康分会被显著拉低，
+  // 让用户在 UI 上能看到"系统没在流动"——而不是被表面高分掩盖。
+  const score = Math.round((duplicateScore + orphanScore + conflictScore + decayScore + flowScore) / 5);
 
   return {
     score,
@@ -36,6 +83,12 @@ export async function getHealthReport(): Promise<HealthReport> {
     decayingCount,
     privacyRedactedCount,
     layerDistribution,
+    shortActive,
+    flashActive,
+    longZeroHit,
+    dreamEffectiveness,
+    loopRuns,
+    flowScore,
   };
 }
 

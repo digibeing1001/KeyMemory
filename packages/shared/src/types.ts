@@ -140,12 +140,29 @@ export interface HealthReport {
   decayingCount: number;
   privacyRedactedCount: number;
   layerDistribution: Record<Layer, number>;
+  /** 数据流动度明细：短期层 active 数量；为 0 说明短期层空转 */
+  shortActive?: number;
+  /** 待整理层 active 数量；为 0 说明新写入不进 flash */
+  flashActive?: number;
+  /** 长期层零命中记忆数；高则说明 long 只进不出 */
+  longZeroHit?: number;
+  /** 最近 10 次 dream 的总产出；0 说明 dream 空转 */
+  dreamEffectiveness?: number;
+  /** loop_runs 表运行数；0 说明从未作为 loop 上下文使用 */
+  loopRuns?: number;
+  /** 流动度评分（0-100） */
+  flowScore?: number;
 }
 
 export interface CreateMemoryInput {
   title: string;
   content: string;
-  layer: Layer;
+  /**
+   * 记忆层级。可选——未指定时由 normalizeMemoryInput 依据内容与元数据推断：
+   * 实体类→entity；偏好/规则/原则/决定→long；待办/临时→short；其余默认 short。
+   * 不再以"长度>200"作为 long 兜底，避免大量长内容被误投到长期层。
+   */
+  layer?: Layer;
   projectId?: string;
   projectPath?: string;
   agentSpace?: string;

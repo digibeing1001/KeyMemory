@@ -56,19 +56,25 @@ function suggestLayer(content: string, evaluation: SelfCheckResult): Layer {
     return 'entity';
   }
 
-  // 优先级 2：闪念 - 灵感特征或评分很低（明显不值得沉淀）
-  if (signals.isIdea || evaluation.total < 0.45) {
+  // 优先级 2：闪念 - 仅保留"灵感特征 + 评分明显低"的情况
+  // 真实数据显示 flash 层存活率为零：阈值过宽会把大量中性内容丢进待整理层，
+  // 然后 dream 未空转整理就被衰减删除。把 flash 的门槛收紧到"确实像噪声"。
+  if (signals.isIdea && evaluation.total < 0.5) {
+    return 'flash';
+  }
+  if (evaluation.total < 0.35) {
     return 'flash';
   }
 
-  // 优先级 3：长期记忆 - 项目产出特征 + 显式项目标记 + 高分
-  // 三条都满足才进 long，避免单凭一个宽泛词就长期保留
-  if (signals.isProject && extractProjects(content).length > 0 && evaluation.total >= 0.7) {
+  // 优先级 3：长期记忆 - 项目产出特征 + 显式项目标记 + 中等以上评分
+  // 阈值由 0.7 下调到 0.6，避免高价值项目内容被卡在 short 无法升格
+  if (signals.isProject && extractProjects(content).length > 0 && evaluation.total >= 0.6) {
     return 'long';
   }
 
-  // 优先级 4：长期知识 - 知识特征明显且评分较高
-  if (signals.isKnowledge && evaluation.total >= 0.72) {
+  // 优先级 4：长期知识 - 知识特征明显且评分中等以上
+  // 阈值由 0.72 下调到 0.65
+  if (signals.isKnowledge && evaluation.total >= 0.65) {
     return 'long';
   }
 
@@ -77,10 +83,11 @@ function suggestLayer(content: string, evaluation: SelfCheckResult): Layer {
     return 'short';
   }
 
-  // fallback：中等评分默认进 short（近期有用），让 short 真正承担"中转层"职责
-  // 只有评分很高且无明确任务/灵感指向时才升 long
-  if (evaluation.total >= 0.82) return 'long';
-  if (evaluation.total >= 0.5) return 'short';
+  // fallback：评分较高且无明确任务/灵感指向时升 long；
+  // 评分中等进 short（近期有用，承担"中转层"职责）；
+  // 不再把 0.45~0.5 的内容丢进 flash，避免被衰减死。
+  if (evaluation.total >= 0.75) return 'long';
+  if (evaluation.total >= 0.4) return 'short';
   return 'flash';
 }
 

@@ -376,7 +376,9 @@ function normalizeRawMemory(raw: RawMemory, options: MigrationOptions, index: nu
   return {
     title,
     content,
-    layer: validLayer(raw.layer) ?? options.defaultLayer ?? (memoryKind === 'task' ? 'short' : 'long'),
+    // 迁移默认层从 long 改为 short：避免历史长内容一律进 long 形成只进不出
+    // task 类→short；其余未指定→short，由 dream 升格到 long
+    layer: validLayer(raw.layer) ?? options.defaultLayer ?? (memoryKind === 'task' ? 'short' : 'short'),
     projectPath,
     tags,
     metadata: {

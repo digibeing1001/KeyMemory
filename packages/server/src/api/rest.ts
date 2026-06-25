@@ -12,7 +12,7 @@ import { compressProjectMemories, compressEntityMemories, listCompressibleProjec
 import { getHealthReport, injectContext } from '../core/health.js';
 import { buildAgentContextPack } from '../core/context-pack.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
-import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport, getPendingTodosForContext } from '../core/dreaming.js';
+import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport, getPendingTodosForContext, resolveConflict } from '../core/dreaming.js';
 import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../core/scheduler.js';
 import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from '../core/migration.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from '../core/backup.js';
@@ -20,6 +20,7 @@ import type { BackupSummary } from '../core/backup.js';
 import { routeMemory, createAgentContext } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
 import { getDatabase } from '../db/sqlite.js';
+import { rowToMemory, rowToLoopRunSummary } from '../db/mapper.js';
 import { autoRemember } from '../core/auto.js';
 import { extractTags } from '../core/auto.js';
 import { isApiRequestAuthorized, shouldAuthenticateHttpPath } from '../core/security.js';
@@ -115,6 +116,36 @@ export function registerRoutes(app: FastifyInstance): void {
       limit: query.limit ? parseInt(query.limit, 10) : undefined,
       offset: query.offset ? parseInt(query.offset, 10) : undefined,
     });
+  });
+
+  // 近期工作集：按 last_hit_at 倒序返回近期被命中的记忆，让 UI 能直接展示"系统在流动"
+  // 真实数据中 long 层有 26 条零命中、整体 short active=0——这个端点让用户在 UI 上能直接看到
+  // 哪些记忆被实际用到了、哪些从未被命中，作为 loop 上下文记忆库的核心入口视图
+  app.get('/api/memories/recent-hits', async (request) => {
+    const query = request.query as Record<string, string>;
+    const limit = query.limit ? Math.min(parseInt(query.limit, 10) || 20, 100) : 20;
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT * FROM memories
+      WHERE status = 'active' AND last_hit_at IS NOT NULL
+      ORDER BY last_hit_at DESC
+      LIMIT ?
+    `).all(limit) as Record<string, unknown>[];
+    return rows.map(rowToMemory);
+  });
+
+  // 近期创建工作集：按 created_at 倒序返回最近写入的记忆，让用户能看到"系统在产出"
+  app.get('/api/memories/recent-created', async (request) => {
+    const query = request.query as Record<string, string>;
+    const limit = query.limit ? Math.min(parseInt(query.limit, 10) || 20, 100) : 20;
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT * FROM memories
+      WHERE status = 'active'
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(limit) as Record<string, unknown>[];
+    return rows.map(rowToMemory);
   });
 
   app.get('/api/memories/:id', async (request, reply) => {
@@ -297,6 +328,25 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.post('/api/context/pack', async (request) => {
     return buildAgentContextPack(request.body as AgentContextPackRequest);
+  });
+
+  // 列表端点：让 UI 能直接看到"系统作为 loop 上下文记忆库被使用"的实际情况。
+  // 没有这个端点时，healthReport.loopRuns 只是一个数字，用户看不到具体跑了什么。
+  // 这是把 KeyMemory 真正作为 loop 工程上下文集库的核心视图入口。
+  app.get('/api/loop/runs', async (request) => {
+    const query = request.query as Record<string, string>;
+    const limit = query.limit ? Math.min(parseInt(query.limit, 10) || 20, 100) : 20;
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT id, objective, project_id, project_path, agent_id, status,
+             checkpoint_version, last_event_sequence, trace_id,
+             lease_owner, lease_expires_at, metadata,
+             created_at, updated_at, completed_at
+      FROM loop_runs
+      ORDER BY updated_at DESC
+      LIMIT ?
+    `).all(limit) as Record<string, unknown>[];
+    return rows.map(rowToLoopRunSummary);
   });
 
   app.post('/api/loop/runs', async (request, reply) => {
@@ -944,6 +994,29 @@ export function registerRoutes(app: FastifyInstance): void {
     const query = request.query as Record<string, string>;
     const limit = query.limit ? parseInt(query.limit, 10) : undefined;
     return { todos: getPendingTodosForContext(limit) };
+  });
+
+  // 解决冲突 todo 项
+  app.post('/api/dream/conflicts/resolve', async (request, reply) => {
+    const body = request.body as {
+      memoryId: string;
+      targetId: string;
+      action: 'keep_memory' | 'keep_target' | 'merge_into_memory' | 'merge_into_target' | 'delete_memory' | 'delete_target';
+      title?: string;
+      content?: string;
+      tags?: string[];
+    };
+    if (!body.memoryId || !body.targetId || !body.action) {
+      reply.code(400);
+      return { success: false, message: '缺少 memoryId / targetId / action' };
+    }
+    const result = resolveConflict(body.memoryId, body.targetId, body.action, {
+      title: body.title,
+      content: body.content,
+      tags: body.tags,
+    });
+    if (!result.success) reply.code(400);
+    return result;
   });
 
   // Project Suggestion routes

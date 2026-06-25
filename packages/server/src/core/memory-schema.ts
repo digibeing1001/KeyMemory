@@ -1,7 +1,38 @@
-import type { CreateMemoryInput, Memory, MemoryKind, UpdateMemoryInput } from '@keymemory/shared';
+import type { CreateMemoryInput, Layer, Memory, MemoryKind, UpdateMemoryInput } from '@keymemory/shared';
 import { isSpecificProjectName } from '@keymemory/shared';
 import type { PrivacyFinding } from './privacy.js';
 import { privacyMetadata, redactSensitiveText, redactSensitiveValue } from './privacy.js';
+
+const LONG_KEYWORDS = /preference|rule|principle|decision|project|architecture|repo|framework|偏好|习惯|风格|原则|规则|决定|结论|取舍|架构|方法论|框架|理论|约束|边界|必须|禁止/i;
+const SHORT_KEYWORDS = /todo|today|tomorrow|temporary|pending|待办|任务|计划|截止|临时|本周|本周内|今天|明天|近期/i;
+const ENTITY_KEYWORDS = /person|entity|人物|人员|同事|客户|团队|负责人|工具|产品/i;
+
+/**
+ * 推断记忆层级。规则：
+ *  - 显式 metadata.importance: high→long, low→short
+ *  - metadata.category: preference/decision→long; person/entity→entity; task/todo→short
+ *  - 实体关键词命中→entity
+ *  - 长期价值关键词（偏好/规则/原则/决定/架构/方法论）→long
+ *  - 临时关键词（待办/今天/明天/本周/临时）→short
+ *  - 兜底→short（不再用"长度>200→long"误投长内容到长期层）
+ * 注：长度不再参与推断，避免长正文一律被划入长期层。
+ */
+export function inferMemoryLayer(title: string, content: string, metadata?: Record<string, unknown>): Layer {
+  const text = `${title} ${content}`.toLowerCase();
+  const importance = metadata?.importance as string | undefined;
+  if (importance === 'high') return 'long';
+  if (importance === 'low') return 'short';
+
+  const category = metadata?.category as string | undefined;
+  if (category === 'preference' || category === 'decision') return 'long';
+  if (category === 'person' || category === 'entity') return 'entity';
+  if (category === 'task' || category === 'todo') return 'short';
+
+  if (ENTITY_KEYWORDS.test(text)) return 'entity';
+  if (LONG_KEYWORDS.test(text)) return 'long';
+  if (SHORT_KEYWORDS.test(text)) return 'short';
+  return 'short';
+}
 
 const KIND_KEYWORDS: { kind: MemoryKind; patterns: RegExp[] }[] = [
   { kind: 'preference', patterns: [/偏好|喜欢|不喜欢|习惯|风格|prefer|preference|habit|style/i] },
@@ -78,6 +109,8 @@ export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInpu
     : undefined;
   const privacy = privacyMetadata([...titleResult.findings, ...contentResult.findings, ...metadataFindings]);
   const kind = inferMemoryKind(contentResult.text, titleResult.text);
+  // 未显式指定 layer 时按内容/元数据推断，避免上游一律传 long
+  const layer = input.layer ?? inferMemoryLayer(titleResult.text, contentResult.text, redactedMetadata ?? input.metadata);
   const tags = [...(input.tags ?? [])];
   addUnique(tags, `kind:${kind}`);
   if (inferredProjectPath) {
@@ -100,7 +133,7 @@ export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInpu
     ...(privacy ? { privacy } : {}),
   };
 
-  return { ...input, projectPath: input.projectPath ?? inferredProjectPath, title: titleResult.text, content: contentResult.text, tags, metadata };
+  return { ...input, layer, projectPath: input.projectPath ?? inferredProjectPath, title: titleResult.text, content: contentResult.text, tags, metadata };
 }
 
 export function normalizeMemoryUpdate(input: UpdateMemoryInput, existing: Memory): UpdateMemoryInput {

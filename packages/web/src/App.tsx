@@ -14,6 +14,7 @@ import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
 import MigrationView from './components/MigrationView';
 import ProjectSuggestionsView from './components/ProjectSuggestionsView';
+import WorkingSetView from './components/WorkingSetView';
 import Editor from './views/Editor';
 import { I18nProvider, useI18n } from './i18n';
 import {
@@ -30,7 +31,7 @@ import {
 import type { MemoryGraphData, TagCloudData } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet';
 
 function isViewMode(value: string | null): value is ViewMode {
   return value === 'memories'
@@ -39,7 +40,8 @@ function isViewMode(value: string | null): value is ViewMode {
     || value === 'dream'
     || value === 'migration'
     || value === 'organize'
-    || value === 'recycle';
+    || value === 'recycle'
+    || value === 'workingSet';
 }
 
 function AppInner() {
@@ -490,6 +492,17 @@ function AppInner() {
           {viewMode === 'dream' && (
             <div className="flex-1 overflow-y-auto">
               <DreamView
+                onMemorySelect={(id) => {
+                  setViewMode('memories');
+                  store.selectMemory(id);
+                }}
+              />
+            </div>
+          )}
+
+          {viewMode === 'workingSet' && (
+            <div className="flex-1 overflow-y-auto">
+              <WorkingSetView
                 onMemorySelect={(id) => {
                   setViewMode('memories');
                   store.selectMemory(id);

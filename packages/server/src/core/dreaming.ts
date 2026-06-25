@@ -325,11 +325,13 @@ function runRemPhase(reportId: string): { session: DreamSession } {
   const now = new Date().toISOString();
   const lookback = DREAM_THRESHOLDS.lookbackDays;
 
+  // 修复 dream 空转：原仅扫 short 层，但真实数据 short active=0，REM 阶段无候选。
+  // 现在同时扫 short 和 flash 层，让 flash 也有机会被标签优化和升格。
   const shortTermMemories = db.prepare(`
     SELECT m.id, m.title, m.content, m.tags, m.hit_count, m.project_id
     FROM memories m
     WHERE m.status = 'active'
-      AND m.layer = 'short'
+      AND m.layer IN ('short', 'flash')
       AND m.created_at >= datetime('now', ? || ' days')
   `).all(`-${lookback}`) as { id: string; title: string; content: string; tags: string | null; hit_count: number; project_id: string }[];
 
@@ -854,13 +856,15 @@ function detectStaleActions(db: ReturnType<typeof getDatabase>, affectedIds: Set
   const actions: ConsolidationAction[] = [];
   const exclude = buildExcludeClause(affectedIds);
 
+  // 修复 detectStaleActions 失效：原要求 last_hit_at IS NOT NULL，导致从未被命中的
+  // 孤儿记忆（真实数据中 long 层有 26 条零命中）永远绕过 stale 检测。
+  // 改为 OR last_hit_at IS NULL，让从未被命中的内容也能被识别为 stale。
   const stale = db.prepare(`
     SELECT id, title, layer FROM memories
     WHERE status = 'active'
       AND layer IN ('short', 'long')
       AND decay_factor < 0.3
-      AND last_hit_at IS NOT NULL
-      AND last_hit_at <= datetime('now', ? || ' days')
+      AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
       ${exclude.clause}
   `).all(`-${staleDays}`, ...exclude.params) as { id: string; title: string; layer: string }[];
 
@@ -1088,6 +1092,8 @@ function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoIt
           type: 'conflict' as const,
           memoryId: negMem.id,
           title: negMem.title,
+          targetId: posMem.id,
+          description: posMem.title,
           reason: `实体「${entity.name}」存在矛盾表述：「${posMem.title}」称「${posSet.find(p => posMem.content.includes(p))}」，而此记忆称「${negSet.find(n => negMem.content.includes(n))}」`,
         });
         break; // 每个实体只报一个冲突
@@ -1218,10 +1224,13 @@ function executeAction(db: ReturnType<typeof getDatabase>, action: Consolidation
 }
 
 function isDreamPromotionReady(candidate: ScoredDreamCandidate): boolean {
+  // 修复 dream 空转：原来要求 layer === 'short'，但真实数据 short active=0，导致永远没候选可升格。
+  // 现在允许 short 和 flash 升格到 long（flash→long 跳级升格，跳过 short 中转层）。
+  // entity 不参与升格。
   return candidate.score >= DREAM_THRESHOLDS.minScore
     && candidate.hitCount >= DREAM_THRESHOLDS.minRecallCount
     && candidate.uniqueQueryCount >= DREAM_THRESHOLDS.minUniqueQueries
-    && candidate.layer === 'short'
+    && (candidate.layer === 'short' || candidate.layer === 'flash')
     && candidate.qualityScore >= 65
     && !candidate.qualityIssues.includes('sparse_content');
 }
@@ -1229,12 +1238,14 @@ function isDreamPromotionReady(candidate: ScoredDreamCandidate): boolean {
 function scoreCandidates(db: ReturnType<typeof getDatabase>): ScoredDreamCandidate[] {
   const lookback = DREAM_THRESHOLDS.lookbackDays;
 
+  // 修复 dream 空转：原仅扫 short+long，但 short 全空、long 又只衰减到 1.0 命中不了阈值。
+  // 现在把 flash 也纳入打分范围，让 flash→long 升格成为 dream 产出的主要路径。
   const memories = db.prepare(`
     SELECT m.id, m.title, m.content, m.layer, m.tags, m.hit_count, m.created_at,
            m.updated_at, m.confidence, m.decay_factor, m.project_id, m.source, m.source_id, m.metadata
     FROM memories m
     WHERE m.status = 'active'
-      AND m.layer IN ('short', 'long')
+      AND m.layer IN ('short', 'long', 'flash')
       AND m.created_at >= datetime('now', ? || ' days')
   `).all(`-${lookback}`) as {
     id: string;
@@ -1915,4 +1926,125 @@ export function getPendingTodosForContext(limit?: number, projectId?: string): D
   allTodos.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
 
   return allTodos.slice(0, maxItems);
+}
+
+/**
+ * 解决冲突 todo 项
+ *
+ * action 说明：
+ *   keep_memory     - 保留 memoryId（否定方），归档 targetId（肯定方）
+ *   keep_target     - 保留 targetId（肯定方），归档 memoryId（否定方）
+ *   merge_into_memory - 以 memoryId 为主，更新内容/标签，归档 targetId
+ *   merge_into_target - 以 targetId 为主，更新内容/标签，归档 memoryId
+ *   delete_memory   - 删除 memoryId
+ *   delete_target   - 删除 targetId
+ */
+export function resolveConflict(
+  memoryId: string,
+  targetId: string,
+  action: 'keep_memory' | 'keep_target' | 'merge_into_memory' | 'merge_into_target' | 'delete_memory' | 'delete_target',
+  mergeData?: { title?: string; content?: string; tags?: string[] },
+): { success: boolean; keptId?: string; removedId?: string; message: string } {
+  const mem = getMemory(memoryId);
+  const tgt = getMemory(targetId);
+  if (!mem) return { success: false, message: `记忆 ${memoryId} 不存在` };
+  if (!tgt) return { success: false, message: `对方记忆 ${targetId} 不存在` };
+
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  try {
+    db.transaction(() => {
+      switch (action) {
+        case 'keep_memory':
+          // 保留 memoryId，归档 targetId
+          forgetMemory(targetId, 'archive');
+          break;
+
+        case 'keep_target':
+          // 保留 targetId，归档 memoryId
+          forgetMemory(memoryId, 'archive');
+          break;
+
+        case 'merge_into_memory': {
+          // 以 memoryId 为主，合并内容，归档 targetId
+          const mergedTags = mergeData?.tags
+            ? mergeData.tags
+            : [...new Set([...(mem.tags || []), ...(tgt.tags || [])])];
+          const mergedContent = mergeData?.content
+            ? mergeData.content
+            : mem.content + '\n\n---\n' + tgt.content;
+          const mergedTitle = mergeData?.title || mem.title;
+          updateMemory(memoryId, {
+            title: mergedTitle,
+            content: mergedContent,
+            tags: mergedTags,
+          }, `冲突合并：吸收「${tgt.title}」的内容`);
+          forgetMemory(targetId, 'archive');
+          break;
+        }
+
+        case 'merge_into_target': {
+          // 以 targetId 为主，合并内容，归档 memoryId
+          const mergedTags = mergeData?.tags
+            ? mergeData.tags
+            : [...new Set([...(tgt.tags || []), ...(mem.tags || [])])];
+          const mergedContent = mergeData?.content
+            ? mergeData.content
+            : tgt.content + '\n\n---\n' + mem.content;
+          const mergedTitle = mergeData?.title || tgt.title;
+          updateMemory(targetId, {
+            title: mergedTitle,
+            content: mergedContent,
+            tags: mergedTags,
+          }, `冲突合并：吸收「${mem.title}」的内容`);
+          forgetMemory(memoryId, 'archive');
+          break;
+        }
+
+        case 'delete_memory':
+          forgetMemory(memoryId, 'delete');
+          break;
+
+        case 'delete_target':
+          forgetMemory(targetId, 'delete');
+          break;
+      }
+
+      // 标记所有相关 dream report 中的冲突 todo 为已解决
+      const reports = db.prepare(`
+        SELECT id, todo_items FROM dream_reports WHERE status = 'completed'
+      `).all() as { id: string; todo_items: string }[];
+
+      for (const report of reports) {
+        try {
+          const todos = JSON.parse(report.todo_items || '[]') as DreamTodoItem[];
+          let changed = false;
+          for (const todo of todos) {
+            if (todo.type === 'conflict' &&
+                ((todo.memoryId === memoryId && todo.targetId === targetId) ||
+                 (todo.memoryId === targetId && todo.targetId === memoryId))) {
+              todo.status = 'confirmed';
+              changed = true;
+            }
+          }
+          if (changed) {
+            db.prepare('UPDATE dream_reports SET todo_items = ? WHERE id = ?')
+              .run(JSON.stringify(todos), report.id);
+          }
+        } catch { /* skip corrupted */ }
+      }
+    })();
+
+    const keptId = action.startsWith('keep') || action.startsWith('merge')
+      ? (action === 'keep_memory' || action === 'merge_into_memory' ? memoryId : targetId)
+      : (action === 'delete_memory' ? targetId : memoryId);
+    const removedId = action === 'delete_memory' ? memoryId
+      : action === 'delete_target' ? targetId
+      : (action === 'keep_memory' || action === 'merge_into_memory' ? targetId : memoryId);
+
+    return { success: true, keptId, removedId, message: '冲突已解决' };
+  } catch (err) {
+    return { success: false, message: (err as Error).message };
+  }
 }

@@ -31,8 +31,9 @@ import {
   getMemory,
   listProjects,
   updateMemory,
+  resolveConflict,
 } from '../lib/api';
-import type { DreamReport, DreamSignalEntry, SchedulerConfig } from '../lib/api';
+import type { DreamReport, DreamSignalEntry, SchedulerConfig, ConflictAction } from '../lib/api';
 import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import { useI18n } from '../i18n';
@@ -121,6 +122,10 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
     danger?: boolean;
     onConfirm: () => void;
   }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const [conflictDialog, setConflictDialog] = useState<{
+    memoryId: string;
+    targetId: string;
+  } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -294,6 +299,28 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
     }
   }, [language, toast]);
 
+  const handleResolveConflict = useCallback(async (memoryId: string, targetId: string, action: ConflictAction, mergeData?: { title?: string; content?: string; tags?: string[] }) => {
+    try {
+      const result = await resolveConflict(memoryId, targetId, action, mergeData);
+      if (result.success) {
+        toast(t('dream.conflict.success'), 'success');
+        setConflictDialog(null);
+        setSelectedReport((prev) => prev ? {
+          ...prev,
+          todoItems: prev.todoItems.filter((item) => !(item.type === 'conflict' && item.memoryId === memoryId && item.targetId === targetId)),
+        } : prev);
+        setReports((prev) => prev.map((report) => ({
+          ...report,
+          todoItems: report.todoItems.filter((item) => !(item.type === 'conflict' && item.memoryId === memoryId && item.targetId === targetId)),
+        })));
+      } else {
+        toast(result.message || t('dream.conflict.failed'), 'error');
+      }
+    } catch {
+      toast(t('dream.conflict.failed'), 'error');
+    }
+  }, [t, toast]);
+
   const handleToggleDreaming = useCallback(async (enabled: boolean) => {
     if (!config) return;
     try {
@@ -355,6 +382,16 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
             setPreviewLoadingId(null);
           }}
           onOpenInList={previewMemory && onMemorySelect ? () => onMemorySelect(previewMemory.id) : undefined}
+        />
+      )}
+
+      {conflictDialog && (
+        <ConflictResolveDialog
+          memoryId={conflictDialog.memoryId}
+          targetId={conflictDialog.targetId}
+          locale={locale}
+          onClose={() => setConflictDialog(null)}
+          onResolve={handleResolveConflict}
         />
       )}
 
@@ -609,6 +646,18 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
                                   {t('common.archive')}
                                 </button>
                               )}
+                              {!isOrphan && item.targetId && (
+                                <>
+                                  <button className="btn" style={{ background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' }} onClick={() => setConflictDialog({ memoryId: item.memoryId, targetId: item.targetId! })}>
+                                    <GitMerge size={12} />
+                                    {t('dream.conflict.resolve')}
+                                  </button>
+                                  <button className="btn" onClick={() => handleResolveConflict(item.memoryId, item.targetId!, 'keep_memory')}>
+                                    <CheckCircle size={12} />
+                                    {t('dream.conflict.keepThis')}
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -752,6 +801,285 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
         )}
       </section>
     </main>
+  );
+}
+
+function ConflictResolveDialog({
+  memoryId,
+  targetId,
+  locale,
+  onClose,
+  onResolve,
+}: {
+  memoryId: string;
+  targetId: string;
+  locale: string;
+  onClose: () => void;
+  onResolve: (memoryId: string, targetId: string, action: ConflictAction, mergeData?: { title?: string; content?: string; tags?: string[] }) => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const { toast } = useToast();
+  const [memA, setMemA] = useState<Memory | null>(null);
+  const [memB, setMemB] = useState<Memory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<'merge' | 'keep' | 'delete'>('merge');
+  const [primary, setPrimary] = useState<'a' | 'b'>('a');
+  const [mergedTitle, setMergedTitle] = useState('');
+  const [mergedContent, setMergedContent] = useState('');
+  const [mergedTags, setMergedTags] = useState('');
+  const [resolving, setResolving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [a, b] = await Promise.all([getMemory(memoryId), getMemory(targetId)]);
+        setMemA(a);
+        setMemB(b);
+      } catch {
+        toast(t('dream.conflict.loadOtherFailed'), 'error');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [memoryId, targetId, t, toast]);
+
+  useEffect(() => {
+    if (!memA || !memB) return;
+    const primaryMem = primary === 'a' ? memA : memB;
+    const otherMem = primary === 'a' ? memB : memA;
+    setMergedTitle(primaryMem.title);
+    setMergedContent(primaryMem.content + '\n\n---\n' + otherMem.content);
+    setMergedTags([...new Set([...(primaryMem.tags || []), ...(otherMem.tags || [])])].join(', '));
+  }, [primary, memA, memB]);
+
+  const handleMerge = async () => {
+    setResolving(true);
+    const action: ConflictAction = primary === 'a' ? 'merge_into_memory' : 'merge_into_target';
+    const tags = mergedTags.split(',').map((s) => s.trim()).filter(Boolean);
+    await onResolve(memoryId, targetId, action, { title: mergedTitle, content: mergedContent, tags });
+    setResolving(false);
+  };
+
+  const handleKeep = async (which: 'a' | 'b') => {
+    setResolving(true);
+    const action: ConflictAction = which === 'a' ? 'keep_memory' : 'keep_target';
+    await onResolve(memoryId, targetId, action);
+    setResolving(false);
+  };
+
+  const handleDelete = async (which: 'a' | 'b') => {
+    setResolving(true);
+    const action: ConflictAction = which === 'a' ? 'delete_memory' : 'delete_target';
+    await onResolve(memoryId, targetId, action);
+    setResolving(false);
+  };
+
+  const MemoryCard = ({ mem, label, side }: { mem: Memory | null; label: string; side: 'a' | 'b' }) => (
+    <div style={{
+      border: side === primary && mode === 'merge' ? '2px solid var(--accent)' : '1px solid var(--border)',
+      borderRadius: 'var(--radius-md)',
+      padding: 12,
+      background: 'var(--bg-main)',
+      flex: 1,
+      minWidth: 0,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+        {label}
+      </div>
+      {mem ? (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6, wordBreak: 'break-word' }}>
+            {redactSensitiveText(mem.title)}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, maxHeight: 200, overflowY: 'auto', wordBreak: 'break-word' }}>
+            {redactSensitiveText(mem.content)}
+          </div>
+          {mem.tags && mem.tags.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {mem.tags.slice(0, 8).map((tag) => (
+                <span key={tag} className="tag-pill" style={{ fontSize: 11 }}>{tag}</span>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+            {formatDateTime(mem.updatedAt, locale)} · {t('detail.hits')}: {mem.hitCount}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+          {loading ? t('dream.conflict.loadingOther') : t('dream.conflict.otherNotFound')}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      <button type="button" className="dream-preview-scrim" aria-label={t('common.close')} onClick={onClose} />
+      <aside className="dream-preview-drawer" role="dialog" aria-modal="true" aria-label={t('dream.conflict.title')} style={{ maxWidth: 720 }}>
+        <div className="dream-preview-header">
+          <div>
+            <div className="dream-preview-eyebrow">{t('dream.todo.conflict')}</div>
+            <h3>{t('dream.conflict.title')}</h3>
+          </div>
+          <button className="btn" onClick={onClose} aria-label={t('common.close')}>
+            <Close size={14} />
+          </button>
+        </div>
+
+        {loading && (
+          <div className="dream-preview-loading">
+            <div className="animate-spin" style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
+            {t('common.loading')}
+          </div>
+        )}
+
+        {!loading && memA && memB && (
+          <>
+            {/* 模式选择 tab */}
+            <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+              {(['merge', 'keep', 'delete'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  style={{
+                    padding: '8px 16px',
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: mode === m ? 'var(--accent)' : 'var(--text-secondary)',
+                    borderBottom: mode === m ? '2px solid var(--accent)' : '2px solid transparent',
+                  }}
+                >
+                  {m === 'merge' && (<><GitMerge size={12} style={{ display: 'inline', marginRight: 4 }} />{t('dream.conflict.resolve')}</>)}
+                  {m === 'keep' && (<><CheckCircle size={12} style={{ display: 'inline', marginRight: 4 }} />{t('dream.conflict.keepThis')}</>)}
+                  {m === 'delete' && (<><Trash size={12} style={{ display: 'inline', marginRight: 4 }} />{t('common.delete')}</>)}
+                </button>
+              ))}
+            </div>
+
+            {/* 两条记忆并排展示 */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+              <MemoryCard mem={memA} label={t('dream.conflict.thisMemory')} side="a" />
+              <MemoryCard mem={memB} label={t('dream.conflict.otherMemory')} side="b" />
+            </div>
+
+            {/* 合并模式 */}
+            {mode === 'merge' && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {t('dream.conflict.chooseMain')}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn"
+                    style={primary === 'a' ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : {}}
+                    onClick={() => setPrimary('a')}
+                  >
+                    {t('dream.conflict.useThis')}
+                  </button>
+                  <button
+                    className="btn"
+                    style={primary === 'b' ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' } : {}}
+                    onClick={() => setPrimary('b')}
+                  >
+                    {t('dream.conflict.useOther')}
+                  </button>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    {t('dream.conflict.mergedTitle')}
+                  </label>
+                  <input
+                    type="text"
+                    value={mergedTitle}
+                    onChange={(e) => setMergedTitle(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    {t('dream.conflict.mergedContent')}
+                  </label>
+                  <textarea
+                    value={mergedContent}
+                    onChange={(e) => setMergedContent(e.target.value)}
+                    rows={10}
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    {t('dream.conflict.mergedTags')}
+                  </label>
+                  <input
+                    type="text"
+                    value={mergedTags}
+                    onChange={(e) => setMergedTags(e.target.value)}
+                    placeholder="tag1, tag2, tag3"
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}
+                  />
+                </div>
+
+                <button
+                  className="btn"
+                  style={{ background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)', justifyContent: 'center' }}
+                  onClick={handleMerge}
+                  disabled={resolving}
+                >
+                  <GitMerge size={13} />
+                  {resolving ? t('common.loading') : t('dream.conflict.confirmMerge')}
+                </button>
+              </div>
+            )}
+
+            {/* 保留模式 */}
+            {mode === 'keep' && (
+              <div style={{ display: 'grid', gap: 10 }}>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                  {t('dream.conflict.confirmKeep')}
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={() => handleKeep('a')} disabled={resolving}>
+                    <CheckCircle size={13} />
+                    {t('dream.conflict.useThis')}
+                  </button>
+                  <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={() => handleKeep('b')} disabled={resolving}>
+                    <CheckCircle size={13} />
+                    {t('dream.conflict.useOther')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 删除模式 */}
+            {mode === 'delete' && (
+              <div style={{ display: 'grid', gap: 10 }}>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--danger)', lineHeight: 1.55 }}>
+                  {t('common.confirmDelete')}
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" style={{ flex: 1, justifyContent: 'center', color: 'var(--danger)' }} onClick={() => handleDelete('a')} disabled={resolving}>
+                    <Trash size={13} />
+                    {t('dream.conflict.deleteThis')}
+                  </button>
+                  <button className="btn" style={{ flex: 1, justifyContent: 'center', color: 'var(--danger)' }} onClick={() => handleDelete('b')} disabled={resolving}>
+                    <Trash size={13} />
+                    {t('dream.conflict.deleteOther')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </aside>
+    </>
   );
 }
 

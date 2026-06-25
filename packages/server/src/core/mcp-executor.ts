@@ -144,7 +144,8 @@ function optionalLimit(args: Record<string, unknown>, fallback: number, max = 10
 function buildCreateInput(args: Record<string, unknown>): CreateMemoryInput {
   const title = requiredString(args, 'title');
   const content = requiredString(args, 'content');
-  const layer = requiredLayer(args);
+  // layer 可选：未指定时由 normalizeMemoryInput 推断，避免上游一律传 long
+  const layer = optionalLayer(args);
   const tags = optionalStringArray(args, 'tags') ?? extractTags(content);
 
   return {
@@ -193,9 +194,12 @@ function inferImportLayer(title: string, content: string, metadata?: Record<stri
   if (importance === 'low') return 'short';
   if (metadata?.category === 'preference' || metadata?.category === 'decision') return 'long';
   if (metadata?.category === 'person' || metadata?.category === 'entity') return 'entity';
-  if (/preference|rule|principle|decision|project|architecture|repo|framework/.test(text)) return 'long';
-  if (/todo|today|tomorrow|temporary|pending/.test(text)) return 'short';
-  return content.length > 200 ? 'long' : 'short';
+  if (metadata?.category === 'task' || metadata?.category === 'todo') return 'short';
+  if (/person|entity|人物|人员|同事|客户|团队|负责人|工具|产品/.test(text)) return 'entity';
+  if (/preference|rule|principle|decision|project|architecture|repo|framework|偏好|习惯|风格|原则|规则|决定|结论|取舍|架构|方法论|框架|理论|约束|边界|必须|禁止/.test(text)) return 'long';
+  if (/todo|today|tomorrow|temporary|pending|待办|任务|计划|截止|临时|本周|今天|明天|近期/.test(text)) return 'short';
+  // 不再以长度>200 作为 long 兜底——长内容默认进 short，由 dream 升格
+  return 'short';
 }
 
 function stripCommonPrefix(value: unknown, enabled: boolean): string {

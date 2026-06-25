@@ -1,5 +1,6 @@
 import { getDatabase } from '../db/sqlite.js';
 import { runDreamCycle, autoResolveStaleTodos } from './dreaming.js';
+import { runAutoConsolidation } from './consolidation.js';
 import { DREAM_CONFIG, DREAM_AUTONOMY } from '@keymemory/shared';
 
 export interface SchedulerConfig {
@@ -132,6 +133,16 @@ function scheduleNextDream(): void {
       const report = runDreamCycle();
       updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
       console.log(`[Scheduler] Dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
+      // dream 完成后紧接执行 consolidation：让跨记忆的去重/归档/固化也有机会被定时跑，
+      // 修复真实数据中 consolidation_plans 永远为 0 的问题。
+      try {
+        const plan = runAutoConsolidation();
+        if (plan.actions.length > 0) {
+          console.log(`[Scheduler] Consolidation plan ${plan.id.slice(0, 8)}: ${plan.actions.length} actions, status=${plan.status}`);
+        }
+      } catch (err) {
+        console.error('[Scheduler] Consolidation failed:', (err as Error).message);
+      }
     } catch (err) {
       console.error('[Scheduler] Dream cycle failed:', (err as Error).message);
     }

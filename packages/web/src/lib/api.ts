@@ -1,4 +1,4 @@
-import type { AgentContextPack, AgentContextPackRequest, Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version, SearchResult, Project, ProjectSuggestion } from '@keymemory/shared';
+import type { AgentContextPack, AgentContextPackRequest, Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version, SearchResult, Project, ProjectSuggestion, LoopRun } from '@keymemory/shared';
 
 const BASE = '/api';
 const API_KEY_STORAGE_KEY = 'keymemory_api_key';
@@ -109,6 +109,24 @@ export async function buildAgentContextPack(data: AgentContextPackRequest): Prom
   });
 }
 
+// 近期工作集：让 UI 能直接展示"哪些记忆被实际命中/最近被写入"，
+// 而不是只看到长期层堆满了从未被用过的条目。这是把 KeyMemory 当作 loop
+// 上下文集库时的核心观测入口。
+export async function listRecentHitMemories(limit?: number): Promise<Memory[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  return request(`/memories/recent-hits${qs}`);
+}
+
+export async function listRecentCreatedMemories(limit?: number): Promise<Memory[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  return request(`/memories/recent-created${qs}`);
+}
+
+export async function listLoopRuns(limit?: number): Promise<LoopRun[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  return request(`/loop/runs${qs}`);
+}
+
 export async function getVersions(memoryId: string): Promise<Version[]> {
   return request(`/versions/${memoryId}`);
 }
@@ -211,6 +229,8 @@ export interface DreamTodoItem {
   memoryId: string;
   title: string;
   reason: string;
+  targetId?: string;
+  description?: string;
 }
 
 export interface DreamReportDetails {
@@ -275,6 +295,15 @@ export async function getDreamSignals(reportId: string): Promise<DreamSignalEntr
 
 export async function rollbackDream(reportId: string): Promise<DreamReport> {
   return request('/dream/rollback/' + reportId, { method: 'POST' });
+}
+
+export type ConflictAction = 'keep_memory' | 'keep_target' | 'merge_into_memory' | 'merge_into_target' | 'delete_memory' | 'delete_target';
+
+export async function resolveConflict(memoryId: string, targetId: string, action: ConflictAction, mergeData?: { title?: string; content?: string; tags?: string[] }): Promise<{ success: boolean; keptId?: string; removedId?: string; message: string }> {
+  return request('/dream/conflicts/resolve', {
+    method: 'POST',
+    body: JSON.stringify({ memoryId, targetId, action, ...mergeData }),
+  });
 }
 
 export async function listRecycleBin(params?: { layer?: Layer; limit?: number; offset?: number }): Promise<Memory[]> {

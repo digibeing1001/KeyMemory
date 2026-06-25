@@ -34,7 +34,7 @@ const memoryCreateSchema = {
   properties: {
     title: { type: 'string', description: 'Short, searchable memory title.' },
     content: { type: 'string', description: 'Full durable memory content. Markdown is supported.' },
-    layer: { type: 'string', enum: LAYERS, description: 'Memory layer: flash, short, long, or entity.' },
+    layer: { type: 'string', enum: LAYERS, description: 'Memory layer: flash, short, long, or entity. Optional; inferred from content/metadata when omitted. Default short.' },
     projectId: { type: 'string', description: 'Optional KeyMemory project ID.' },
     projectPath: { type: 'string', description: 'Optional project path, such as Product/Backend/Memory. Missing folders are created automatically.' },
     tags: { type: 'array', items: { type: 'string' }, description: 'Optional searchable tags.' },
@@ -42,7 +42,7 @@ const memoryCreateSchema = {
     source: { type: 'string', description: 'Optional source label, such as conversation, hermes, openclaw, or manual.' },
     sourceId: { type: 'string', description: 'Optional ID from the source system.' },
   },
-  required: ['title', 'content', 'layer'],
+  required: ['title', 'content'],
 };
 
 const memorySearchSchema = {
@@ -343,7 +343,7 @@ const BASE_MCP_TOOLS: MCPTool[] = [
         path: { type: 'string', description: 'File or directory path to import.' },
         source: { type: 'string', description: 'Source identifier, such as codex, claude-code, cursor, mem0, hermes, or openclaw.' },
         format: { type: 'string', enum: ['auto', 'json', 'jsonl', 'markdown', 'text'], description: 'Input format. Default auto.' },
-        defaultLayer: { type: 'string', enum: LAYERS, description: 'Fallback layer. Default long.' },
+        defaultLayer: { type: 'string', enum: LAYERS, description: 'Fallback layer. Default short.' },
         defaultProjectPath: { type: 'string', description: 'Fallback project path if source has none.' },
         recursive: { type: 'boolean', description: 'Import directories recursively. Default true.' },
         maxFiles: { type: 'number', description: 'Directory file cap. Default 200.' },

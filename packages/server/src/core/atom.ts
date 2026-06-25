@@ -28,7 +28,8 @@ export function createMemory(input: CreateMemoryInput): Memory {
     id,
     title: input.title,
     content: input.content,
-    layer: input.layer,
+    // normalizeMemoryInput 已保证 layer 非空；此处再兜底 short，防止绕过 normalize 的路径
+    layer: input.layer ?? 'short',
     projectId,
     agentSpace: input.agentSpace ?? 'global',
     ownerAgentId: input.ownerAgentId,

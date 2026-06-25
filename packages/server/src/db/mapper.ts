@@ -1,4 +1,4 @@
-import type { Memory, Layer, MemoryStatus } from '@keymemory/shared';
+import type { Memory, Layer, MemoryStatus, LoopRun, LoopRunStatus } from '@keymemory/shared';
 
 export function rowToMemory(row: Record<string, unknown>): Memory {
   return {
@@ -20,5 +20,38 @@ export function rowToMemory(row: Record<string, unknown>): Memory {
     metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
     source: (row.source as string) || undefined,
     sourceId: (row.source_id as string) || undefined,
+  };
+}
+
+// 用于 UI 展示近期 loop 运行——把 loop_runs 表行映射成 LoopRun。
+// 字段对齐 loop-harness.ts 的 rowToRun，但单独导出以便 rest.ts 直接用。
+export function rowToLoopRunSummary(row: Record<string, unknown>): LoopRun {
+  let metadata: Record<string, unknown> | undefined;
+  if (row.metadata) {
+    try {
+      const parsed = JSON.parse(row.metadata as string);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        metadata = parsed;
+      }
+    } catch {
+      // metadata 损坏时忽略
+    }
+  }
+  return {
+    id: String(row.id),
+    objective: String(row.objective ?? ''),
+    projectId: row.project_id ? String(row.project_id) : undefined,
+    projectPath: row.project_path ? String(row.project_path) : undefined,
+    agentId: String(row.agent_id ?? ''),
+    status: String(row.status ?? 'running') as LoopRunStatus,
+    checkpointVersion: Number(row.checkpoint_version ?? 0),
+    lastEventSequence: Number(row.last_event_sequence ?? 0),
+    traceId: String(row.trace_id ?? ''),
+    leaseOwner: String(row.lease_owner ?? ''),
+    leaseExpiresAt: String(row.lease_expires_at ?? ''),
+    metadata,
+    createdAt: String(row.created_at ?? ''),
+    updatedAt: String(row.updated_at ?? ''),
+    completedAt: row.completed_at ? String(row.completed_at) : undefined,
   };
 }

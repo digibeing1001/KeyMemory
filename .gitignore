@@ -11,3 +11,6 @@ Thumbs.db
 *.tsbuildinfo
 onnx-models/
 !packages/server/models/
+.codegraph/
+.cursor/
+scripts/*.txt

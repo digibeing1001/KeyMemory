@@ -1,11 +1,11 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity } from './Icons';
 import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -34,6 +34,7 @@ const LAYER_ICONS: Record<Layer, typeof Flash> = {
 
 const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers }> = [
   { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
+  { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
   { mode: 'nebula', labelKey: 'nav.nebula', icon: Globe },
   { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
   { mode: 'dream', labelKey: 'nav.dream', icon: Moon },

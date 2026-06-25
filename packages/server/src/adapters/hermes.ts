@@ -27,7 +27,9 @@ export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapte
     },
 
     async write(data: CreateMemoryInput): Promise<Memory> {
-      const decision = routeMemory(data.content, data.layer, ctx);
+      // layer 现在是可选字段；routeMemory 仍按 Layer 路由，未指定时按 short 走默认
+      // 推断（normalizeMemoryInput 会保证最终落库时有合理 layer）。
+      const decision = routeMemory(data.content, data.layer ?? 'short', ctx);
 
       const writeData = {
         ...data,

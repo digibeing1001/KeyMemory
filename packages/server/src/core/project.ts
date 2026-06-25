@@ -78,10 +78,23 @@ export function listProjectTree(): Project[] {
 }
 
 export function normalizeProjectPath(pathLike: string): string[] {
+  // 修复路径切碎：真实数据中 "Node（pnpm/npm/yarn）" 被切成多段，
+  // URL "http://172.24.127.251:5173/" 中的 :// 也被误切。
+  // 处理顺序：
+  //   1) 剥离 URL/IP/端口（含 http://、https://、ftp://、IP:port）—— 它们不是项目名
+  //   2) 剥离 [[ ]] 标记
+  //   3) 去掉中英文括号及其内部内容（"Node（pnpm/npm/yarn）" → "Node"），
+  //      避免括号内的并列项被当作独立路径段
+  //   4) 按分隔符切分（/、\、>、::、->、→、›、＞、／）
+  //   5) 清理每段两侧空白与残留标点，过滤空段
   return pathLike
+    .replace(/https?:\/\/[^\s\/]+(?:\/[^\s]*)?/gi, ' ')
+    .replace(/ftp:\/\/[^\s]+/gi, ' ')
+    .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\b/g, ' ')
     .replace(/\[\[|\]\]/g, '')
+    .replace(/[（(][^（）()]*[）)]/g, ' ')
     .split(/[\/\\>]+|::|->|→|›|＞|／/u)
-    .map(part => part.trim())
+    .map(part => part.trim().replace(/^[:：·]+|[:：·]+$/g, '').trim())
     .filter(Boolean);
 }
 

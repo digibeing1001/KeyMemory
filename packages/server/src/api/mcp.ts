@@ -68,7 +68,7 @@ const MIGRATION_TOOLS: MCPTool[] = [
         path: { type: 'string', description: 'File or directory path to import' },
         source: { type: 'string', description: 'Source identifier, e.g. codex, claude-code, cursor, mem0' },
         format: { type: 'string', enum: ['auto', 'json', 'jsonl', 'markdown', 'text'], description: 'Input format. Default auto.' },
-        defaultLayer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: 'Fallback layer. Default long.' },
+        defaultLayer: { type: 'string', enum: ['flash', 'short', 'long', 'entity'], description: 'Fallback layer. Default short.' },
         defaultProjectPath: { type: 'string', description: 'Fallback project path if source has none.' },
         recursive: { type: 'boolean', description: 'Import directories recursively. Default true.' },
         maxFiles: { type: 'number', description: 'Directory file cap. Default 200.' },
@@ -329,9 +329,11 @@ async function handleToolCall(name: string, args: Record<string, unknown>, adapt
         if (importance === 'low') return 'short';
         if (metadata?.category === 'preference' || metadata?.category === 'decision') return 'long';
         if (metadata?.category === 'person' || metadata?.category === 'entity') return 'entity';
-        if (/preference|rule|principle|decision|project|architecture|repo|framework/.test(text)) return 'long';
-        if (/todo|today|tomorrow|temporary|pending/.test(text)) return 'short';
-        if (content.length > 200) return 'long';
+        if (metadata?.category === 'task' || metadata?.category === 'todo') return 'short';
+        if (/person|entity|人物|人员|同事|客户|团队|负责人|工具|产品/.test(text)) return 'entity';
+        if (/preference|rule|principle|decision|project|architecture|repo|framework|偏好|习惯|风格|原则|规则|决定|结论|取舍|架构|方法论|框架|理论|约束|边界|必须|禁止/.test(text)) return 'long';
+        if (/todo|today|tomorrow|temporary|pending|待办|任务|计划|截止|临时|本周|今天|明天|近期/.test(text)) return 'short';
+        // 不再以长度>200 作为 long 兜底——长内容默认进 short，由 dream 升格
         return 'short';
       };
       const validLayers: Layer[] = ['flash', 'short', 'long', 'entity'];

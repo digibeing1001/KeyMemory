@@ -1,11 +1,12 @@
 import type { ForgetMethod, Layer } from '@keymemory/shared';
 import { LAYER_CONFIG } from '@keymemory/shared';
+import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../db/sqlite.js';
 import { deleteChunks } from './chunking.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
 import { getMemory } from './atom.js';
 
-export function applyDecay(): { flashDecayed: number; shortDecayed: number; autoArchived: number } {
+export function applyDecay(): { flashDecayed: number; shortDecayed: number; longDecayed: number; autoArchived: number; demotedToShort: number; demotedToFlash: number } {
   const db = getDatabase();
   const now = new Date().toISOString();
 
@@ -29,6 +30,60 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; auto
       AND decay_factor > 0.01
   `).run({ rate: shortConfig.decayRate, now }, `-${shortConfig.decayDays}`);
 
+  // long 层衰减：180 天未命中的内容每次衰减 1%（rate=0.99），不再"只进不出"
+  const longConfig = LAYER_CONFIG.long;
+  const longResult = db.prepare(`
+    UPDATE memories
+    SET decay_factor = decay_factor * @rate, updated_at = @now
+    WHERE layer = 'long'
+      AND status = 'active'
+      AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
+      AND decay_factor > 0.01
+  `).run({ rate: longConfig.decayRate, now }, `-${longConfig.decayDays}`);
+
+  // 反向降级 1：long 层长期未被命中的低 decay 内容降级到 short
+  // 条件：decay_factor < 0.3 且 90 天未命中 → layer_move long→short
+  // 写入 versions 记录，让降级可追溯
+  const demoteLongRows = db.prepare(`
+    SELECT id FROM memories
+    WHERE layer = 'long'
+      AND status = 'active'
+      AND decay_factor < 0.3
+      AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', '-90 days'))
+  `).all() as { id: string }[];
+  const demotedToShort = demoteLongRows.length;
+  for (const row of demoteLongRows) {
+    db.prepare(`UPDATE memories SET layer = 'short', decay_factor = 0.5, updated_at = @now WHERE id = @id`)
+      .run({ id: row.id, now });
+    db.prepare(`
+      INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
+      SELECT @vid, @mid, (SELECT COUNT(*) FROM versions WHERE memory_id = @mid) + 1,
+             title, content, 'layer_move', 'long→short 反向降级：长期未命中', @now
+      FROM memories WHERE id = @mid
+    `).run({ vid: randomUUID(), mid: row.id, now });
+  }
+
+  // 反向降级 2：short 层长期未被命中的极低 decay 内容降级到 flash
+  // 条件：decay_factor < 0.2 且 30 天未命中 → layer_move short→flash
+  const demoteShortRows = db.prepare(`
+    SELECT id FROM memories
+    WHERE layer = 'short'
+      AND status = 'active'
+      AND decay_factor < 0.2
+      AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', '-30 days'))
+  `).all() as { id: string }[];
+  const demotedToFlash = demoteShortRows.length;
+  for (const row of demoteShortRows) {
+    db.prepare(`UPDATE memories SET layer = 'flash', updated_at = @now WHERE id = @id`)
+      .run({ id: row.id, now });
+    db.prepare(`
+      INSERT INTO versions (id, memory_id, version, title, content, change_type, change_reason, created_at)
+      SELECT @vid, @mid, (SELECT COUNT(*) FROM versions WHERE memory_id = @mid) + 1,
+             title, content, 'layer_move', 'short→flash 反向降级：长期未命中', @now
+      FROM memories WHERE id = @mid
+    `).run({ vid: randomUUID(), mid: row.id, now });
+  }
+
   const autoArchive = db.prepare(`
     UPDATE memories SET status = 'decayed', updated_at = @now
     WHERE decay_factor <= 0.01 AND status = 'active'
@@ -37,7 +92,10 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; auto
   return {
     flashDecayed: flashResult.changes,
     shortDecayed: shortResult.changes,
+    longDecayed: longResult.changes,
     autoArchived: autoArchive.changes,
+    demotedToShort,
+    demotedToFlash,
   };
 }
 

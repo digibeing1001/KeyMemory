@@ -3,9 +3,13 @@ import type { Layer } from './types.js';
 export const LAYERS: Layer[] = ['flash', 'short', 'long', 'entity'];
 
 export const LAYER_CONFIG: Record<Layer, { label: string; color: string; decayDays: number; decayRate: number }> = {
-  flash: { label: '待整理', color: '#f59e0b', decayDays: 7, decayRate: 0.9 },
-  short: { label: '近期有用', color: '#3b82f6', decayDays: 30, decayRate: 0.95 },
-  long: { label: '长期保留', color: '#10b981', decayDays: Infinity, decayRate: 1.0 },
+  // flash 衰减率由 0.9 调到 0.95、窗口由 7 天扩到 14 天，避免刚写入即被衰减死
+  flash: { label: '待整理', color: '#f59e0b', decayDays: 14, decayRate: 0.95 },
+  // short 衰减率由 0.95 调到 0.98、窗口由 30 天扩到 60 天，给 dream 整理留时间
+  short: { label: '近期有用', color: '#3b82f6', decayDays: 60, decayRate: 0.98 },
+  // long 不再 Infinity：180 天未命中的内容每次衰减 1%，配合反向降级让 long 不再只进不出
+  long: { label: '长期保留', color: '#10b981', decayDays: 180, decayRate: 0.99 },
+  // entity 仍保持 Infinity：实体由显式合并/删除管理，不参与时间衰减
   entity: { label: '人事物', color: '#ec4899', decayDays: Infinity, decayRate: 1.0 },
 };
 
