@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import type { SearchResult, Layer, MemoryStatus } from '@keymemory/shared';
+import type { SearchResult, Layer, MemoryStatus, EntityType } from '@keymemory/shared';
 import { SEARCH_WEIGHTS, SEARCH_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { embed, embeddingToBuffer, cosineSimilarity, getEmbeddingDim, getCurrentModelInfo, isEmbeddingAvailable } from '../embed/onnx.js';
@@ -18,6 +18,19 @@ type SearchOptions = {
   includeSuperseded?: boolean;
   memoryKind?: string;
   limit?: number;
+  tags?: string[];
+  tagsMatch?: 'any' | 'all';
+  entityId?: string;
+  entityName?: string;
+  entityType?: EntityType;
+  source?: string;
+  minConfidence?: number;
+  createdAfter?: string;
+  createdBefore?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
+  lastHitAfter?: string;
+  lastHitBefore?: string;
 };
 
 function logQuery(query: string, memoryId: string, matchType: string): void {
@@ -78,6 +91,83 @@ function addSearchFilters(conditions: string[], params: Record<string, unknown>,
       params[`agentSpace${i}`] = space;
     });
   }
+
+  // 标签过滤：tags 列以 JSON 数组存储，用 json_each 精确匹配避免 LIKE 误命中（如 "tag1" 匹配 "tag10"）。
+  // json_valid 保护：旧数据若非 JSON 不会报错，只是不入选。
+  if (options?.tags && options.tags.length > 0) {
+    const matchMode = options.tagsMatch ?? 'any';
+    const tagClauses = options.tags.map((tag, i) => {
+      const paramName = `tag${i}`;
+      params[paramName] = tag;
+      return `EXISTS (SELECT 1 FROM json_each(m.tags) WHERE json_each.value = @${paramName})`;
+    });
+    const connector = matchMode === 'all' ? ' AND ' : ' OR ';
+    conditions.push(`(m.tags IS NOT NULL AND json_valid(m.tags) AND (${tagClauses.join(connector)}))`);
+  }
+
+  // 实体过滤：通过 memory_entities 关联表 JOIN entities。
+  // entityId 优先；否则用 entityName/entityType 组合（AND 语义）。
+  // entityName 同时匹配 entity.name 和 entity_aliases.alias，确保别名实体也能被检索到。
+  if (options?.entityId) {
+    params.entityId = options.entityId;
+    conditions.push(`EXISTS (
+      SELECT 1 FROM memory_entities me
+      WHERE me.memory_id = m.id AND me.entity_id = @entityId
+    )`);
+  } else if (options?.entityName || options?.entityType) {
+    const entityConds: string[] = [];
+    if (options.entityName) {
+      params.entityName = options.entityName;
+      // 同时匹配 name 和 alias，让通过别名检索也能命中
+      entityConds.push('(e.name = @entityName OR EXISTS (SELECT 1 FROM entity_aliases ea WHERE ea.entity_id = e.id AND ea.alias = @entityName))');
+    }
+    if (options.entityType) {
+      params.entityType = options.entityType;
+      entityConds.push('e.type = @entityType');
+    }
+    conditions.push(`EXISTS (
+      SELECT 1 FROM memory_entities me
+      JOIN entities e ON e.id = me.entity_id
+      WHERE me.memory_id = m.id AND ${entityConds.join(' AND ')}
+    )`);
+  }
+
+  if (options?.source) {
+    conditions.push('m.source = @source');
+    params.source = options.source;
+  }
+
+  if (typeof options?.minConfidence === 'number') {
+    conditions.push('m.confidence >= @minConfidence');
+    params.minConfidence = options.minConfidence;
+  }
+
+  // 时间范围过滤：ISO 8601 字符串的文本比较天然按时间序。
+  // last_hit_at 可能为 NULL（从未被命中的记忆），对 lastHit* 过滤需显式 IS NOT NULL。
+  if (options?.createdAfter) {
+    conditions.push('m.created_at >= @createdAfter');
+    params.createdAfter = options.createdAfter;
+  }
+  if (options?.createdBefore) {
+    conditions.push('m.created_at <= @createdBefore');
+    params.createdBefore = options.createdBefore;
+  }
+  if (options?.updatedAfter) {
+    conditions.push('m.updated_at >= @updatedAfter');
+    params.updatedAfter = options.updatedAfter;
+  }
+  if (options?.updatedBefore) {
+    conditions.push('m.updated_at <= @updatedBefore');
+    params.updatedBefore = options.updatedBefore;
+  }
+  if (options?.lastHitAfter) {
+    conditions.push('m.last_hit_at IS NOT NULL AND m.last_hit_at >= @lastHitAfter');
+    params.lastHitAfter = options.lastHitAfter;
+  }
+  if (options?.lastHitBefore) {
+    conditions.push('m.last_hit_at IS NOT NULL AND m.last_hit_at <= @lastHitBefore');
+    params.lastHitBefore = options.lastHitBefore;
+  }
 }
 
 export async function ensureEmbedding(memoryId: string, title: string, content: string, tags?: string[], metadata?: Record<string, unknown>, force?: boolean): Promise<void> {
@@ -109,8 +199,8 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
   // 使缓存失效，下次搜索会重新加载
   invalidateEmbeddingCache(memoryId);
 
-  // 触发分块嵌入
-  scheduleChunkAndEmbed(memoryId, title, content);
+  // 触发分块嵌入（传入 tags/metadata 作为全局前缀，与 memory 级嵌入保持上下文一致）
+  scheduleChunkAndEmbed(memoryId, title, content, tags, metadata);
 }
 
 export async function searchFulltext(query: string, options?: SearchOptions): Promise<SearchResult[]> {
@@ -227,11 +317,15 @@ export async function searchSemantic(query: string, options?: SearchOptions): Pr
   if (options?.status) params.status = options.status;
   addSearchFilters(conditions, params, options);
 
-  // 1. 获取所有活跃记忆（不读 embedding BLOB，走缓存）
+  // 1. 只取有 embedding 的记忆（INNER JOIN embeddings），避免对无向量记忆做无效 cosine 计算。
+  //    按 hit_count / last_hit_at / updated_at 排序，让高频/近期命中的重要记忆优先进入 500 限额，
+  //    防止"随机 500 条"漏掉最相关的记忆。
   const rows = db.prepare(`
     SELECT m.*
     FROM memories m
+    INNER JOIN embeddings e ON e.memory_id = m.id
     WHERE ${conditions.join(' AND ')}
+    ORDER BY m.hit_count DESC, m.last_hit_at DESC, m.updated_at DESC
     LIMIT 500
   `).all(params) as Record<string, unknown>[];
 

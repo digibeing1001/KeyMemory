@@ -1,15 +1,16 @@
-import type { CreateMemoryInput, IsolationMode, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryKind, MemoryStatus, UpdateMemoryInput } from '@keymemory/shared';
+import type { CreateMemoryInput, EntityType, IsolationMode, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryKind, MemoryStatus, UpdateMemoryInput } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import { getMemory, listMemories, updateMemory } from './atom.js';
-import { searchHybrid, ensureEmbedding } from './query.js';
 import { autoRemember, extractTags } from './auto.js';
 import { discoverMigrationSources, migrateMemoriesFromPath } from './migration.js';
 import { buildAgentContextPack } from './context-pack.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from './backup.js';
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './project.js';
-import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from '../graph/entity.js';
+import { createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES, addEntityAlias, removeEntityAlias, listEntityAliases, mergeEntities, findDuplicateEntities } from '../graph/entity.js';
 import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from './secrets.js';
-import { canonicalToolName } from './mcp-tools.js';
+import { createRule, deleteRule, listAllRules, updateRule } from './isolation-rules.js';
+import type { IsolationRuleType } from './isolation-rules.js';
+import { canonicalToolName, ENTITY_TYPES } from './mcp-tools.js';
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, LoopProtocolError, startLoopRun } from './loop-harness.js';
 import type { MemoryAdapter } from '../adapters/base.js';
 
@@ -134,6 +135,24 @@ function requiredLayer(args: Record<string, unknown>, key = 'layer'): Layer {
   return layer;
 }
 
+function optionalEntityType(args: Record<string, unknown>, key = 'entityType'): EntityType | undefined {
+  const value = optionalString(args, key);
+  if (value == null) return undefined;
+  if (!ENTITY_TYPES.includes(value)) {
+    throw new ToolInputError(`${key} must be one of: ${ENTITY_TYPES.join(', ')}`);
+  }
+  return value as EntityType;
+}
+
+function optionalTagsMatch(args: Record<string, unknown>, key = 'tagsMatch'): 'any' | 'all' | undefined {
+  const value = optionalString(args, key);
+  if (value == null) return undefined;
+  if (value !== 'any' && value !== 'all') {
+    throw new ToolInputError(`${key} must be 'any' or 'all'`);
+  }
+  return value;
+}
+
 function optionalLimit(args: Record<string, unknown>, fallback: number, max = 100): number {
   const raw = optionalNumber(args, 'limit');
   const limit = Math.trunc(raw ?? fallback);
@@ -214,8 +233,7 @@ function stripCommonPrefix(value: unknown, enabled: boolean): string {
 
 async function writeMemory(adapter: MemoryAdapter, input: CreateMemoryInput) {
   const memory = await adapter.write(input);
-  ensureEmbedding(memory.id, memory.title, memory.content, memory.tags, memory.metadata as Record<string, unknown> | undefined)
-    .catch(() => {});
+  // 后处理（embedding + autoAssociate）已内聚到 createMemory 内部
   return memory;
 }
 
@@ -245,6 +263,19 @@ export async function executeMcpTool(
           includeDescendants: args.includeDescendants !== false,
           includeSuperseded: Boolean(args.includeSuperseded),
           memoryKind: optionalString(args, 'memoryKind') as MemoryKind | undefined,
+          tags: optionalStringArray(args, 'tags'),
+          tagsMatch: optionalTagsMatch(args),
+          entityId: optionalString(args, 'entityId'),
+          entityName: optionalString(args, 'entityName'),
+          entityType: optionalEntityType(args),
+          source: optionalString(args, 'source'),
+          minConfidence: optionalNumber(args, 'minConfidence'),
+          createdAfter: optionalString(args, 'createdAfter'),
+          createdBefore: optionalString(args, 'createdBefore'),
+          updatedAfter: optionalString(args, 'updatedAfter'),
+          updatedBefore: optionalString(args, 'updatedBefore'),
+          lastHitAfter: optionalString(args, 'lastHitAfter'),
+          lastHitBefore: optionalString(args, 'lastHitBefore'),
         });
         return agentText ? { content: [{ type: 'text', text: searchResultsText(query, results) }] } : ok(results);
       }
@@ -258,6 +289,8 @@ export async function executeMcpTool(
           memoryKinds: optionalStringArray(args, 'memoryKinds') as MemoryKind[] | undefined,
           maxItems: optionalNumber(args, 'maxItems'),
           maxChars: optionalNumber(args, 'maxChars'),
+          // 从 adapter 提取当前 agent 可见空间，确保 context pack 不会跨 agent 私有空间泄露
+          agentSpaces: adapter.getAgentSpaces?.(),
         });
         return { content: [{ type: 'text', text: pack.markdown }] };
       }
@@ -338,6 +371,21 @@ export async function executeMcpTool(
           projectId: optionalString(args, 'projectId'),
           status: status as MemoryStatus | undefined,
           limit: optionalLimit(args, 20),
+          // 隔离过滤：memory_list 也必须遵守 agent_space 可见性，防止跨 agent 看到私有记忆
+          agentSpaces: adapter.getAgentSpaces?.(),
+          tags: optionalStringArray(args, 'tags'),
+          tagsMatch: optionalTagsMatch(args),
+          entityId: optionalString(args, 'entityId'),
+          entityName: optionalString(args, 'entityName'),
+          entityType: optionalEntityType(args),
+          source: optionalString(args, 'source'),
+          minConfidence: optionalNumber(args, 'minConfidence'),
+          createdAfter: optionalString(args, 'createdAfter'),
+          createdBefore: optionalString(args, 'createdBefore'),
+          updatedAfter: optionalString(args, 'updatedAfter'),
+          updatedBefore: optionalString(args, 'updatedBefore'),
+          lastHitAfter: optionalString(args, 'lastHitAfter'),
+          lastHitBefore: optionalString(args, 'lastHitBefore'),
         }));
       }
 
@@ -348,10 +396,7 @@ export async function executeMcpTool(
         const input = buildUpdateInput(args);
         const memory = updateMemory(id, input, optionalString(args, 'change_reason'));
         if (!memory) return fail(`Memory not found: ${id}`);
-        if (input.title !== undefined || input.content !== undefined || input.tags !== undefined) {
-          ensureEmbedding(memory.id, memory.title, memory.content, memory.tags, memory.metadata as Record<string, unknown> | undefined, true)
-            .catch(() => {});
-        }
+        // 后处理（嵌入刷新 + 实体链接 + 关联重建）已内聚到 updateMemory 内部
         return ok(memory);
       }
 
@@ -381,8 +426,11 @@ export async function executeMcpTool(
         if (!MEMORY_RELATION_TYPES.includes(relationType as typeof MEMORY_RELATION_TYPES[number])) {
           throw new ToolInputError(`relationType must be one of: ${MEMORY_RELATION_TYPES.join(', ')}`);
         }
-        if (!getMemory(sourceId)) return fail(`Memory not found: ${sourceId}`);
-        if (!getMemory(targetId)) return fail(`Memory not found: ${targetId}`);
+        // 隔离校验：只能对当前 agent 可见的记忆创建关系，防止跨 agent 越权关联私有记忆
+        const sourceVisible = await adapter.read(sourceId);
+        if (!sourceVisible) return fail(`Memory not found or not accessible: ${sourceId}`);
+        const targetVisible = await adapter.read(targetId);
+        if (!targetVisible) return fail(`Memory not found or not accessible: ${targetId}`);
         return ok(createMemoryRelation(
           sourceId,
           targetId,
@@ -394,8 +442,17 @@ export async function executeMcpTool(
 
       case 'memory_related': {
         const id = requiredString(args, 'id');
-        if (!getMemory(id)) return fail(`Memory not found: ${id}`);
-        return ok(findRelatedMemories(id, optionalString(args, 'relationType')));
+        const visible = await adapter.read(id);
+        if (!visible) return fail(`Memory not found or not accessible: ${id}`);
+        const related = findRelatedMemories(id, optionalString(args, 'relationType'));
+        const accessibleSpaces = adapter.getAgentSpaces?.();
+        if (!accessibleSpaces) return ok(related);
+        // 过滤掉不可见空间的关联记忆，防止通过关系图泄露其他 agent 的私有记忆 title/content
+        const accessibleSet = new Set(accessibleSpaces);
+        return ok(related.filter(rel => {
+          const mem = getMemory(rel.memoryId);
+          return mem && accessibleSet.has(mem.agentSpace);
+        }));
       }
 
       case 'memory_import': {
@@ -508,6 +565,82 @@ export async function executeMcpTool(
           tool: requiredString(args, 'tool'),
           name: optionalString(args, 'name') ?? 'api_key',
         });
+
+      case 'memory_isolation_rule_create': {
+        const ruleType = optionalString(args, 'ruleType');
+        if (ruleType !== 'regex' && ruleType !== 'keyword') {
+          throw new ToolInputError('ruleType must be "regex" or "keyword"');
+        }
+        const pattern = requiredString(args, 'pattern');
+        const targetSpace = requiredString(args, 'targetSpace');
+        const rule = createRule({
+          agentId: optionalString(args, 'agentId'),
+          ruleType: ruleType as IsolationRuleType,
+          pattern,
+          targetSpace,
+          priority: optionalNumber(args, 'priority'),
+          enabled: args.enabled === undefined ? undefined : Boolean(args.enabled),
+        });
+        return ok(rule);
+      }
+
+      case 'memory_isolation_rule_list':
+        return ok(listAllRules(optionalString(args, 'agentId')));
+
+      case 'memory_isolation_rule_update': {
+        const id = requiredString(args, 'id');
+        const ruleType = optionalString(args, 'ruleType');
+        if (ruleType !== undefined && ruleType !== 'regex' && ruleType !== 'keyword') {
+          throw new ToolInputError('ruleType must be "regex" or "keyword"');
+        }
+        const updated = updateRule(id, {
+          ruleType: ruleType as IsolationRuleType | undefined,
+          pattern: optionalString(args, 'pattern'),
+          targetSpace: optionalString(args, 'targetSpace'),
+          priority: optionalNumber(args, 'priority'),
+          enabled: args.enabled === undefined ? undefined : Boolean(args.enabled),
+        });
+        if (!updated) return fail(`Rule not found: ${id}`);
+        return ok(updated);
+      }
+
+      case 'memory_isolation_rule_delete': {
+        const id = requiredString(args, 'id');
+        const success = deleteRule(id);
+        return ok({ success, id });
+      }
+
+      case 'memory_entity_alias_add': {
+        const entityId = requiredString(args, 'entityId');
+        const alias = requiredString(args, 'alias');
+        try {
+          return ok(addEntityAlias(entityId, alias));
+        } catch (err) {
+          return fail((err as Error).message);
+        }
+      }
+
+      case 'memory_entity_alias_remove': {
+        const entityId = requiredString(args, 'entityId');
+        const alias = requiredString(args, 'alias');
+        return ok({ success: removeEntityAlias(entityId, alias), entityId, alias });
+      }
+
+      case 'memory_entity_alias_list':
+        return ok(listEntityAliases(requiredString(args, 'entityId')));
+
+      case 'memory_entity_merge': {
+        const sourceId = requiredString(args, 'sourceId');
+        const targetId = requiredString(args, 'targetId');
+        try {
+          return ok(mergeEntities(sourceId, targetId));
+        } catch (err) {
+          return fail((err as Error).message);
+        }
+      }
+
+      case 'memory_entity_duplicates':
+        return ok(findDuplicateEntities());
 
       default:
         return fail(`Unknown tool: ${String(name)}`);

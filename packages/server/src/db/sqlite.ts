@@ -125,6 +125,15 @@ function runMigrations(db: Database.Database): void {
       FOREIGN KEY (project_id) REFERENCES projects(id)
     );
 
+    CREATE TABLE IF NOT EXISTS entity_aliases (
+      id TEXT PRIMARY KEY,
+      entity_id TEXT NOT NULL,
+      alias TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(entity_id, alias),
+      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS versions (
       id TEXT PRIMARY KEY,
       memory_id TEXT NOT NULL,
@@ -406,9 +415,21 @@ function runMigrations(db: Database.Database): void {
   // Create indexes for new columns (must run after ALTER TABLE)
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_memories_project_id ON memories(project_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_agent_space ON memories(agent_space);
+    CREATE INDEX IF NOT EXISTS idx_memories_last_hit_at ON memories(last_hit_at);
+    CREATE INDEX IF NOT EXISTS idx_memories_owner_agent ON memories(owner_agent_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_updated_at ON memories(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_memories_source ON memories(source);
+    CREATE INDEX IF NOT EXISTS idx_memories_confidence ON memories(confidence);
     CREATE INDEX IF NOT EXISTS idx_projects_parent ON projects(parent_id);
     CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
     CREATE INDEX IF NOT EXISTS idx_memory_entities_project ON memory_entities(project_id);
+    -- entity 过滤：memory_entities 的 PRIMARY KEY 是 (memory_id, entity_id, project_id)，
+    -- 按 entity_id 查询无法走主键前缀，需要单独索引支撑 entityId/entityName/entityType 过滤路径
+    CREATE INDEX IF NOT EXISTS idx_memory_entities_entity ON memory_entities(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases(alias);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
     CREATE INDEX IF NOT EXISTS idx_project_suggestions_status ON project_suggestions(status);
   `);
 

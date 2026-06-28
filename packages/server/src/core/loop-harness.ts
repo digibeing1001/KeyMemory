@@ -18,6 +18,7 @@ import { getDatabase } from '../db/sqlite.js';
 import { buildAgentContextPack } from './context-pack.js';
 import { redactSensitiveValue } from './privacy.js';
 import { ensureProjectPath, findProjectRef, getProject } from './project.js';
+import { visibleSpacesFor } from '../adapters/base.js';
 
 const SCHEMA_VERSION = 'keymemory.loop-observation.v1' as const;
 const TERMINAL_STATUSES = new Set<LoopRunStatus>(['completed', 'failed', 'cancelled']);
@@ -99,11 +100,17 @@ function assertSpanId(value: string | undefined): void {
   }
 }
 
-function assertMemoryRefs(memoryRefs: string[]): void {
+function assertMemoryRefs(memoryRefs: string[], agentSpaces?: string[]): void {
   const db = getDatabase();
+  const accessibleSet = agentSpaces && agentSpaces.length > 0 ? new Set(agentSpaces) : undefined;
   for (const memoryId of memoryRefs) {
-    const row = db.prepare(`SELECT id FROM memories WHERE id = ? AND status != 'deleted'`).get(memoryId);
+    const row = db.prepare(`SELECT id, agent_space FROM memories WHERE id = ? AND status != 'deleted'`)
+      .get(memoryId) as { id: string; agent_space: string } | undefined;
     if (!row) protocolError('MEMORY_NOT_FOUND', `Referenced memory not found: ${memoryId}`, false);
+    // 隔离校验：若指定了可见空间，引用的记忆必须落在这些空间内，防止跨 agent 越权引用
+    if (accessibleSet && !accessibleSet.has(row.agent_space)) {
+      protocolError('MEMORY_NOT_ACCESSIBLE', `Referenced memory ${memoryId} is not in an accessible agent space`, false);
+    }
   }
 }
 
@@ -304,6 +311,8 @@ async function observe(
     projectId: run.projectId,
     maxItems: input.maxItems,
     maxChars: input.maxChars,
+    // loop run 的 context pack 只暴露该 agent 可见空间的记忆，防止跨 agent 泄露
+    agentSpaces: visibleSpacesFor(run.agentId),
   });
   const nextActions = checkpoint.nextActions.length > 0
     ? checkpoint.nextActions
@@ -589,7 +598,7 @@ export async function checkpointLoopRun(input: LoopCheckpointRequest): Promise<L
     if (TERMINAL_STATUSES.has(run.status)) protocolError('RUN_TERMINAL', `Run is already ${run.status}`, false);
     assertLease(run, input.leaseOwner);
     assertVersion(run, input.expectedVersion);
-    assertMemoryRefs(memoryRefs);
+    assertMemoryRefs(memoryRefs, visibleSpacesFor(run.agentId));
     nextVersion = run.checkpointVersion + 1;
     nextSequence = run.lastEventSequence + 1;
     db.prepare(`
@@ -719,7 +728,7 @@ export async function finishLoopRun(input: LoopFinishRequest): Promise<LoopObser
     if (TERMINAL_STATUSES.has(run.status)) protocolError('RUN_TERMINAL', `Run is already ${run.status}`, false);
     assertLease(run, input.leaseOwner);
     assertVersion(run, input.expectedVersion);
-    assertMemoryRefs(memoryRefs);
+    assertMemoryRefs(memoryRefs, visibleSpacesFor(run.agentId));
     nextVersion = run.checkpointVersion + 1;
     nextSequence = run.lastEventSequence + 1;
     db.prepare(`

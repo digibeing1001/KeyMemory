@@ -1,9 +1,9 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
-import type { Memory, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus } from '@keymemory/shared';
+import type { Memory, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus, EntityType } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
-import { extractEntities, ensureEntity, linkMemoryEntity } from '../graph/entity.js';
+import { extractEntities, ensureEntity, linkMemoryEntity, processContent, autoAssociate } from '../graph/entity.js';
 import { ensureProjectPath } from './project.js';
 import { extractProjectPathFromContent, normalizeMemoryInput, normalizeMemoryUpdate } from './memory-schema.js';
 import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
@@ -96,9 +96,30 @@ export function createMemory(input: CreateMemoryInput): Memory {
       const entity = ensureEntity(ext.name, ext.type);
       linkMemoryEntity(mem.id, entity.id, mem.projectId);
     }
+    // 兜底：如果正则提取不到任何实体，用标题作 concept 实体，确保每条记忆至少有一个实体关联，可被实体聚合/冲突检测/压缩等流程覆盖
+    if (entities.length === 0 && mem.title && mem.title.trim().length >= 2) {
+      const fallbackName = mem.title.trim().slice(0, 60);
+      const entity = ensureEntity(fallbackName, 'concept');
+      linkMemoryEntity(mem.id, entity.id, mem.projectId);
+    }
 
-    // 异步分块嵌入（不阻塞主流程）
-    scheduleChunkAndEmbed(mem.id, mem.title, mem.content);
+    // 异步分块嵌入（不阻塞主流程）—— 传入 tags/metadata 作为全局前缀，与 ensureEmbedding 保持一致
+    scheduleChunkAndEmbed(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined);
+
+    // 异步后处理：整记忆向量 + 自动关联（不阻塞主流程）
+    // 所有 createMemory 调用路径（REST/MCP/CLI/adapter/batch/import）自动获得完整处理链。
+    // 历史问题：后处理散落在各调用点手动维护，新增入口必然遗漏（三个 adapter 全缺、
+    // batchCreate/importMemories 全缺、CLI create 缺 autoAssociate）。内聚到此处一劳永逸。
+    setImmediate(async () => {
+      try {
+        const { ensureEmbedding } = await import('./query.js');
+        await ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined);
+        // embedding 就绪后建立自动关联（实体共现 + 语义相似度）
+        await autoAssociate(mem.id);
+      } catch (err) {
+        console.error(`[CreateMemory] Post-process failed for ${mem.id}:`, (err as Error).message);
+      }
+    });
 
     return mem;
   })();
@@ -111,7 +132,30 @@ export function getMemory(id: string): Memory | null {
   return rowToMemory(row);
 }
 
-export function listMemories(options?: { layer?: Layer; projectId?: string; includeDescendants?: boolean; status?: MemoryStatus; agentSpaces?: string[]; limit?: number; offset?: number }): Memory[] {
+export interface ListMemoriesOptions {
+  layer?: Layer;
+  projectId?: string;
+  includeDescendants?: boolean;
+  status?: MemoryStatus;
+  agentSpaces?: string[];
+  limit?: number;
+  offset?: number;
+  tags?: string[];
+  tagsMatch?: 'any' | 'all';
+  entityId?: string;
+  entityName?: string;
+  entityType?: EntityType;
+  source?: string;
+  minConfidence?: number;
+  createdAfter?: string;
+  createdBefore?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
+  lastHitAfter?: string;
+  lastHitBefore?: string;
+}
+
+export function listMemories(options?: ListMemoriesOptions): Memory[] {
   const db = getDatabase();
   const conditions: string[] = [];
   const params: Record<string, unknown> = {};
@@ -144,6 +188,78 @@ export function listMemories(options?: { layer?: Layer; projectId?: string; incl
     options.agentSpaces.forEach((space, i) => {
       params[`agentSpace${i}`] = space;
     });
+  }
+
+  // 标签过滤：与 query.ts addSearchFilters 保持一致，json_each 精确匹配 + json_valid 保护
+  if (options?.tags && options.tags.length > 0) {
+    const matchMode = options.tagsMatch ?? 'any';
+    const tagClauses = options.tags.map((tag, i) => {
+      const paramName = `tag${i}`;
+      params[paramName] = tag;
+      return `EXISTS (SELECT 1 FROM json_each(tags) WHERE json_each.value = @${paramName})`;
+    });
+    const connector = matchMode === 'all' ? ' AND ' : ' OR ';
+    conditions.push(`(tags IS NOT NULL AND json_valid(tags) AND (${tagClauses.join(connector)}))`);
+  }
+
+  // 实体过滤：entityId 优先；否则 entityName/entityType 组合（AND 语义）
+  // entityName 同时匹配 entity.name 和 entity_aliases.alias，确保别名实体也能被检索到
+  if (options?.entityId) {
+    params.entityId = options.entityId;
+    conditions.push(`EXISTS (
+      SELECT 1 FROM memory_entities me
+      WHERE me.memory_id = memories.id AND me.entity_id = @entityId
+    )`);
+  } else if (options?.entityName || options?.entityType) {
+    const entityConds: string[] = [];
+    if (options.entityName) {
+      params.entityName = options.entityName;
+      entityConds.push('(e.name = @entityName OR EXISTS (SELECT 1 FROM entity_aliases ea WHERE ea.entity_id = e.id AND ea.alias = @entityName))');
+    }
+    if (options.entityType) {
+      params.entityType = options.entityType;
+      entityConds.push('e.type = @entityType');
+    }
+    conditions.push(`EXISTS (
+      SELECT 1 FROM memory_entities me
+      JOIN entities e ON e.id = me.entity_id
+      WHERE me.memory_id = memories.id AND ${entityConds.join(' AND ')}
+    )`);
+  }
+
+  if (options?.source) {
+    conditions.push('source = @source');
+    params.source = options.source;
+  }
+
+  if (typeof options?.minConfidence === 'number') {
+    conditions.push('confidence >= @minConfidence');
+    params.minConfidence = options.minConfidence;
+  }
+
+  if (options?.createdAfter) {
+    conditions.push('created_at >= @createdAfter');
+    params.createdAfter = options.createdAfter;
+  }
+  if (options?.createdBefore) {
+    conditions.push('created_at <= @createdBefore');
+    params.createdBefore = options.createdBefore;
+  }
+  if (options?.updatedAfter) {
+    conditions.push('updated_at >= @updatedAfter');
+    params.updatedAfter = options.updatedAfter;
+  }
+  if (options?.updatedBefore) {
+    conditions.push('updated_at <= @updatedBefore');
+    params.updatedBefore = options.updatedBefore;
+  }
+  if (options?.lastHitAfter) {
+    conditions.push('last_hit_at IS NOT NULL AND last_hit_at >= @lastHitAfter');
+    params.lastHitAfter = options.lastHitAfter;
+  }
+  if (options?.lastHitBefore) {
+    conditions.push('last_hit_at IS NOT NULL AND last_hit_at <= @lastHitBefore');
+    params.lastHitBefore = options.lastHitBefore;
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -239,9 +355,28 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
       createdAt: new Date().toISOString(),
     });
 
-    // 内容变化时重新分块嵌入
-    if (input.content !== undefined || input.title !== undefined) {
-      scheduleChunkAndEmbed(id, updated.title, updated.content);
+    // 内容/标签/元数据变化时重新分块嵌入 + 刷新实体链接 + 重建关联
+    // ensureEmbedding 的嵌入文本包含 title + content + tags + metadata，任一变化都需刷新
+    if (input.content !== undefined || input.title !== undefined || input.tags !== undefined || input.metadata !== undefined) {
+      scheduleChunkAndEmbed(id, updated.title, updated.content, updated.tags, updated.metadata as Record<string, unknown> | undefined);
+      // 异步刷新整记忆向量 + 实体链接 + 关联（不阻塞主流程）
+      // 历史问题：updateMemory 从不刷新实体链接和关联，用户改了 content 后旧实体仍挂着、
+      // 新实体不会被提取、关联不会重建。此处统一修复所有 updateMemory 调用路径。
+      setImmediate(async () => {
+        try {
+          // content 变化时刷新实体链接（INSERT OR IGNORE 幂等，保留旧实体链接避免失去关联）
+          if (input.content !== undefined) {
+            processContent(id, input.content);
+          }
+          // 刷新整记忆向量（force=true）
+          const { ensureEmbedding } = await import('./query.js');
+          await ensureEmbedding(id, updated.title, updated.content, updated.tags, updated.metadata as Record<string, unknown> | undefined, true);
+          // 重建关联（基于新实体共现 + 新 embedding 语义相似度）
+          await autoAssociate(id);
+        } catch (err) {
+          console.error(`[UpdateMemory] Post-process failed for ${id}:`, (err as Error).message);
+        }
+      });
     }
 
     return updated;

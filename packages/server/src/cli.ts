@@ -10,7 +10,7 @@ import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay } from './
 import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, formatDreamReport, rollbackDream } from './core/dreaming.js';
 import { getSchedulerConfig, updateSchedulerConfig } from './core/scheduler.js';
 import { getHealthReport } from './core/health.js';
-import { listEntities, getEntityGraph, extractEntities, createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from './graph/entity.js';
+import { listEntities, getEntityGraph, createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from './graph/entity.js';
 import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from './core/migration.js';
 import { buildAgentContextPack } from './core/context-pack.js';
 import { buildAgentConfigSnippets, listAgentConfigTargets, type AgentMode } from './core/agent-config.js';
@@ -20,7 +20,7 @@ import { deleteToolSecret, getToolSecret, listToolSecrets, setToolSecret } from 
 import { initEmbedding } from './embed/onnx.js';
 import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security.js';
 import type { Layer, MemoryKind, MemoryStatus, ForgetMethod } from '@keymemory/shared';
-import { LAYER_CONFIG, DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
+import { DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
 
 type OutputFormat = 'json' | 'table' | 'compact';
 
@@ -210,7 +210,7 @@ program
       sourceId: opts.sourceId,
     });
 
-    ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
+    // 后处理（embedding + autoAssociate）已内聚到 createMemory 内部
 
     const format: OutputFormat = program.opts().format || 'json';
     printAndExit(mem, format);
@@ -248,9 +248,7 @@ program
     const mem = updateMemory(id, updateData, opts.reason);
     if (!mem) printError(`Memory not found: ${id}`);
 
-    if (updateData.title !== undefined || updateData.content !== undefined) {
-      ensureEmbedding(mem!.id, mem!.title, mem!.content, mem!.tags, mem!.metadata as Record<string, unknown> | undefined, true).catch(() => {});
-    }
+    // 后处理（嵌入刷新 + 实体链接 + 关联重建）已内聚到 updateMemory 内部
 
     const format: OutputFormat = program.opts().format || 'json';
     printAndExit(mem, format);

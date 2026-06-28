@@ -77,7 +77,13 @@ export const DREAM_CONFIG = {
   minSessionsBeforeDream: 3,
   semanticMergeThreshold: 0.72,
   semanticAutoMergeThreshold: 0.88,
-  fullScanLimit: 2000,
+  // 从 2000 降至 500：O(n²) 检测在 2000 条时需 ~2M 次比较（~200s 阻塞），
+  // 500 条仅需 ~125K 次（~12s）。配合优先级排序确保最相关的记忆进入扫描窗口。
+  fullScanLimit: 500,
+  // 快速梦境：仅扫描 flash+short 层（最需紧急清理），可高频运行。
+  // 完整梦境扫描所有层，按 cron 低频运行。
+  quickScanLimit: 200,
+  quickIntervalHours: 4,
 } as const;
 
 /**

@@ -117,6 +117,8 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
 }
 
 let dreamTimer: ReturnType<typeof setTimeout> | null = null;
+let quickDreamTimer: ReturnType<typeof setTimeout> | null = null;
+let lastQuickDreamAt: number | null = null;
 let staleTodoTimer: ReturnType<typeof setInterval> | null = null;
 
 function scheduleNextDream(): void {
@@ -147,6 +149,49 @@ function scheduleNextDream(): void {
       console.error('[Scheduler] Dream cycle failed:', (err as Error).message);
     }
     scheduleNextDream();
+  }, delay);
+}
+
+/**
+ * 快速梦境调度：高频运行 quickMode dream，仅清理 flash+short 层。
+ *
+ * 设计理由：full dream 扫描全库 + O(n²) 语义合并，只能低频运行（每日 cron）。
+ * 但 flash 层记忆衰减快（14 天），如果只靠每日 full dream，flash 会堆积。
+ * quick dream 跳过 Phase 4&5，扫描量小（quickScanLimit=200），可每 4 小时运行。
+ *
+ * 调度策略：
+ * - 首次启动立即运行一次（清理可能积累的 flash 记忆）
+ * - 之后每 quickIntervalHours 小时运行一次
+ * - 不更新 lastDreamRun（那是 full dream 的专属字段）
+ * - dreamingEnabled 关闭时一并禁用
+ */
+function scheduleNextQuickDream(): void {
+  if (quickDreamTimer) clearTimeout(quickDreamTimer);
+  const config = getSchedulerConfig();
+  if (!config.dreamingEnabled) return;
+
+  const intervalMs = DREAM_CONFIG.quickIntervalHours * 60 * 60 * 1000;
+  let delay: number;
+  if (lastQuickDreamAt === null) {
+    // 首次启动：立即运行一次，清理可能积累的 flash 记忆
+    delay = 0;
+  } else {
+    const elapsed = Date.now() - lastQuickDreamAt;
+    delay = elapsed >= intervalMs ? 0 : intervalMs - elapsed;
+  }
+
+  console.log(`[Scheduler] Next quick dream in ${Math.round(delay / 60000)} minutes`);
+
+  quickDreamTimer = setTimeout(() => {
+    try {
+      console.log('[Scheduler] Running quick dream cycle...');
+      const report = runDreamCycle(true);
+      lastQuickDreamAt = Date.now();
+      console.log(`[Scheduler] Quick dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
+    } catch (err) {
+      console.error('[Scheduler] Quick dream cycle failed:', (err as Error).message);
+    }
+    scheduleNextQuickDream();
   }, delay);
 }
 
@@ -206,6 +251,7 @@ export function startScheduler(): void {
   }
 
   scheduleNextDream();
+  scheduleNextQuickDream();
   startStaleTodoResolution();
 
   if (!signalHandlersRegistered) {
@@ -218,11 +264,14 @@ export function startScheduler(): void {
 export function restartScheduler(): void {
   console.log('[Scheduler] Restarting scheduler with updated config');
   scheduleNextDream();
+  scheduleNextQuickDream();
 }
 
 export function stopScheduler(): void {
   if (dreamTimer) clearTimeout(dreamTimer);
   dreamTimer = null;
+  if (quickDreamTimer) clearTimeout(quickDreamTimer);
+  quickDreamTimer = null;
   if (staleTodoTimer) clearInterval(staleTodoTimer);
   staleTodoTimer = null;
   console.log('[Scheduler] Stopped');

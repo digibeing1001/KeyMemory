@@ -1,6 +1,8 @@
 import { v4 as uuid } from 'uuid';
 import type { Entity, EntityType, Relation } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
+import { isEmbeddingAvailable, cosineSimilarity } from '../embed/onnx.js';
+import { getCachedEmbedding } from '../core/embedding-cache.js';
 
 interface ExtractedEntity {
   name: string;
@@ -202,18 +204,25 @@ export function ensureEntity(name: string, type: EntityType): Entity {
   const db = getDatabase();
   const now = new Date().toISOString();
 
+  // 1. 按 name 精确查找
   const existing = db.prepare(`SELECT * FROM entities WHERE name = ?`).get(name) as Record<string, unknown> | undefined;
   if (existing) {
-    return {
-      id: existing.id as string,
-      name: existing.name as string,
-      type: existing.type as EntityType,
-      properties: existing.properties ? JSON.parse(existing.properties as string) : undefined,
-      createdAt: existing.created_at as string,
-      updatedAt: existing.updated_at as string,
-    };
+    return rowToEntity(existing);
   }
 
+  // 2. 按别名查找——这个名字可能是某个已有实体的别名。
+  //    例如用户存记忆时用了"张三"，后来用"小张"提取出实体，
+  //    如果"小张"已注册为"张三"的别名，就复用同一个实体，避免创建重复实体。
+  const byAlias = db.prepare(`
+    SELECT e.* FROM entities e
+    JOIN entity_aliases ea ON ea.entity_id = e.id
+    WHERE ea.alias = ?
+  `).get(name) as Record<string, unknown> | undefined;
+  if (byAlias) {
+    return rowToEntity(byAlias);
+  }
+
+  // 3. 都没找到，创建新实体
   const id = uuid();
   db.prepare(`
     INSERT INTO entities (id, name, type, properties, created_at, updated_at)
@@ -350,21 +359,136 @@ export function findRelatedMemories(memoryId: string, relationType?: string): { 
   })).filter(r => r.memoryId);
 }
 
-export function autoAssociate(sourceMemoryId: string, content: string, title: string): void {
+/**
+ * 自动建立记忆间的关联关系。
+ *
+ * 采用双路策略，取代旧的"标题词 LIKE 匹配"：
+ * 1. **实体共现**：通过 memory_entities 关联表查找与当前记忆共享实体的其他活跃记忆。
+ *    共享实体越多，关联越强。这是结构化信号，精确度高。
+ * 2. **Embedding 语义相似度**：若 embedding 已就绪，与近期 200 条活跃记忆比对，
+ *    对 cosine ≥ 0.75 的 top-5 建立 relates_to 关系。这是语义信号，覆盖实体未覆盖的情况。
+ *
+ * 设计决策：
+ * - 函数为 async：调用方需保证 ensureEmbedding 已完成（rest.ts 用 .then 链，auto.ts 用 await）
+ * - upsert 语义：strength 只增不减，避免重新关联时降级已有强关联
+ * - 无 fallback 文本匹配：实体+embedding 已足够覆盖，无关联说明记忆确实独特
+ * - 内部确保实体已链接：若通过未调 processContent 的路径创建，自动补链接
+ *
+ * 性能：
+ * - 实体共现：单条 GROUP BY SQL，有索引 (memory_id, entity_id)
+ * - Embedding：200 候选 × cosine(512维) ≈ 0.1ms，可忽略
+ */
+export async function autoAssociate(memoryId: string): Promise<void> {
   const db = getDatabase();
 
-  // 查找标题/内容中提到的其他活跃记忆标题，建立 relates_to 关系
-  const words = title.split(/\s+/).filter(w => w.length >= 4);
-  for (const word of words.slice(0, 3)) {
-    const matches = db.prepare(`SELECT id FROM memories WHERE status = 'active' AND id != ? AND (title LIKE ? OR content LIKE ?) LIMIT 3`).all(
-      sourceMemoryId, `%${word}%`, `%${word}%`
-    ) as { id: string }[];
-    for (const m of matches) {
-      try {
-        createMemoryRelation(sourceMemoryId, m.id, 'relates_to', 0.6, 'auto-associate title overlap');
-      } catch { /* 忽略重复关联 */ }
+  // 读取记忆基本信息
+  const mem = db.prepare('SELECT id, title, content, status FROM memories WHERE id = ?').get(memoryId) as { id: string; title: string; content: string; status: string } | undefined;
+  if (!mem || mem.status !== 'active') return;
+
+  // 1. 确保实体已链接（防御性：若调用方未走 processContent，此处补齐）
+  const linkCount = db.prepare('SELECT COUNT(*) as n FROM memory_entities WHERE memory_id = ?').get(memoryId) as { n: number };
+  if (linkCount.n === 0) {
+    processContent(memoryId, mem.content);
+  }
+
+  // 2. 实体共现关联：共享实体的其他活跃记忆
+  //    SQL 语义：me1 是当前记忆的实体链接，me2 是其他记忆对同一实体的链接
+  //    COUNT(*) = 共享实体数。GROUP BY 后按共享数倒序取 top 10。
+  const coOccurs = db.prepare(`
+    SELECT me2.memory_id as id, COUNT(*) as shared
+    FROM memory_entities me1
+    JOIN memory_entities me2
+      ON me1.entity_id = me2.entity_id
+      AND me2.memory_id != me1.memory_id
+    JOIN memories m ON m.id = me2.memory_id AND m.status = 'active'
+    WHERE me1.memory_id = ?
+    GROUP BY me2.memory_id
+    ORDER BY shared DESC
+    LIMIT 10
+  `).all(memoryId) as { id: string; shared: number }[];
+
+  for (const c of coOccurs) {
+    // 1 共享实体 = 0.5，每多 1 个 +0.15，上限 0.95
+    const strength = Math.min(0.5 + (c.shared - 1) * 0.15, 0.95);
+    upsertRelation(memoryId, c.id, 'relates_to', strength, `auto-associate: ${c.shared} shared entities`);
+  }
+
+  // 3. Embedding 语义相似度关联
+  //    只在 embedding 可用且当前记忆已嵌入时执行
+  if (isEmbeddingAvailable()) {
+    const sourceVec = getCachedEmbedding(memoryId);
+    if (sourceVec) {
+      // 取近期活跃记忆作候选（last_hit_at 优先，让近期命中的记忆优先参与关联）
+      const candidates = db.prepare(`
+        SELECT m.id
+        FROM memories m
+        INNER JOIN embeddings e ON e.memory_id = m.id
+        WHERE m.status = 'active' AND m.id != ?
+        ORDER BY m.last_hit_at DESC, m.updated_at DESC
+        LIMIT 200
+      `).all(memoryId) as { id: string }[];
+
+      const scored: { id: string; sim: number }[] = [];
+      for (const cand of candidates) {
+        const vec = getCachedEmbedding(cand.id);
+        if (!vec) continue;
+        const sim = cosineSimilarity(sourceVec, vec);
+        if (sim >= 0.75) scored.push({ id: cand.id, sim });
+      }
+      scored.sort((a, b) => b.sim - a.sim);
+
+      for (const s of scored.slice(0, 5)) {
+        // strength 直接用相似度，但封顶 0.95（保留空间给人工/强规则关联）
+        upsertRelation(memoryId, s.id, 'relates_to', Math.min(s.sim, 0.95), `auto-associate: semantic ${s.sim.toFixed(2)}`);
+      }
     }
   }
+}
+
+/**
+ * Upsert 记忆关联，strength 只增不减。
+ *
+ * 与 createMemoryRelation 的区别：
+ * - createMemoryRelation：覆盖式更新（excluded 直接覆盖），适合显式调用方明确意图
+ * - upsertRelation：递增式更新（取 MAX），适合 autoAssociate 这种可能多次触发的场景
+ *
+ * 当新 strength > 旧 strength 时，同步更新 reason 和 created_at；
+ * 否则保留旧值（避免无谓写入）。
+ */
+function upsertRelation(sourceId: string, targetId: string, relationType: typeof MEMORY_RELATION_TYPES[number], strength: number, reason: string): void {
+  if (sourceId === targetId) return;
+  if (!Number.isFinite(strength) || strength < 0 || strength > 1) return;
+
+  const db = getDatabase();
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO memory_relations (id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at)
+    VALUES (@id, @sourceId, @targetId, @relationType, @strength, @reason, @createdAt)
+    ON CONFLICT(source_memory_id, target_memory_id, relation_type)
+    DO UPDATE SET
+      strength = CASE
+        WHEN excluded.strength > memory_relations.strength THEN excluded.strength
+        ELSE memory_relations.strength
+      END,
+      reason = CASE
+        WHEN excluded.strength > memory_relations.strength THEN excluded.reason
+        ELSE memory_relations.reason
+      END,
+      created_at = CASE
+        WHEN excluded.strength > memory_relations.strength THEN excluded.created_at
+        ELSE memory_relations.created_at
+      END
+  `).run({
+    id,
+    sourceId,
+    targetId,
+    relationType,
+    strength,
+    reason,
+    createdAt: now,
+  });
 }
 
 export function listEntities(type?: EntityType): Entity[] {
@@ -425,35 +549,12 @@ export function getEntityGraph(entityId: string): { entity: Entity; relations: R
   for (const cid of connectedIds) {
     const e = db.prepare(`SELECT * FROM entities WHERE id = ?`).get(cid) as Record<string, unknown> | undefined;
     if (e) {
-      connectedEntities.push({
-        id: e.id as string,
-        name: e.name as string,
-        type: e.type as EntityType,
-        properties: e.properties ? JSON.parse(e.properties as string) : undefined,
-        createdAt: e.created_at as string,
-        updatedAt: e.updated_at as string,
-      });
+      connectedEntities.push(rowToEntity(e));
     }
   }
 
-  const typedRelations = relations.map(r => ({
-    id: r.id as string,
-    sourceId: r.source_id as string,
-    targetId: r.target_id as string,
-    relationType: r.relation_type as string,
-    strength: r.strength as number,
-    createdAt: r.created_at as string,
-  }));
-
   return {
-    entity: {
-      id: entity.id as string,
-      name: entity.name as string,
-      type: entity.type as EntityType,
-      properties: entity.properties ? JSON.parse(entity.properties as string) : undefined,
-      createdAt: entity.created_at as string,
-      updatedAt: entity.updated_at as string,
-    },
+    entity: rowToEntity(entity),
     relations: relations.map(r => ({
       id: r.id as string,
       sourceId: r.source_id as string,
@@ -464,4 +565,171 @@ export function getEntityGraph(entityId: string): { entity: Entity; relations: R
     })),
     connectedEntities,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 别名管理 + 实体合并
+// ─────────────────────────────────────────────────────────────
+
+function rowToEntity(row: Record<string, unknown>): Entity {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    type: row.type as EntityType,
+    properties: row.properties ? JSON.parse(row.properties as string) : undefined,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+export function addEntityAlias(entityId: string, alias: string): { id: string; entityId: string; alias: string } {
+  const db = getDatabase();
+  const entity = db.prepare(`SELECT id FROM entities WHERE id = ?`).get(entityId);
+  if (!entity) throw new Error(`Entity not found: ${entityId}`);
+
+  // 防止把别名注册到别的实体上——先检查这个别名是否已存在
+  const existingAlias = db.prepare(`
+    SELECT entity_id FROM entity_aliases WHERE alias = ?
+  `).get(alias) as { entity_id: string } | undefined;
+  if (existingAlias) {
+    if (existingAlias.entity_id === entityId) return { id: '', entityId, alias }; // 已是本实体的别名，幂等返回
+    throw new Error(`Alias "${alias}" is already registered to another entity`);
+  }
+
+  // 也不能与别的实体的 name 冲突
+  const existingEntity = db.prepare(`SELECT id FROM entities WHERE name = ?`).get(alias) as { id: string } | undefined;
+  if (existingEntity && existingEntity.id !== entityId) {
+    throw new Error(`Alias "${alias}" conflicts with an existing entity name`);
+  }
+
+  const id = uuid();
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO entity_aliases (id, entity_id, alias, created_at) VALUES (?, ?, ?, ?)`).run(id, entityId, alias, now);
+  return { id, entityId, alias };
+}
+
+export function removeEntityAlias(entityId: string, alias: string): boolean {
+  const db = getDatabase();
+  const result = db.prepare(`DELETE FROM entity_aliases WHERE entity_id = ? AND alias = ?`).run(entityId, alias);
+  return result.changes > 0;
+}
+
+export function listEntityAliases(entityId: string): { id: string; alias: string; createdAt: string }[] {
+  const db = getDatabase();
+  const rows = db.prepare(`SELECT id, alias, created_at FROM entity_aliases WHERE entity_id = ? ORDER BY created_at`).all(entityId) as Record<string, unknown>[];
+  return rows.map(r => ({
+    id: r.id as string,
+    alias: r.alias as string,
+    createdAt: r.created_at as string,
+  }));
+}
+
+/**
+ * 把 sourceEntity 合并到 targetEntity：
+ * - sourceEntity 的所有 memory_entities 关联转移到 targetEntity（INSERT OR IGNORE 避免重复）
+ * - sourceEntity 的所有别名转移到 targetEntity
+ * - sourceEntity 的 name 作为 targetEntity 的别名
+ * - sourceEntity 的所有 relations 转移到 targetEntity（source_id 或 target_id 指向 source 的改为指向 target）
+ * - 删除 sourceEntity（ON DELETE CASCADE 会自动清理残留的 entity_aliases）
+ *
+ * 这是多 agent 场景下消除重复实体的关键操作：
+ * 不同 agent 可能用不同名字创建同一实体（如 "React" vs "ReactJS"），
+ * 合并后记忆关联和别名统一到同一实体，检索时不会漏掉。
+ */
+export function mergeEntities(sourceId: string, targetId: string): { merged: boolean; targetId: string; transferredAliases: number; transferredLinks: number; transferredRelations: number } {
+  if (sourceId === targetId) throw new Error('Cannot merge an entity into itself');
+  const db = getDatabase();
+
+  const source = db.prepare(`SELECT * FROM entities WHERE id = ?`).get(sourceId) as Record<string, unknown> | undefined;
+  const target = db.prepare(`SELECT * FROM entities WHERE id = ?`).get(targetId) as Record<string, unknown> | undefined;
+  if (!source) throw new Error(`Source entity not found: ${sourceId}`);
+  if (!target) throw new Error(`Target entity not found: ${targetId}`);
+
+  return db.transaction(() => {
+    // 1. 转移 memory_entities 关联
+    const transferLinks = db.prepare(`
+      INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, project_id, context)
+      SELECT memory_id, @targetId, project_id, context
+      FROM memory_entities WHERE entity_id = @sourceId
+    `);
+    const linksResult = transferLinks.run({ sourceId, targetId });
+    const transferredLinks = linksResult.changes;
+
+    // 2. 转移别名（source 的别名 + source 的 name 作为 target 的别名）
+    const transferAliases = db.prepare(`
+      INSERT OR IGNORE INTO entity_aliases (id, entity_id, alias, created_at)
+      SELECT id, @targetId, alias, created_at
+      FROM entity_aliases WHERE entity_id = @sourceId
+    `);
+    transferAliases.run({ sourceId, targetId });
+
+    // source 的 name 作为 target 的别名
+    const sourceName = source.name as string;
+    const targetName = target.name as string;
+    if (sourceName !== targetName) {
+      try {
+        const aliasId = uuid();
+        const now = new Date().toISOString();
+        db.prepare(`INSERT OR IGNORE INTO entity_aliases (id, entity_id, alias, created_at) VALUES (?, ?, ?, ?)`).run(aliasId, targetId, sourceName, now);
+      } catch { /* 如果别名冲突（比如 target 已有这个别名），忽略 */ }
+    }
+
+    // 统计转移后的别名数
+    const aliasCount = db.prepare(`SELECT COUNT(*) as cnt FROM entity_aliases WHERE entity_id = ?`).get(targetId) as { cnt: number };
+
+    // 3. 转移 relations（实体间关系，不是 memory_relations）
+    // source_id 指向 source 的改为 target（但不能与 target 自连）
+    const relAsSource = db.prepare(`
+      UPDATE relations SET source_id = @targetId
+      WHERE source_id = @sourceId AND target_id != @targetId
+    `);
+    const relAsTarget = db.prepare(`
+      UPDATE relations SET target_id = @targetId
+      WHERE target_id = @sourceId AND source_id != @targetId
+    `);
+    const relSourceResult = relAsSource.run({ sourceId, targetId });
+    const relTargetResult = relAsTarget.run({ sourceId, targetId });
+    const transferredRelations = relSourceResult.changes + relTargetResult.changes;
+
+    // 删除 source 自连的 relations（source->target 或 target->source 会导致自连）
+    db.prepare(`DELETE FROM relations WHERE source_id = @targetId AND target_id = @targetId`).run({ targetId });
+
+    // 4. 删除 source 实体（ON DELETE CASCADE 会自动清理 entity_aliases 中残留的 source 行）
+    db.prepare(`DELETE FROM entities WHERE id = ?`).run(sourceId);
+
+    return {
+      merged: true,
+      targetId,
+      transferredAliases: aliasCount.cnt,
+      transferredLinks,
+      transferredRelations,
+    };
+  })();
+}
+
+/**
+ * 查找可能的重复实体（同名不同 ID，或名字高度相似），
+ * 供 agent 或 dream 流程调用 mergeEntities 合并。
+ */
+export function findDuplicateEntities(): { sourceId: string; sourceName: string; targetId: string; targetName: string; type: string }[] {
+  const db = getDatabase();
+  // 按 name 找重复（不同 ID 同名）
+  const rows = db.prepare(`
+    SELECT a.id as sourceId, a.name as sourceName, b.id as targetId, b.name as targetName, a.type as type
+    FROM entities a
+    JOIN entities b ON a.name = b.name AND a.id < b.id
+    ORDER BY a.name
+  `).all() as { sourceId: string; sourceName: string; targetId: string; targetName: string; type: string }[];
+
+  // 按别名找重复：alias 指向的实体 name 与 alias 对应的另一个实体 name 不同
+  const aliasDupes = db.prepare(`
+    SELECT DISTINCT ea.entity_id as targetId, e2.name as sourceName, e2.id as sourceId, e2.type as type
+    FROM entity_aliases ea
+    JOIN entities e2 ON e2.name = ea.alias AND e2.id != ea.entity_id
+  `).all() as { targetId: string; sourceName: string; sourceId: string; type: string }[];
+
+  return [
+    ...rows.map(r => ({ sourceId: r.sourceId, sourceName: r.sourceName, targetId: r.targetId, targetName: r.targetName, type: r.type })),
+    ...aliasDupes.map(r => ({ sourceId: r.sourceId, sourceName: r.sourceName, targetId: r.targetId, targetName: r.sourceName, type: r.type })),
+  ];
 }

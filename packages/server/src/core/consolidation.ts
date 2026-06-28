@@ -3,10 +3,10 @@ import { v4 as uuid } from 'uuid';
 import type { ConsolidationPlan, ConsolidationAction, ConsolidationActionType, ConsolidationSnapshot, ConsolidationSummary } from '@keymemory/shared';
 import { CONSOLIDATION_CONFIG } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
-import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
 import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
+import { detectDuplicateActions, detectStaleActions, detectOldFlashActions, detectSolidifyActions } from './consolidation-detectors.js';
 
 export function planConsolidation(): ConsolidationPlan {
   const db = getDatabase();
@@ -45,156 +45,9 @@ export function planConsolidation(): ConsolidationPlan {
   return plan;
 }
 
-function buildExcludeClause(ids: Set<string>): { clause: string; params: string[] } {
-  if (ids.size === 0) return { clause: '', params: [] };
-  const params = Array.from(ids);
-  const clause = `AND id NOT IN (${params.map(() => '?').join(',')})`;
-  return { clause, params };
-}
-
-function detectDuplicateActions(db: Database.Database, affectedIds: Set<string>): ConsolidationAction[] {
-  const threshold = CONSOLIDATION_CONFIG.duplicateSimilarity;
-  const actions: ConsolidationAction[] = [];
-
-  let memories: { id: string; title: string; embedding: Buffer }[];
-  try {
-    memories = db.prepare(`
-      SELECT m.id, m.title, e.embedding
-      FROM memories m
-      JOIN embeddings e ON e.memory_id = m.id
-      WHERE m.status = 'active'
-      ORDER BY m.created_at ASC
-      LIMIT 200
-    `).all() as { id: string; title: string; embedding: Buffer }[];
-  } catch {
-    return actions;
-  }
-
-  if (memories.length < 2) return actions;
-
-  const merged = new Set<string>();
-
-  for (let i = 0; i < memories.length; i++) {
-    if (merged.has(memories[i].id)) continue;
-    for (let j = i + 1; j < memories.length; j++) {
-      if (merged.has(memories[j].id)) continue;
-
-      const vecA = bufferToEmbedding(memories[i].embedding);
-      const vecB = bufferToEmbedding(memories[j].embedding);
-      const sim = cosineSimilarity(vecA, vecB);
-
-      if (sim > threshold) {
-        const keeper = memories[i].id;
-        const removed = memories[j].id;
-
-        if (!affectedIds.has(keeper) && !affectedIds.has(removed)) {
-          actions.push({
-            id: uuid(),
-            type: 'deduplicate',
-            sourceIds: [keeper, removed],
-            targetId: keeper,
-            description: `「${memories[i].title}」与「${memories[j].title}」相似度${sim.toFixed(2)}，保留前者`,
-            status: 'pending',
-          });
-          affectedIds.add(removed);
-          merged.add(removed);
-        }
-      }
-    }
-  }
-
-  return actions;
-}
-
-function detectStaleActions(db: Database.Database, affectedIds: Set<string>): ConsolidationAction[] {
-  const staleDays = CONSOLIDATION_CONFIG.staleDays;
-  const actions: ConsolidationAction[] = [];
-  const exclude = buildExcludeClause(affectedIds);
-
-  const stale = db.prepare(`
-    SELECT id, title, layer FROM memories
-    WHERE status = 'active'
-      AND layer IN ('short', 'long')
-      AND decay_factor < 0.3
-      AND last_hit_at IS NOT NULL
-      AND last_hit_at <= datetime('now', ? || ' days')
-      ${exclude.clause}
-  `).all(`-${staleDays}`, ...exclude.params) as { id: string; title: string; layer: string }[];
-
-  for (const m of stale) {
-    if (!affectedIds.has(m.id)) {
-      actions.push({
-        id: uuid(),
-        type: 'archive_stale',
-        sourceIds: [m.id],
-        description: `「${m.title}」(${m.layer}层)已${staleDays}天未访问且衰变因子<0.3，建议归档`,
-        status: 'pending',
-      });
-      affectedIds.add(m.id);
-    }
-  }
-
-  return actions;
-}
-
-function detectOldFlashActions(db: Database.Database, affectedIds: Set<string>): ConsolidationAction[] {
-  const maxDays = CONSOLIDATION_CONFIG.flashMaxDays;
-  const actions: ConsolidationAction[] = [];
-  const exclude = buildExcludeClause(affectedIds);
-
-  const oldFlash = db.prepare(`
-    SELECT id, title FROM memories
-    WHERE status = 'active'
-      AND layer = 'flash'
-      AND created_at <= datetime('now', ? || ' days')
-      ${exclude.clause}
-  `).all(`-${maxDays}`, ...exclude.params) as { id: string; title: string }[];
-
-  for (const m of oldFlash) {
-    if (!affectedIds.has(m.id)) {
-      actions.push({
-        id: uuid(),
-        type: 'archive_flash',
-        sourceIds: [m.id],
-        description: `闪念「${m.title}」已超过${maxDays}天，建议归档`,
-        status: 'pending',
-      });
-      affectedIds.add(m.id);
-    }
-  }
-
-  return actions;
-}
-
-function detectSolidifyActions(db: Database.Database, affectedIds: Set<string>): ConsolidationAction[] {
-  const minHits = CONSOLIDATION_CONFIG.solidifyMinHits;
-  const actions: ConsolidationAction[] = [];
-  const exclude = buildExcludeClause(affectedIds);
-
-  const candidates = db.prepare(`
-    SELECT id, title, hit_count FROM memories
-    WHERE status = 'active'
-      AND layer = 'short'
-      AND hit_count >= ?
-      ${exclude.clause}
-  `).all(minHits, ...exclude.params) as { id: string; title: string; hit_count: number }[];
-
-  for (const m of candidates) {
-    if (!affectedIds.has(m.id)) {
-      actions.push({
-        id: uuid(),
-        type: 'solidify',
-        sourceIds: [m.id],
-        targetId: m.id,
-        description: `短期记忆「${m.title}」已被命中${m.hit_count}次，建议固化为长期记忆`,
-        status: 'pending',
-      });
-      affectedIds.add(m.id);
-    }
-  }
-
-  return actions;
-}
+// 重复检测/归档/固化逻辑已抽取到 ./consolidation-detectors.ts（与 dreaming.ts 共享单一实现）
+// 原在此处的 buildExcludeClause / detectDuplicateActions / detectStaleActions /
+// detectOldFlashActions / detectSolidifyActions 已删除，避免两处维护导致 bug 修复遗漏。
 
 export function executeConsolidation(planId: string): ConsolidationPlan {
   const db = getDatabase();

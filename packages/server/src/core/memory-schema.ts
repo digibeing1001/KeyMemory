@@ -1,4 +1,4 @@
-import type { CreateMemoryInput, Layer, Memory, MemoryKind, UpdateMemoryInput } from '@keymemory/shared';
+import type { CreateMemoryInput, Layer, Memory, MemoryKind, SelfCheckResult, UpdateMemoryInput } from '@keymemory/shared';
 import { isSpecificProjectName } from '@keymemory/shared';
 import type { PrivacyFinding } from './privacy.js';
 import { privacyMetadata, redactSensitiveText, redactSensitiveValue } from './privacy.js';
@@ -7,18 +7,64 @@ const LONG_KEYWORDS = /preference|rule|principle|decision|project|architecture|r
 const SHORT_KEYWORDS = /todo|today|tomorrow|temporary|pending|待办|任务|计划|截止|临时|本周|本周内|今天|明天|近期/i;
 const ENTITY_KEYWORDS = /person|entity|人物|人员|同事|客户|团队|负责人|工具|产品/i;
 
+// 内容类型信号（原 auto.ts detectContentType，统一到此处避免两处维护）
+const PROJECT_SIGNALS = /(?:项目|周会|会议纪要|决策记录|里程碑|roadmap|版本发布|上线|评审|复盘|冲刺|迭代|sprint|milestone|release|launch)/i;
+const ENTITY_SIGNALS = /(?:职位|联系方式|电话|邮箱|偏好|风格|档案|基本信息|技术特长|工作风格|沟通建议|协作)/i;
+const KNOWLEDGE_SIGNALS = /(?:方法论|最佳实践|教程|指南|框架|原理|理论|体系|原则|规范|checklist|playbook|howto|how-to)/i;
+const TASK_SIGNALS = /(?:待办|本周|今天|明天|后天|截止日期|截止|安排|计划|task|todo|完成|推进|跟进|落实|执行)/i;
+const IDEA_SIGNALS = /(?:灵感|想法|想到|如果|试试|也许|假设|猜想|突发奇想|灵光一闪)/i;
+const PROJECT_MARKER = /\[\[([^\]]+)\]\]/;
+
+interface ContentSignals {
+  isProject: boolean;
+  isEntity: boolean;
+  isKnowledge: boolean;
+  isTask: boolean;
+  isIdea: boolean;
+}
+
+function detectContentSignals(content: string): ContentSignals {
+  const text = content.toLowerCase();
+  return {
+    isProject: PROJECT_SIGNALS.test(text),
+    isEntity: ENTITY_SIGNALS.test(text),
+    isKnowledge: KNOWLEDGE_SIGNALS.test(text),
+    isTask: TASK_SIGNALS.test(text),
+    isIdea: IDEA_SIGNALS.test(text),
+  };
+}
+
 /**
- * 推断记忆层级。规则：
- *  - 显式 metadata.importance: high→long, low→short
- *  - metadata.category: preference/decision→long; person/entity→entity; task/todo→short
- *  - 实体关键词命中→entity
- *  - 长期价值关键词（偏好/规则/原则/决定/架构/方法论）→long
- *  - 临时关键词（待办/今天/明天/本周/临时）→short
- *  - 兜底→short（不再用"长度>200→long"误投长内容到长期层）
- * 注：长度不再参与推断，避免长正文一律被划入长期层。
+ * 推断记忆层级（统一入口）。
+ *
+ * 合并自原 inferMemoryLayer（关键词驱动）和 auto.ts suggestLayer（评分驱动）。
+ * 历史问题：两条路径规则不一致——REST 路径只用关键词，MCP/autoRemember 路径只用评分，
+ * 导致相同内容因入口不同被分到不同层。
+ *
+ * 统一后规则优先级：
+ * 1. 显式 metadata（importance/category）——最强信号，所有路径共享
+ * 2. 实体内容信号（职位/联系方式/档案等）→ entity
+ * 3a. 若提供 evaluation（autoRemember 路径）：
+ *     - 灵感 + 低分 → flash
+ *     - 项目产出 + 中等分 → long
+ *     - 知识特征 + 中等分 → long
+ *     - 任务特征 → short
+ *     - 评分驱动 fallback
+ * 3b. 若无 evaluation（REST 路径）：跳过评分逻辑
+ * 4. 关键词规则（偏好/规则/原则 → long；待办/今天 → short）
+ * 5. 兜底 → short
+ *
+ * @param evaluation 可选的 SelfCheck 评分。提供时启用 flash 层和评分驱动逻辑。
  */
-export function inferMemoryLayer(title: string, content: string, metadata?: Record<string, unknown>): Layer {
+export function inferMemoryLayer(
+  title: string,
+  content: string,
+  metadata?: Record<string, unknown>,
+  evaluation?: SelfCheckResult,
+): Layer {
   const text = `${title} ${content}`.toLowerCase();
+
+  // 1. 显式 metadata 优先（最强信号）
   const importance = metadata?.importance as string | undefined;
   if (importance === 'high') return 'long';
   if (importance === 'low') return 'short';
@@ -28,6 +74,32 @@ export function inferMemoryLayer(title: string, content: string, metadata?: Reco
   if (category === 'person' || category === 'entity') return 'entity';
   if (category === 'task' || category === 'todo') return 'short';
 
+  // 2. 内容类型信号（实体层最具体，优先判定）
+  const signals = detectContentSignals(content);
+  if (signals.isEntity) return 'entity';
+
+  // 3. 评分驱动逻辑（仅 autoRemember 路径提供 evaluation 时生效）
+  if (evaluation) {
+    // 闪念：灵感特征 + 评分明显低。flash 层门槛收紧，避免中性内容被衰减删除。
+    if (signals.isIdea && evaluation.total < 0.5) return 'flash';
+    if (evaluation.total < 0.35) return 'flash';
+
+    // 长期记忆：项目产出 + 显式 [[项目]] 标记 + 中等以上评分
+    if (signals.isProject && PROJECT_MARKER.test(content) && evaluation.total >= 0.6) return 'long';
+
+    // 长期知识：知识特征明显且评分中等以上
+    if (signals.isKnowledge && evaluation.total >= 0.65) return 'long';
+
+    // 短期任务
+    if (signals.isTask) return 'short';
+
+    // 评分驱动 fallback
+    if (evaluation.total >= 0.75) return 'long';
+    if (evaluation.total >= 0.4) return 'short';
+    return 'flash';
+  }
+
+  // 4. 关键词规则（无评分时使用）
   if (ENTITY_KEYWORDS.test(text)) return 'entity';
   if (LONG_KEYWORDS.test(text)) return 'long';
   if (SHORT_KEYWORDS.test(text)) return 'short';

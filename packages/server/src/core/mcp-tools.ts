@@ -28,6 +28,26 @@ const MEMORY_KINDS = [
   'constraint',
   'raw_note',
 ];
+export const ENTITY_TYPES = ['person', 'tool', 'concept', 'organization', 'location', 'event', 'time', 'project'];
+
+// 共享的细粒度过滤参数：memory_search 与 memory_list 同时暴露，
+// 让 agent 能在不依赖 query 关键词的情况下精确命中记忆子集。
+// 注意：agentSpace 不在此处暴露——隔离由 adapter 内部强制注入，避免调用方越权读取其他 agent 私有空间。
+const memoryFilterProperties = {
+  tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags. Memories are selected when they contain any/all of the listed tags. Tags are stored as a JSON array and matched precisely via json_each.' },
+  tagsMatch: { type: 'string', enum: ['any', 'all'], description: 'Tag match mode. "any" (default) selects memories containing at least one listed tag; "all" requires every listed tag.' },
+  entityId: { type: 'string', description: 'Filter by entity ID. When provided, takes precedence over entityName/entityType.' },
+  entityName: { type: 'string', description: 'Filter by exact entity name. Combine with entityType to disambiguate.' },
+  entityType: { type: 'string', enum: ENTITY_TYPES, description: 'Filter by entity type. Selects memories linked to any entity of this type.' },
+  source: { type: 'string', description: 'Filter by source label, e.g. hermes, openclaw, conversation, manual.' },
+  minConfidence: { type: 'number', minimum: 0, maximum: 1, description: 'Only return memories with confidence >= this value.' },
+  createdAfter: { type: 'string', description: 'ISO 8601 timestamp. Only memories created at or after this time.' },
+  createdBefore: { type: 'string', description: 'ISO 8601 timestamp. Only memories created at or before this time.' },
+  updatedAfter: { type: 'string', description: 'ISO 8601 timestamp. Only memories updated at or after this time.' },
+  updatedBefore: { type: 'string', description: 'ISO 8601 timestamp. Only memories updated at or before this time.' },
+  lastHitAfter: { type: 'string', description: 'ISO 8601 timestamp. Only memories whose last retrieval hit was at or after this time. Memories never hit are excluded.' },
+  lastHitBefore: { type: 'string', description: 'ISO 8601 timestamp. Only memories whose last retrieval hit was at or before this time. Memories never hit are excluded.' },
+};
 
 const memoryCreateSchema = {
   type: 'object',
@@ -55,6 +75,7 @@ const memorySearchSchema = {
     memoryKind: { type: 'string', enum: MEMORY_KINDS, description: 'Optional normalized memory kind filter.' },
     layer: { type: 'string', enum: LAYERS, description: 'Optional memory layer filter.' },
     limit: { type: 'number', description: 'Maximum number of results. Default 10.' },
+    ...memoryFilterProperties,
   },
   required: ['query'],
 };
@@ -234,7 +255,7 @@ const BASE_MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'memory_list',
-    description: 'List recent durable KeyMemory memories. Optionally filter by layer.',
+    description: 'List recent durable KeyMemory memories with optional filters. Use memory_search when relevance ranking is needed; use memory_list for deterministic listing by tags, entities, time ranges, or source.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -242,6 +263,7 @@ const BASE_MCP_TOOLS: MCPTool[] = [
         projectId: { type: 'string', description: 'Optional project ID filter.' },
         status: { type: 'string', enum: ['active', 'archived', 'decayed', 'deleted'], description: 'Optional memory status. Default active.' },
         limit: { type: 'number', description: 'Maximum number of memories. Default 20.' },
+        ...memoryFilterProperties,
       },
     },
   },
@@ -447,6 +469,114 @@ const BASE_MCP_TOOLS: MCPTool[] = [
     name: 'memory_secret_delete',
     description: 'Delete one stored tool credential.',
     inputSchema: toolSecretNameSchema,
+  },
+  {
+    name: 'memory_isolation_rule_create',
+    description: 'Create a memory isolation rule that routes matching memories to a specific agent_space at write time. Use ruleType "keyword" for simple substring matching (no regex knowledge needed) or "regex" for pattern matching. targetSpace "private" is an alias for the calling agent\'s private space.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'Agent ID this rule applies to. Omit for a global rule that applies to all agents.' },
+        ruleType: { type: 'string', enum: ['regex', 'keyword'], description: ' "keyword" escapes the pattern and does substring matching (user-friendly); "regex" treats the pattern as a regular expression.' },
+        pattern: { type: 'string', description: 'Match pattern. For "keyword" type, this is a plain substring (e.g. "password", "财务"). For "regex" type, this is a JS regex source (e.g. "password|secret|密码").' },
+        targetSpace: { type: 'string', description: 'Target agent_space when the pattern matches. Values: "global" (shared across agents), "private" (alias for the calling agent\'s private space), "agent:<id>" (specific agent space), "project:<name>" (project space).' },
+        priority: { type: 'number', description: 'Rule priority. Higher priority rules are evaluated first. Default 0.' },
+        enabled: { type: 'boolean', description: 'Whether the rule is active. Default true.' },
+      },
+      required: ['ruleType', 'pattern', 'targetSpace'],
+    },
+  },
+  {
+    name: 'memory_isolation_rule_list',
+    description: 'List memory isolation rules. Without agentId, lists all rules. With agentId, lists global rules plus that agent-specific rules.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'Optional agent ID filter. Returns global rules plus this agent\'s rules.' },
+      },
+    },
+  },
+  {
+    name: 'memory_isolation_rule_update',
+    description: 'Update an existing memory isolation rule. All fields are optional; only provided fields are updated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Rule ID.' },
+        ruleType: { type: 'string', enum: ['regex', 'keyword'] },
+        pattern: { type: 'string' },
+        targetSpace: { type: 'string' },
+        priority: { type: 'number' },
+        enabled: { type: 'boolean' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'memory_isolation_rule_delete',
+    description: 'Delete a memory isolation rule by ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Rule ID to delete.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'memory_entity_alias_add',
+    description: 'Register an alias for an entity. After adding, memory extraction and search will match the alias to the same entity. Useful for multilingual names (e.g. "React" = "ReactJS"), nicknames (e.g. "张三" = "小张"), or abbreviations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entityId: { type: 'string', description: 'Target entity ID (the canonical entity).' },
+        alias: { type: 'string', description: 'Alias to register. Must not conflict with another entity\'s name or existing alias.' },
+      },
+      required: ['entityId', 'alias'],
+    },
+  },
+  {
+    name: 'memory_entity_alias_remove',
+    description: 'Remove an alias from an entity.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entityId: { type: 'string', description: 'Entity ID.' },
+        alias: { type: 'string', description: 'Alias to remove.' },
+      },
+      required: ['entityId', 'alias'],
+    },
+  },
+  {
+    name: 'memory_entity_alias_list',
+    description: 'List all aliases for an entity.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entityId: { type: 'string', description: 'Entity ID.' },
+      },
+      required: ['entityId'],
+    },
+  },
+  {
+    name: 'memory_entity_merge',
+    description: 'Merge a source entity into a target entity. Transfers all memory links, aliases, and entity relations from source to target, then deletes source. The source entity\'s name becomes an alias of target. Use this to deduplicate entities created by different agents using different names for the same thing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: { type: 'string', description: 'Source entity ID (will be deleted after merge).' },
+        targetId: { type: 'string', description: 'Target entity ID (will remain after merge).' },
+      },
+      required: ['sourceId', 'targetId'],
+    },
+  },
+  {
+    name: 'memory_entity_duplicates',
+    description: 'Find potential duplicate entities (same name with different IDs, or entity names that are registered as aliases of other entities). Returns pairs that can be merged via memory_entity_merge.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
   },
 ];
 

@@ -5,8 +5,6 @@ import type { CreateMemoryInput, Layer } from '@keymemory/shared';
 import { createMemory } from './atom.js';
 import { extractTags } from './auto.js';
 import { extractProjectPathFromContent, inferMemoryKind, normalizeMemoryInput } from './memory-schema.js';
-import { ensureEmbedding } from './query.js';
-import { processContent } from '../graph/entity.js';
 import { runDreamCycle } from './dreaming.js';
 import { getDatabase } from '../db/sqlite.js';
 
@@ -477,8 +475,7 @@ async function importRows(payload: FileImportPayload, options: MigrationOptions)
         continue;
       }
       const mem = createMemory(input);
-      processContent(mem.id, mem.content);
-      await ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined);
+      // 后处理（实体链接 + embedding + autoAssociate）已内聚到 createMemory 内部
 
       const kind = (mem.metadata as Record<string, unknown> | undefined)?.memoryKind as string | undefined;
       if (kind) result.memoryKinds[kind] = (result.memoryKinds[kind] ?? 0) + 1;

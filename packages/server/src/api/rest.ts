@@ -5,7 +5,7 @@ import { createProject, getProject, listProjects, updateProject, deleteProject, 
 import { searchHybrid, ensureEmbedding, findDuplicateMemories } from '../core/query.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { runDailyInspection, getPendingTasks, resolveTask } from '../core/evolution.js';
-import { processContent, listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity, findRelatedMemories, autoAssociate, createMemoryRelation, MEMORY_RELATION_TYPES } from '../graph/entity.js';
+import { listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity, findRelatedMemories, createMemoryRelation, MEMORY_RELATION_TYPES } from '../graph/entity.js';
 import { getVersions, diffVersions, rollbackToVersion } from '../core/provenance.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDecay } from '../core/forgetting.js';
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
@@ -17,7 +17,7 @@ import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../
 import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from '../core/migration.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from '../core/backup.js';
 import type { BackupSummary } from '../core/backup.js';
-import { routeMemory, createAgentContext } from '../adapters/base.js';
+import { routeMemory, createAgentContext, visibleSpacesFor } from '../adapters/base.js';
 import { syncToClaudeMd, syncFromClaudeMd } from '../adapters/claude-code.js';
 import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory, rowToLoopRunSummary } from '../db/mapper.js';
@@ -84,9 +84,7 @@ export function registerRoutes(app: FastifyInstance): void {
       input.tags = extractTags(input.content);
     }
     const mem = createMemory(input);
-    ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined).catch(() => {});
-    // 自动建立语义关联
-    autoAssociate(mem.id, mem.content, mem.title);
+    // 后处理（实体链接 + embedding + autoAssociate）已内聚到 createMemory 内部
     reply.code(201);
     return mem;
   });
@@ -170,9 +168,7 @@ export function registerRoutes(app: FastifyInstance): void {
       reply.code(404);
       return { error: 'Memory not found' };
     }
-    if (input.title !== undefined || input.content !== undefined) {
-      ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined, true).catch(() => {});
-    }
+    // 后处理（嵌入刷新 + 实体链接 + 关联重建）已内聚到 updateMemory 内部
     return mem;
   });
 
@@ -327,7 +323,15 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/context/pack', async (request) => {
-    return buildAgentContextPack(request.body as AgentContextPackRequest);
+    const body = request.body as AgentContextPackRequest;
+    // REST 端点也做 agent_space 隔离：从 header 推导可见空间。
+    // 若 body 显式传了 agentSpaces 则优先 body（允许调用方覆盖），否则用 header 推导的默认值。
+    if (!body.agentSpaces) {
+      const agentId = (request.headers['x-agent-id'] as string) || 'hermes';
+      const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode) || 'hybrid';
+      body.agentSpaces = visibleSpacesFor(agentId, isolationMode);
+    }
+    return buildAgentContextPack(body);
   });
 
   // 列表端点：让 UI 能直接看到"系统作为 loop 上下文记忆库被使用"的实际情况。

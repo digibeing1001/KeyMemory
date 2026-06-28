@@ -1,11 +1,10 @@
 import type { Memory, Layer, SelfCheckResult } from '@keymemory/shared';
-import { createMemory, getMemory } from './atom.js';
+import { createMemory } from './atom.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
-import { searchHybrid } from './query.js';
 import { getDatabase } from '../db/sqlite.js';
 import { ensureProjectPath, resolveProjectRef } from './project.js';
-import { extractProjectPathFromContent } from './memory-schema.js';
+import { extractProjectPathFromContent, inferMemoryLayer } from './memory-schema.js';
 
 interface AutoRememberInput {
   content: string;
@@ -24,72 +23,9 @@ interface AutoRememberResult {
   entities?: import('@keymemory/shared').Entity[];
 }
 
-// 语义信号检测：识别内容类型特征
-function detectContentType(content: string): { isProject: boolean; isEntity: boolean; isKnowledge: boolean; isTask: boolean; isIdea: boolean } {
-  const text = content.toLowerCase();
-
-  // 项目特征：会议、决策、里程碑、roadmap、版本发布、项目周会
-  const projectSignals = /(?:项目|周会|会议纪要|决策记录|里程碑|roadmap|版本发布|上线|评审|复盘|冲刺|迭代|sprint|milestone|release|launch)/i;
-  // 实体特征：职位、联系方式、偏好、档案、人物介绍
-  const entitySignals = /(?:职位|联系方式|电话|邮箱|偏好|风格|档案|基本信息|技术特长|工作风格|沟通建议|协作)/i;
-  // 知识特征：收窄到明确的"沉淀型"知识词，去掉过宽的"总结/分析/模式/概念/模型"等
-  const knowledgeSignals = /(?:方法论|最佳实践|教程|指南|框架|原理|理论|体系|原则|规范|checklist|playbook|howto|how-to)/i;
-  // 任务特征：待办、本周、今天、明天、截止日期、安排、计划、task、todo
-  const taskSignals = /(?:待办|本周|今天|明天|后天|截止日期|截止|安排|计划|task|todo|完成|推进|跟进|落实|执行)/i;
-  // 灵感特征：灵感、想法、想到、如果、试试、也许、假设
-  const ideaSignals = /(?:灵感|想法|想到|如果|试试|也许|假设|猜想|突发奇想|灵光一闪)/i;
-
-  return {
-    isProject: projectSignals.test(text),
-    isEntity: entitySignals.test(text),
-    isKnowledge: knowledgeSignals.test(text),
-    isTask: taskSignals.test(text),
-    isIdea: ideaSignals.test(text),
-  };
-}
-
-function suggestLayer(content: string, evaluation: SelfCheckResult): Layer {
-  const signals = detectContentType(content);
-
-  // 优先级 1：实体层 - 含人物/组织档案特征（最具体，优先判定）
-  if (signals.isEntity) {
-    return 'entity';
-  }
-
-  // 优先级 2：闪念 - 仅保留"灵感特征 + 评分明显低"的情况
-  // 真实数据显示 flash 层存活率为零：阈值过宽会把大量中性内容丢进待整理层，
-  // 然后 dream 未空转整理就被衰减删除。把 flash 的门槛收紧到"确实像噪声"。
-  if (signals.isIdea && evaluation.total < 0.5) {
-    return 'flash';
-  }
-  if (evaluation.total < 0.35) {
-    return 'flash';
-  }
-
-  // 优先级 3：长期记忆 - 项目产出特征 + 显式项目标记 + 中等以上评分
-  // 阈值由 0.7 下调到 0.6，避免高价值项目内容被卡在 short 无法升格
-  if (signals.isProject && extractProjects(content).length > 0 && evaluation.total >= 0.6) {
-    return 'long';
-  }
-
-  // 优先级 4：长期知识 - 知识特征明显且评分中等以上
-  // 阈值由 0.72 下调到 0.65
-  if (signals.isKnowledge && evaluation.total >= 0.65) {
-    return 'long';
-  }
-
-  // 优先级 5：短期任务 - 任务特征
-  if (signals.isTask) {
-    return 'short';
-  }
-
-  // fallback：评分较高且无明确任务/灵感指向时升 long；
-  // 评分中等进 short（近期有用，承担"中转层"职责）；
-  // 不再把 0.45~0.5 的内容丢进 flash，避免被衰减死。
-  if (evaluation.total >= 0.75) return 'long';
-  if (evaluation.total >= 0.4) return 'short';
-  return 'flash';
-}
+// detectContentType / suggestLayer 已合并到 memory-schema.ts 的 inferMemoryLayer
+// 历史问题：两条路径规则不一致——REST 路径只用关键词，autoRemember 路径只用评分，
+// 导致相同内容因入口不同被分到不同层。现统一为单一函数，evaluation 可选。
 
 function extractTitle(content: string): string {
   const lines = content.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -254,8 +190,8 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     return { recorded: false, reason: 'SelfCheck 建议记录，但需要确认', evaluation };
   }
 
-  const layer = suggestLayer(content, evaluation);
   const title = extractTitle(content);
+  const layer = inferMemoryLayer(title, content, undefined, evaluation);
   const projects = extractProjects(content);
   const inferredProjectPath = extractProjectPathFromContent(content);
   const projectName = projects[0] || currentProjectId;
@@ -302,14 +238,10 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     source: source || 'auto-remember',
   });
 
+  // processContent 由 createMemory 内部自动调用，此处重复调用仅为获取 entities 返回值（幂等）
   const entityResult = processContent(mem.id, content);
 
-  try {
-    const { ensureEmbedding } = await import('./query.js');
-    await ensureEmbedding(mem.id, title, content.trim(), mem.tags, mem.metadata as Record<string, unknown> | undefined);
-  } catch (err) {
-    console.error('[AutoRemember] Embedding generation failed:', (err as Error).message);
-  }
+  // ensureEmbedding + autoAssociate 已内聚到 createMemory 内部，此处无需重复调用
 
   return {
     recorded: true,

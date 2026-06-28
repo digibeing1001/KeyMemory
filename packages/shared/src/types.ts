@@ -205,6 +205,12 @@ export interface AgentContextPackRequest {
   memoryKinds?: MemoryKind[];
   maxItems?: number;
   maxChars?: number;
+  /**
+   * 当前 agent 可见的 agent_space 集合（如 ['global', 'agent:foo']）。
+   * 传入后 context pack 只检索/扩展这些空间内的记忆，防止跨 agent 私有空间泄露。
+   * 未传时不做 agent_space 过滤（向后兼容）。
+   */
+  agentSpaces?: string[];
 }
 
 export interface AgentContextRelation {

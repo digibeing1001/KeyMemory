@@ -32,10 +32,19 @@ const CHUNK_CONFIG = {
  * 异步触发分块嵌入
  * 不阻塞同步的 createMemory/updateMemory 主流程
  * 使用 setImmediate 在下一个事件循环中执行
+ *
+ * @param tags 记忆标签，作为全局前缀注入每个 chunk 的嵌入文本
+ * @param metadata 记忆元数据，其字符串/数组值作为全局前缀
  */
-export function scheduleChunkAndEmbed(memoryId: string, title: string, content: string): void {
+export function scheduleChunkAndEmbed(
+  memoryId: string,
+  title: string,
+  content: string,
+  tags?: string[],
+  metadata?: Record<string, unknown>,
+): void {
   setImmediate(() => {
-    chunkAndEmbed(memoryId, title, content).catch(err => {
+    chunkAndEmbed(memoryId, title, content, tags, metadata).catch(err => {
       console.error(`[Chunking] Failed for memory ${memoryId}:`, (err as Error).message);
     });
   });
@@ -125,8 +134,26 @@ export function splitContent(content: string): string[] {
 /**
  * 为记忆创建分块并生成嵌入
  * 在记忆创建/更新后调用
+ *
+ * 全局前缀设计：
+ * chunk 嵌入文本 = [全局前缀] + title + chunkContent
+ * 全局前缀 = tags + metadata 字符串值，与 ensureEmbedding 保持一致。
+ *
+ * 原问题：chunk 嵌入只用 `title + chunkContent`，缺少 tags/metadata 上下文。
+ * 而 memory 级嵌入（ensureEmbedding）包含 tags + metadata。
+ * 这导致 chunk 和 memory 嵌入不对称——chunk 检索时丢失分类上下文。
+ * 例如：记忆标签 `kind:preference` 的 chunk 搜索 "用户偏好" 时本应高分，
+ * 但因 chunk 嵌入无 tag 信号而漏命中。
+ *
+ * 修复后每个 chunk 都继承记忆的全局分类上下文，检索一致性提升。
  */
-export async function chunkAndEmbed(memoryId: string, title: string, content: string): Promise<void> {
+export async function chunkAndEmbed(
+  memoryId: string,
+  title: string,
+  content: string,
+  tags?: string[],
+  metadata?: Record<string, unknown>,
+): Promise<void> {
   const chunks = splitContent(content);
   if (chunks.length === 0) return; // 内容不够长，不需要分块
 
@@ -136,6 +163,15 @@ export async function chunkAndEmbed(memoryId: string, title: string, content: st
   const now = new Date().toISOString();
   const modelInfo = getCurrentModelInfo();
   const model = modelInfo.id ?? 'unknown';
+
+  // 构建全局前缀（与 ensureEmbedding 的嵌入文本构造逻辑保持一致）
+  let globalPrefix = '';
+  if (tags && tags.length > 0) globalPrefix += ` ${tags.join(' ')}`;
+  if (metadata) {
+    const metaValues = Object.values(metadata).filter(v => typeof v === 'string' || Array.isArray(v));
+    if (metaValues.length > 0) globalPrefix += ` ${metaValues.flat().join(' ')}`;
+  }
+  globalPrefix = globalPrefix.trim();
 
   // 删除旧分块
   db.prepare('DELETE FROM memory_chunks WHERE memory_id = ?').run(memoryId);
@@ -149,8 +185,8 @@ export async function chunkAndEmbed(memoryId: string, title: string, content: st
     const chunkContent = chunks[i];
     const chunkId = uuid();
 
-    // 生成嵌入：标题 + 块内容，让搜索更精准
-    const embedText = `${title} ${chunkContent}`;
+    // 生成嵌入：全局前缀 + 标题 + 块内容
+    const embedText = globalPrefix ? `${globalPrefix} ${title} ${chunkContent}` : `${title} ${chunkContent}`;
     let embeddingBuf: Buffer | null = null;
 
     try {

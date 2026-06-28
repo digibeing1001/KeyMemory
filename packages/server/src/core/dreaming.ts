@@ -7,13 +7,21 @@ import { getMemory, updateMemory } from './atom.js';
 import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
 import { createMemoryRelation } from '../graph/entity.js';
+import { detectDuplicateActions, detectStaleActions, detectOldFlashActions, computeTextSimilarity } from './consolidation-detectors.js';
 
 type ScoredDreamCandidate = DreamCandidate & {
   qualityScore: number;
   qualityIssues: string[];
 };
 
-export function runDreamCycle(): DreamReport {
+/**
+ * 执行一次梦境周期。
+ *
+ * @param quickMode 快速模式：仅扫描 flash+short 层，跳过 SemanticMerge 和 ProjectClustering 阶段。
+ *                  用于高频调度（每 quickIntervalHours 小时），快速清理最紧急的记忆。
+ *                  完整模式（默认）扫描所有层并执行全部 5 阶段，按 cron 低频运行。
+ */
+export function runDreamCycle(quickMode: boolean = false): DreamReport {
   const startTime = Date.now();
   const reportId = uuid();
   const now = new Date().toISOString();
@@ -41,7 +49,7 @@ export function runDreamCycle(): DreamReport {
     db.exec(`SAVEPOINT ${savepointName}`);
 
     // Phase 1: Light - 扫描并去重近期记忆
-    const lightResult = runLightPhase(reportId, details);
+    const lightResult = runLightPhase(reportId, details, quickMode);
     sessions.push(lightResult.session);
     merged += lightResult.mergedCount;
     totalCandidates += lightResult.session.candidatesProcessed;
@@ -52,7 +60,7 @@ export function runDreamCycle(): DreamReport {
     totalCandidates += remResult.session.candidatesProcessed;
 
     // Phase 3: Deep - 评分升级、智能合并、归档清理
-    const deepResult = runDeepPhase(reportId, lightResult.session, remResult.session, details);
+    const deepResult = runDeepPhase(reportId, lightResult.session, remResult.session, details, quickMode);
     sessions.push(deepResult.deepSession);
     promoted += deepResult.promoted;
     archived += deepResult.archived;
@@ -64,21 +72,24 @@ export function runDreamCycle(): DreamReport {
     totalCandidates += deepResult.deepSession.candidatesProcessed;
 
     // Phase 4 & 5: 非关键阶段，失败不影响前面结果
-    try {
-      const semanticResult = runSemanticMergePhase(reportId, details);
-      sessions.push(semanticResult.session);
-      merged += semanticResult.mergedCount;
-      totalCandidates += semanticResult.session.candidatesProcessed;
-    } catch (err) {
-      console.error('[Dream] Semantic phase failed (non-fatal):', (err as Error).message);
-    }
+    // quickMode 下跳过这两个 O(n²) 阶段，它们对 flash/short 清理不是必需的
+    if (!quickMode) {
+      try {
+        const semanticResult = runSemanticMergePhase(reportId, details);
+        sessions.push(semanticResult.session);
+        merged += semanticResult.mergedCount;
+        totalCandidates += semanticResult.session.candidatesProcessed;
+      } catch (err) {
+        console.error('[Dream] Semantic phase failed (non-fatal):', (err as Error).message);
+      }
 
-    try {
-      const clusteringResult = runProjectClusteringPhase(reportId);
-      sessions.push(clusteringResult.session);
-      totalCandidates += clusteringResult.session.candidatesProcessed;
-    } catch (err) {
-      console.error('[Dream] Project clustering phase failed (non-fatal):', (err as Error).message);
+      try {
+        const clusteringResult = runProjectClusteringPhase(reportId);
+        sessions.push(clusteringResult.session);
+        totalCandidates += clusteringResult.session.candidatesProcessed;
+      } catch (err) {
+        console.error('[Dream] Project clustering phase failed (non-fatal):', (err as Error).message);
+      }
     }
 
     db.exec(`RELEASE SAVEPOINT ${savepointName}`);
@@ -175,19 +186,22 @@ function dreamSignalTags(tags: string[]): string[] {
   });
 }
 
-function runLightPhase(reportId: string, details: DreamReportDetails): { session: DreamSession; mergedCount: number } {
+function runLightPhase(reportId: string, details: DreamReportDetails, quickMode: boolean = false): { session: DreamSession; mergedCount: number } {
   const db = getDatabase();
   const sessionId = uuid();
   const now = new Date().toISOString();
 
-  // 扫描所有活跃记忆（不仅 flash/short），确保全库去重
+  // quickMode：仅扫描 flash+short 层（最需紧急去重），用 quickScanLimit
+  // full mode：扫描全库确保跨层去重，用 fullScanLimit
+  const scanLimit = quickMode ? DREAM_CONFIG.quickScanLimit : DREAM_CONFIG.fullScanLimit;
+  const layerClause = quickMode ? "AND m.layer IN ('flash', 'short')" : '';
   const recentMemories = db.prepare(`
     SELECT m.id, m.title, m.content, m.layer, m.tags, m.hit_count, m.created_at, m.updated_at
     FROM memories m
-    WHERE m.status = 'active'
+    WHERE m.status = 'active' ${layerClause}
     ORDER BY m.created_at ASC
     LIMIT ?
-  `).all(DREAM_CONFIG.fullScanLimit) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; updated_at: string }[];
+  `).all(scanLimit) as { id: string; title: string; content: string; layer: string; tags: string | null; hit_count: number; created_at: string; updated_at: string }[];
 
   let mergedCount = 0;
   const processedIds = new Set<string>();
@@ -445,7 +459,7 @@ function createRemTagRelations(reportId: string, hotThemes: string[], memoryTagM
   return relationsCreated;
 }
 
-function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession, details: DreamReportDetails): {
+function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: DreamSession, details: DreamReportDetails, quickMode: boolean = false): {
   deepSession: DreamSession;
   promoted: number;
   archived: number;
@@ -456,8 +470,8 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
   const sessionId = uuid();
   const now = new Date().toISOString();
 
-  // 检测需要清理的动作
-  const actions = detectCleanupActions(db);
+  // 检测需要清理的动作（quickMode 下仅扫 flash+short）
+  const actions = detectCleanupActions(db, quickMode);
   const allAffectedIds = new Set<string>();
   for (const a of actions) {
     for (const id of a.sourceIds) allAffectedIds.add(id);
@@ -777,14 +791,19 @@ function smartMergeContents(contents: string[]): string {
 
 // ========== 清理动作检测 ==========
 
-function detectCleanupActions(db: ReturnType<typeof getDatabase>): ConsolidationAction[] {
+function detectCleanupActions(db: ReturnType<typeof getDatabase>, quickMode: boolean = false): ConsolidationAction[] {
   const actions: ConsolidationAction[] = [];
   const affectedIds = new Set<string>();
 
-  const dupActions = detectDuplicateActions(db, affectedIds);
+  // quickMode 下用 quickScanLimit + 仅扫 flash/short 层
+  const scanLimit = quickMode ? DREAM_CONFIG.quickScanLimit : DREAM_CONFIG.fullScanLimit;
+  const layerFilter = quickMode ? ['flash', 'short'] : undefined;
+  const dupActions = detectDuplicateActions(db, affectedIds, scanLimit, layerFilter);
   actions.push(...dupActions);
 
-  const staleActions = detectStaleActions(db, affectedIds);
+  // stale 检测：quickMode 下仅扫 short 层（long 层 stale 留给 full mode）
+  const staleLayerFilter = quickMode ? ['short'] : undefined;
+  const staleActions = detectStaleActions(db, affectedIds, staleLayerFilter);
   actions.push(...staleActions);
 
   const flashActions = detectOldFlashActions(db, affectedIds);
@@ -793,125 +812,9 @@ function detectCleanupActions(db: ReturnType<typeof getDatabase>): Consolidation
   return actions.slice(0, CONSOLIDATION_CONFIG.maxActionsPerPlan);
 }
 
-function detectDuplicateActions(db: ReturnType<typeof getDatabase>, affectedIds: Set<string>): ConsolidationAction[] {
-  const threshold = CONSOLIDATION_CONFIG.duplicateSimilarity;
-  const actions: ConsolidationAction[] = [];
-
-  let memories: { id: string; title: string; content: string; embedding: Buffer }[];
-  try {
-    memories = db.prepare(`
-      SELECT m.id, m.title, m.content, e.embedding
-      FROM memories m
-      JOIN embeddings e ON e.memory_id = m.id
-      WHERE m.status = 'active'
-      ORDER BY m.created_at ASC
-      LIMIT ?
-    `).all(DREAM_CONFIG.fullScanLimit) as { id: string; title: string; content: string; embedding: Buffer }[];
-  } catch {
-    return actions;
-  }
-
-  if (memories.length < 2) return actions;
-
-  const mergedSet = new Set<string>();
-
-  for (let i = 0; i < memories.length; i++) {
-    if (mergedSet.has(memories[i].id)) continue;
-    for (let j = i + 1; j < memories.length; j++) {
-      if (mergedSet.has(memories[j].id)) continue;
-
-      const vecA = bufferToEmbedding(memories[i].embedding);
-      const vecB = bufferToEmbedding(memories[j].embedding);
-      const sim = cosineSimilarity(vecA, vecB);
-
-      const textSim = computeTextSimilarity(memories[i].content, memories[j].content);
-      const titleSim = computeTextSimilarity(memories[i].title, memories[j].title);
-
-      // 语义+文本双重验证，避免误合并
-      if (sim > threshold && (textSim > 0.5 || titleSim > 0.7)) {
-        const keeper = memories[i].id;
-        const removed = memories[j].id;
-
-        if (!affectedIds.has(keeper) && !affectedIds.has(removed)) {
-          actions.push({
-            id: uuid(),
-            type: 'deduplicate',
-            sourceIds: [keeper, removed],
-            targetId: keeper,
-            description: `「${memories[i].title}」与「${memories[j].title}」语义相似度${sim.toFixed(2)}，保留前者`,
-            status: 'pending',
-          });
-          affectedIds.add(removed);
-          mergedSet.add(removed);
-        }
-      }
-    }
-  }
-
-  return actions;
-}
-
-function detectStaleActions(db: ReturnType<typeof getDatabase>, affectedIds: Set<string>): ConsolidationAction[] {
-  const staleDays = CONSOLIDATION_CONFIG.staleDays;
-  const actions: ConsolidationAction[] = [];
-  const exclude = buildExcludeClause(affectedIds);
-
-  // 修复 detectStaleActions 失效：原要求 last_hit_at IS NOT NULL，导致从未被命中的
-  // 孤儿记忆（真实数据中 long 层有 26 条零命中）永远绕过 stale 检测。
-  // 改为 OR last_hit_at IS NULL，让从未被命中的内容也能被识别为 stale。
-  const stale = db.prepare(`
-    SELECT id, title, layer FROM memories
-    WHERE status = 'active'
-      AND layer IN ('short', 'long')
-      AND decay_factor < 0.3
-      AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
-      ${exclude.clause}
-  `).all(`-${staleDays}`, ...exclude.params) as { id: string; title: string; layer: string }[];
-
-  for (const m of stale) {
-    if (!affectedIds.has(m.id)) {
-      actions.push({
-        id: uuid(),
-        type: 'archive_stale',
-        sourceIds: [m.id],
-        description: `「${m.title}」(${m.layer}层)已${staleDays}天未访问且衰变因子<0.3，归档`,
-        status: 'pending',
-      });
-      affectedIds.add(m.id);
-    }
-  }
-
-  return actions;
-}
-
-function detectOldFlashActions(db: ReturnType<typeof getDatabase>, affectedIds: Set<string>): ConsolidationAction[] {
-  const maxDays = CONSOLIDATION_CONFIG.flashMaxDays;
-  const actions: ConsolidationAction[] = [];
-  const exclude = buildExcludeClause(affectedIds);
-
-  const oldFlash = db.prepare(`
-    SELECT id, title FROM memories
-    WHERE status = 'active'
-      AND layer = 'flash'
-      AND created_at <= datetime('now', ? || ' days')
-      ${exclude.clause}
-  `).all(`-${maxDays}`, ...exclude.params) as { id: string; title: string }[];
-
-  for (const m of oldFlash) {
-    if (!affectedIds.has(m.id)) {
-      actions.push({
-        id: uuid(),
-        type: 'archive_flash',
-        sourceIds: [m.id],
-        description: `闪念「${m.title}」已超过${maxDays}天，归档`,
-        status: 'pending',
-      });
-      affectedIds.add(m.id);
-    }
-  }
-
-  return actions;
-}
+// detectDuplicateActions / detectStaleActions / detectOldFlashActions 已抽取到
+// ./consolidation-detectors.ts，与 consolidation.ts 共享单一实现。
+// 历史教训：两处各自维护导致 detectStaleActions 的 last_hit_at IS NULL bug 修复遗漏。
 
 const GENERIC_PROJECT_NAMES = new Set([
   '未分类',
@@ -977,13 +880,19 @@ function hasConcreteProject(row: Pick<DreamOrphanCandidateRow, 'projectId' | 'pr
   return isUsefulProjectAlias(row.projectName) || isUsefulProjectAlias(row.projectPath);
 }
 
-function findBestProjectForMemory(row: DreamOrphanCandidateRow, projects: DreamProjectRow[]): DreamProjectRow | null {
+function findBestProjectForMemory(
+  row: DreamOrphanCandidateRow,
+  projects: DreamProjectRow[],
+  projectEntityMap?: Map<string, Set<string>>,
+  memoryEntities?: string[],
+): DreamProjectRow | null {
   const tags = parseMemoryTags(row.tags);
   const text = normalizeMatchText(`${row.title}\n${row.content}\n${tags.join('\n')}`);
   let best: { project: DreamProjectRow; score: number } | null = null;
 
   for (const project of projects) {
     let score = 0;
+    // 1. 文本子串匹配（原有逻辑）
     for (const alias of projectAliases(project)) {
       if (text.includes(alias)) score = Math.max(score, alias.length);
       if (tags.some((tag) => {
@@ -991,6 +900,20 @@ function findBestProjectForMemory(row: DreamOrphanCandidateRow, projects: DreamP
         return isUsefulProjectAlias(normalizedTag) && (normalizedTag.includes(alias) || alias.includes(normalizedTag));
       })) {
         score = Math.max(score, alias.length + 8);
+      }
+    }
+    // 2. 实体共现匹配：记忆的实体与项目的实体有重叠则加分
+    if (projectEntityMap && memoryEntities && memoryEntities.length > 0) {
+      const projEntities = projectEntityMap.get(project.id);
+      if (projEntities && projEntities.size > 0) {
+        let overlap = 0;
+        for (const e of memoryEntities) {
+          if (projEntities.has(e)) overlap++;
+        }
+        if (overlap > 0) {
+          // 每个共享实体加 5 分，重叠率越高加分越多
+          score = Math.max(score, overlap * 5 + Math.floor((overlap / memoryEntities.length) * 10));
+        }
       }
     }
     if (score > 0 && (!best || score > best.score)) best = { project, score };
@@ -1007,21 +930,44 @@ function autoRouteProjectOrphans(db: ReturnType<typeof getDatabase>): number {
   const usableProjects = projects.filter(project => projectAliases(project).length > 0);
   if (usableProjects.length === 0) return 0;
 
+  // 预加载每个具体项目的实体名称集合，用于实体共现匹配
+  const projectEntityMap = new Map<string, Set<string>>();
+  const entityRows = db.prepare(`
+    SELECT me.project_id, e.name
+    FROM memory_entities me
+    JOIN entities e ON e.id = me.entity_id
+    WHERE me.project_id IS NOT NULL AND me.project_id != ''
+  `).all() as { project_id: string; name: string }[];
+  for (const r of entityRows) {
+    let set = projectEntityMap.get(r.project_id);
+    if (!set) { set = new Set(); projectEntityMap.set(r.project_id, set); }
+    set.add(r.name);
+  }
+
+  // 扫描所有"根未分类项目"下的活跃记忆（不论实体状态），尝试重新归类
+  // 根项目 = parent_id IS NULL，即"未分类"等顶层项目
   const rows = db.prepare(`
     SELECT m.id, m.title, m.content, m.layer, m.tags, m.project_id as projectId,
            p.name as projectName, p.path as projectPath
     FROM memories m
     LEFT JOIN projects p ON p.id = m.project_id
     WHERE m.status = 'active'
-      AND m.id NOT IN (SELECT memory_id FROM memory_entities)
+      AND m.project_id IN (SELECT id FROM projects WHERE parent_id IS NULL)
     ORDER BY m.updated_at DESC
-    LIMIT 100
+    LIMIT 200
   `).all() as DreamOrphanCandidateRow[];
 
   let routed = 0;
   for (const row of rows) {
     if (hasConcreteProject(row)) continue;
-    const match = findBestProjectForMemory(row, usableProjects);
+    // 加载该记忆的实体名称列表，用于实体共现匹配
+    const memEntityRows = db.prepare(`
+      SELECT e.name FROM memory_entities me
+      JOIN entities e ON e.id = me.entity_id
+      WHERE me.memory_id = ?
+    `).all(row.id) as { name: string }[];
+    const memEntities = memEntityRows.map(r => r.name);
+    const match = findBestProjectForMemory(row, usableProjects, projectEntityMap, memEntities);
     if (!match) continue;
     if (updateMemory(row.id, { projectId: match.id }, `dream:auto-route:${match.path}`)) routed++;
   }
@@ -1140,12 +1086,7 @@ function currentTodoItems(db: ReturnType<typeof getDatabase>, raw: unknown): Dre
   return items.filter(item => isTodoItemStillActionable(db, item));
 }
 
-function buildExcludeClause(ids: Set<string>): { clause: string; params: string[] } {
-  if (ids.size === 0) return { clause: '', params: [] };
-  const params = Array.from(ids);
-  const clause = `AND id NOT IN (${params.map(() => '?').join(',')})`;
-  return { clause, params };
-}
+// buildExcludeClause 已移至 ./consolidation-detectors.ts
 
 function createSnapshots(db: ReturnType<typeof getDatabase>, reportId: string, memoryIds: string[]): void {
   const now = new Date().toISOString();
@@ -1354,42 +1295,7 @@ function computeJaccard(setA: string[], setB: string[]): number {
   return intersection.size / union.size;
 }
 
-function computeTextSimilarity(textA: string, textB: string): number {
-  const tokensA = tokenize(textA);
-  const tokensB = tokenize(textB);
-  const intersection = new Set([...tokensA].filter(x => tokensB.has(x)));
-  const union = new Set([...tokensA, ...tokensB]);
-  if (union.size === 0) return 1.0;
-  return intersection.size / union.size;
-}
-
-function tokenize(text: string): Set<string> {
-  const normalized = text.toLowerCase().trim();
-  if (!normalized) return new Set();
-
-  // 检测是否以中文字符为主
-  const cjkCount = (normalized.match(/[一-鿿]/g) || []).length;
-  const totalCount = normalized.length;
-
-  if (cjkCount / totalCount > 0.3) {
-    // 中文/CJK 文本：按字符分词，同时保留长度>=2的连续英文/数字词
-    const tokens = new Set<string>();
-    for (let i = 0; i < normalized.length; i++) {
-      const ch = normalized[i];
-      if (/[一-鿿]/.test(ch)) {
-        tokens.add(ch);
-      }
-    }
-    const words = normalized.match(/[a-z0-9]{2,}/g);
-    if (words) {
-      for (const w of words) tokens.add(w);
-    }
-    return tokens;
-  }
-
-  // 英文/西文文本：按空白分词
-  return new Set(normalized.split(/\s+/).filter(Boolean));
-}
+// computeTextSimilarity / tokenize 已移至 ./consolidation-detectors.ts（与 consolidation 共享）
 
 export function rollbackDream(reportId: string): DreamReport {
   const db = getDatabase();

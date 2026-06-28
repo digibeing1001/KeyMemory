@@ -12,6 +12,10 @@ interface HermesAdapterOptions {
 
 export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapter {
   const ctx = createAgentContext(options.agentId, options.isolationMode ?? 'hybrid');
+  // 预计算可见空间集合，供 search/context-pack 等读取路径做 pre-filter
+  const accessibleSpaces = ctx.isolationMode === 'isolated'
+    ? [ctx.privateSpace]
+    : ['global', ctx.privateSpace];
 
   return {
     name: 'hermes',
@@ -42,20 +46,18 @@ export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapte
     },
 
     async search(query: string, options?: MemorySearchOptions): Promise<SearchResult[]> {
+      // 直接把 agentSpaces 传给 searchHybrid 做 SQL 级 pre-filter，
+      // 避免"全量检索后再后置过滤"导致的漏结果（limit 截断后才过滤会丢掉本应可见的命中）。
+      // 用 spread 透传所有过滤参数（tags/entity/source/confidence/time 等），
+      // 确保 MemorySearchOptions 的任何新增字段都能自动传入 searchHybrid，无需每次扩展都改这里。
       const results = await searchHybrid(query, {
-        layer: options?.layer,
-        limit: options?.limit,
-        projectId: options?.projectId,
-        includeDescendants: options?.includeDescendants,
-        includeSuperseded: options?.includeSuperseded,
-        memoryKind: options?.memoryKind,
+        ...options,
+        agentSpaces: accessibleSpaces,
       });
 
-      const accessibleResults = results.filter(r => {
-        return r.memory.agentSpace === 'global' || r.memory.agentSpace === ctx.privateSpace;
-      });
-
-      return accessibleResults;
+      // 双保险：即使 searchHybrid 内部过滤失效，这里仍做一次后置校验
+      const accessibleSet = new Set(accessibleSpaces);
+      return results.filter(r => accessibleSet.has(r.memory.agentSpace));
     },
 
     async delete(id: string): Promise<boolean> {
@@ -66,6 +68,10 @@ export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapte
       if (!canDelete) return false;
 
       return deleteMemory(id);
+    },
+
+    getAgentSpaces(): string[] {
+      return accessibleSpaces;
     },
   };
 }
