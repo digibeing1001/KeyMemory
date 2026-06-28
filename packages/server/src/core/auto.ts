@@ -4,7 +4,7 @@ import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
 import { getDatabase } from '../db/sqlite.js';
 import { ensureProjectPath, resolveProjectRef } from './project.js';
-import { extractProjectPathFromContent, inferMemoryLayer } from './memory-schema.js';
+import { extractProjectPathFromContent, inferMemoryLayer, isMeaningfulTag, cleanTag } from './memory-schema.js';
 
 interface AutoRememberInput {
   content: string;
@@ -61,56 +61,27 @@ function extractTitle(content: string): string {
   return firstLine.length > 50 ? firstLine.slice(0, 50) + '...' : firstLine;
 }
 
-const TYPE_TAGS: Record<string, string[]> = {
-  knowledge: ['知识', '方法论', '框架', '模型', '原理', '总结', '指南', '教程'],
-  decision: ['决策', '决定', '选择', '方案'],
-  meeting: ['会议', '周会', '纪要', '讨论'],
-  idea: ['灵感', '想法', '创意'],
-  task: ['任务', '待办', '计划'],
-  reference: ['备忘', '参考', '配置'],
-};
-
-const SOURCE_TAGS: Record<string, string[]> = {
-  conversation: ['对话', '讨论', '交流'],
-  reading: ['阅读', '看书', '文章'],
-  meeting: ['会议', '周会'],
-  experience: ['实践', '经验', '踩坑'],
-};
-
-function inferTypeTag(content: string): string | null {
-  const text = content.toLowerCase();
-  for (const [type, keywords] of Object.entries(TYPE_TAGS)) {
-    if (keywords.some(k => text.includes(k))) {
-      return `type:${type}`;
-    }
-  }
-  return null;
-}
-
-function inferSourceTag(content: string): string | null {
-  const text = content.toLowerCase();
-  for (const [source, keywords] of Object.entries(SOURCE_TAGS)) {
-    if (keywords.some(k => text.includes(k))) {
-      return `source:${source}`;
-    }
-  }
-  return null;
-}
-
+/**
+ * extractTags: 从内容中提取有意义的标签。
+ *
+ * 标签清洗规则（isMeaningfulTag/cleanTag）在 memory-schema.ts 中定义，
+ * 被 normalizeMemoryInput/Update 复用，确保所有写入路径标签一致清洗。
+ */
 export function extractTags(content: string): string[] {
   const tags: string[] = [];
   const seen = new Set<string>();
 
   function addTag(tag: string) {
-    const normalized = tag.toLowerCase();
-    if (!seen.has(normalized) && tag.length >= 2) {
-      seen.add(normalized);
-      tags.push(tag);
+    const cleaned = cleanTag(tag);
+    const key = cleaned.toLowerCase();
+    if (!seen.has(key) && isMeaningfulTag(cleaned)) {
+      seen.add(key);
+      tags.push(cleaned);
     }
   }
 
-  // 提取 #hashtag 形式的标签（支持命名空间如 #type:知识）
-  const hashtagPattern = /#([\p{L}\p{N}_\-一-鿿:/]+)/gu;
+  // 提取 #hashtag 形式的标签
+  const hashtagPattern = /#([\p{L}\p{N}_\-一-鿿]+)/gu;
   let match;
   while ((match = hashtagPattern.exec(content)) !== null) {
     addTag(match[1]);
@@ -122,46 +93,29 @@ export function extractTags(content: string): string[] {
     addTag(match[1]);
   }
 
-  // 提取 [[项目]] 作为标签，同时生成 project: 命名空间标签
+  // 提取 [[项目]] 作为标签（只生成项目名，不再生成 project:xxx 命名空间）
   const projectPattern = /\[\[([^\]]+)\]\]/g;
   while ((match = projectPattern.exec(content)) !== null) {
-    const projectName = match[1].trim();
-    addTag(projectName);
-    addTag(`project:${projectName}`);
+    addTag(match[1].trim());
   }
 
-  // 提取常见中文关键词并添加命名空间
-  const keywordPatterns = [
-    { pattern: /(?:问题|bug|fix|修复|解决)[\s:：]*/gi, tag: '问题修复' },
-    { pattern: /(?:待办|todo|任务|task)[\s:：]*/gi, tag: '待办', nsTag: 'type:task' },
-    { pattern: /(?:想法|idea|灵感|思考)[\s:：]*/gi, tag: '想法', nsTag: 'type:idea' },
-    { pattern: /(?:笔记|note|记录)[\s:：]*/gi, tag: '笔记', nsTag: 'type:note' },
-    { pattern: /(?:会议|meeting|讨论|talk)[\s:：]*/gi, tag: '会议', nsTag: 'source:meeting' },
-    { pattern: /(?:代码|code|编程|开发)[\s:：]*/gi, tag: '代码' },
-    { pattern: /(?:设计|design|ui|ux)[\s:：]*/gi, tag: '设计' },
-    { pattern: /(?:学习|study|阅读|book)[\s:：]*/gi, tag: '学习', nsTag: 'source:reading' },
+  // 提取常见中文关键词作为自然标签（不再生成 type:/source: 命名空间标签）
+  const keywordPatterns: RegExp[] = [
+    /(?:问题|bug|fix|修复|解决)/gi,
+    /(?:待办|todo|任务|task)/gi,
+    /(?:想法|idea|灵感|思考)/gi,
+    /(?:笔记|note|记录)/gi,
+    /(?:会议|meeting|讨论|talk)/gi,
+    /(?:代码|code|编程|开发)/gi,
+    /(?:设计|design|ui|ux)/gi,
+    /(?:学习|study|阅读|book)/gi,
   ];
+  const keywordTags = ['问题修复', '待办', '想法', '笔记', '会议', '代码', '设计', '学习'];
+  keywordPatterns.forEach((pattern, i) => {
+    if (pattern.test(content)) addTag(keywordTags[i]);
+  });
 
-  for (const kp of keywordPatterns) {
-    if (kp.pattern.test(content)) {
-      addTag(kp.tag);
-      if (kp.nsTag) addTag(kp.nsTag);
-    }
-  }
-
-  // 自动推断 type: 和 source: 命名空间标签
-  const typeTag = inferTypeTag(content);
-  if (typeTag) addTag(typeTag);
-  const sourceTag = inferSourceTag(content);
-  if (sourceTag) addTag(sourceTag);
-
-  // 如果内容涉及技术栈，添加 domain:技术
-  const techSignals = /(?:react|vue|angular|typescript|javascript|python|docker|kubernetes|database|api|frontend|backend|devops)/i;
-  if (techSignals.test(content)) {
-    addTag('domain:技术');
-  }
-
-  return tags.slice(0, 12); // 最多 12 个标签（含命名空间）
+  return tags.slice(0, 8); // 最多 8 个标签（精简，避免标签碎片化）
 }
 
 export async function autoRemember(input: AutoRememberInput): Promise<AutoRememberResult> {

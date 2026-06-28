@@ -166,9 +166,63 @@ export function inferProjectPathFromContent(content: string, title = ''): string
   return undefined;
 }
 
-function addUnique(values: string[], value: string): void {
-  const key = value.toLowerCase();
-  if (!values.some(v => v.toLowerCase() === key)) values.push(value);
+/**
+ * 标签清洗规则。
+ *
+ * 设计原则：标签是 agent 检索记忆的"快捷命中词"，必须简短、有意义、可聚类。
+ * 用户反馈：标签云里充斥 scope:global、project:Migrated/Hermes、~/dev/xxx 路径、
+ * 日期版本号等无意义标签，把整个标签体系搞得乱糟糟。
+ *
+ * 过滤规则：
+ *  - 长度 2-30 字符：太短无意义，太长不是标签而是句子
+ *  - 禁止路径分隔符 / \ ~：路径不是标签
+ *  - 禁止换行符：多行文本不是标签
+ *  - 禁止命名空间前缀 type:/source:/kind:/scope:/domain:/project: 等
+ *  - 禁止纯标点/纯数字
+ *  - 禁止日期版本号（v2026-06-05、verified-2026-06-05）
+ *  - 禁止流程状态（step-2-done、8-of-8-pass、cli-stage）
+ *  - 禁止含括号的长描述
+ */
+const TAG_NAMESPACE_PREFIXES = /^(type|source|kind|scope|domain|project|sensitivity|layer|status):/i;
+const TAG_DATE_VERSION = /^v?\d{4}-\d{2}-\d{2}|^verified-\d{4}|^fixed-\d{4}|^global-rules-\d{4}/i;
+const TAG_PROCESS_STATE = /^(step-\d|cli-stage|final-result|pull-after-build|smoke-verification|\d+-of-\d+-pass)/i;
+
+export function isMeaningfulTag(tag: string): boolean {
+  const trimmed = tag.trim();
+  if (trimmed.length < 2 || trimmed.length > 30) return false;
+  if (TAG_NAMESPACE_PREFIXES.test(trimmed)) return false;
+  if (TAG_DATE_VERSION.test(trimmed)) return false;
+  if (TAG_PROCESS_STATE.test(trimmed)) return false;
+  if (/[\/\\~]/.test(trimmed)) return false;
+  if (/[\r\n]/.test(trimmed)) return false;
+  if (/^[\d\W_]+$/.test(trimmed)) return false;
+  if (trimmed.includes('（') || trimmed.includes('(')) return false;
+  return true;
+}
+
+export function cleanTag(tag: string): string {
+  return tag.trim().replace(/^["'""''「『]+|["'""''」』]+$/g, '');
+}
+
+/**
+ * 规范化标签数组：清洗 + 去重 + 过滤无意义标签。
+ *
+ * 在 normalizeMemoryInput / normalizeMemoryUpdate 中调用，
+ * 确保所有写入路径（MCP/REST/CLI/migration/adapter）的标签都经过清洗。
+ */
+export function normalizeTags(tags: string[] | undefined): string[] {
+  if (!tags || tags.length === 0) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const tag of tags) {
+    const cleaned = cleanTag(tag);
+    const key = cleaned.toLowerCase();
+    if (!seen.has(key) && isMeaningfulTag(cleaned)) {
+      seen.add(key);
+      result.push(cleaned);
+    }
+  }
+  return result.slice(0, 8); // 最多 8 个标签，避免标签碎片化
 }
 
 /**
@@ -226,14 +280,10 @@ export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInpu
   const kind = inferMemoryKind(contentResult.text, titleResult.text);
   // 未显式指定 layer 时按内容/元数据推断，避免上游一律传 long
   const layer = input.layer ?? inferMemoryLayer(titleResult.text, contentResult.text, redactedMetadata ?? input.metadata);
-  const tags = [...(input.tags ?? [])];
-  addUnique(tags, `kind:${kind}`);
-  if (inferredProjectPath) {
-    addUnique(tags, inferredProjectPath);
-    addUnique(tags, `project:${inferredProjectPath}`);
-  }
-  addUnique(tags, input.projectId || inferredProjectPath ? 'scope:project' : 'scope:global');
-  if (privacy) addUnique(tags, 'sensitivity:redacted');
+  // 标签策略：不再自动添加 kind:/project:/scope:/sensitivity: 命名空间标签。
+  // 这些信息已存在于 metadata.memoryKind、project_id 等字段中，用标签重复表达只会污染标签云。
+  // 标签的意义是让 agent 用简短的自然词快速命中记忆，不是元数据的副本。
+  const tags = normalizeTags(input.tags);
 
   const metadata = {
     schemaVersion: 2,
@@ -269,11 +319,13 @@ export function normalizeMemoryUpdate(input: UpdateMemoryInput, existing: Memory
     output.metadata = redactSensitiveValue(input.metadata, findings) as Record<string, unknown>;
   }
 
+  // 标签清洗：对传入的 tags 做规范化（过滤命名空间/路径/超长/日期版本等无意义标签）
+  if (input.tags !== undefined) {
+    output.tags = normalizeTags(input.tags);
+  }
+
   const privacy = privacyMetadata(findings);
   if (privacy) {
-    const tags = [...(input.tags ?? existing.tags ?? [])];
-    addUnique(tags, 'sensitivity:redacted');
-    output.tags = tags;
     output.metadata = {
       ...(existing.metadata ?? {}),
       ...(output.metadata ?? {}),
