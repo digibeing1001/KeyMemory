@@ -40,20 +40,11 @@ function extractTitle(content: string): string {
     return firstLine.length > 50 ? firstLine.slice(0, 50) + '...' : firstLine;
   }
 
-  // 尝试提取实体、项目名称或关键短语
+  // 提取项目名 [[xxx]] 作为标题（用户偏好：标题直接写内容，不加"项目笔记:"等前缀）
   const projectMatch = content.match(/\[\[([^\]]+)\]\]/);
   if (projectMatch) {
-    return `项目笔记: ${projectMatch[1]}`;
-  }
-
-  const personMatch = content.match(/@([\p{L}\p{N}_]+)/u);
-  if (personMatch) {
-    return `关于 @${personMatch[1]} 的笔记`;
-  }
-
-  const conceptMatch = content.match(/#([\p{L}\p{N}_]+)/u);
-  if (conceptMatch) {
-    return `#${conceptMatch[1]} 相关笔记`;
+    const name = projectMatch[1];
+    return name.length > 50 ? name.slice(0, 50) + '...' : name;
   }
 
   // 提取前几个有意义的词

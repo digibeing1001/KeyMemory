@@ -171,8 +171,51 @@ function addUnique(values: string[], value: string): void {
   if (!values.some(v => v.toLowerCase() === key)) values.push(value);
 }
 
+/**
+ * 标题前缀清洗。
+ *
+ * 用户反馈：agent 写入时喜欢加 "闪念:" "灵感:" "想法:" 等标签前缀，
+ * 但用户希望标题直接写内容，不要这些无意义前缀。
+ *
+ * 处理模式（循环剥离，最多 3 层）：
+ *  - [闪念] xxx   → xxx
+ *  - 闪念: xxx    → xxx
+ *  - 闪念：xxx    → xxx
+ *
+ * 关键词集合：闪念、灵感、想法、思考、洞察、感悟、心得、备忘、笔记、记录、参考、
+ *           idea、thought、note、flash
+ *
+ * 设计权衡：
+ *  - 只处理 "关键词 + 分隔符（冒号/中文冒号/方括号）" 形式
+ *  - 不剥离 "闪念 xxx"（空格分隔）以避免误伤 "闪念机制" 等正常短语
+ *  - 不剥离 "闪念来源" / "灵感库" 等无分隔符的合成词
+ *  - 循环剥离以应对 "闪念: 灵感: xxx" 这种叠加前缀
+ */
+const TITLE_PREFIX_KEYWORDS = [
+  '闪念', '灵感', '想法', '思考', '洞察', '感悟', '心得', '备忘', '笔记', '记录', '参考',
+  'idea', 'thought', 'note', 'flash',
+];
+const TITLE_PREFIX_PATTERN = new RegExp(
+  '^\\s*(?:' +
+    '\\[(' + TITLE_PREFIX_KEYWORDS.join('|') + ')\\]\\s*' +      // [闪念] xxx
+    '|' +
+    '(' + TITLE_PREFIX_KEYWORDS.join('|') + ')\\s*[:：]\\s*' +   // 闪念: xxx / 闪念：xxx
+  ')',
+  'iu'
+);
+
+export function stripTitlePrefix(title: string): string {
+  let stripped = title;
+  for (let i = 0; i < 3; i++) {
+    const next = stripped.replace(TITLE_PREFIX_PATTERN, '');
+    if (next === stripped) break;
+    stripped = next;
+  }
+  return stripped.trimStart();
+}
+
 export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInput {
-  const titleResult = redactSensitiveText(input.title);
+  const titleResult = redactSensitiveText(stripTitlePrefix(input.title));
   const contentResult = redactSensitiveText(input.content);
   const inferredProjectPath = input.projectPath ?? inferProjectPathFromContent(contentResult.text, titleResult.text);
   const metadataFindings: PrivacyFinding[] = [];
@@ -213,7 +256,7 @@ export function normalizeMemoryUpdate(input: UpdateMemoryInput, existing: Memory
   const output: UpdateMemoryInput = { ...input };
 
   if (input.title !== undefined) {
-    const result = redactSensitiveText(input.title);
+    const result = redactSensitiveText(stripTitlePrefix(input.title));
     output.title = result.text;
     findings.push(...result.findings);
   }
