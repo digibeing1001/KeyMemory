@@ -7,6 +7,8 @@ import { extractEntities, ensureEntity, linkMemoryEntity, processContent, autoAs
 import { ensureProjectPath } from './project.js';
 import { extractProjectPathFromContent, normalizeMemoryInput, normalizeMemoryUpdate } from './memory-schema.js';
 import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
+import { removeFromFts, insertIntoFts, refreshFts } from './fts-helpers.js';
+import { invalidateEmbeddingCache } from './embedding-cache.js';
 
 export function createMemory(input: CreateMemoryInput): Memory {
   const db = getDatabase();
@@ -459,6 +461,9 @@ export function revertToVersion(memoryId: string, version: number, reason?: stri
       createdAt: now,
     });
 
+    // 版本回退后刷新 FTS 索引，确保搜索到的是回退后的内容
+    refreshFts(db, memoryId);
+
     return getMemory(memoryId);
   })();
 }
@@ -574,8 +579,11 @@ export function deleteMemory(id: string, permanent = false): boolean {
       db.prepare(`DELETE FROM memory_entities WHERE memory_id = ?`).run(id);
       db.prepare(`DELETE FROM embeddings WHERE memory_id = ?`).run(id);
       deleteChunks(id);
+      invalidateEmbeddingCache(id);
       db.prepare(`DELETE FROM memories WHERE id = ?`).run(id);
     } else {
+      // 软删除时也必须从 FTS 索引中移除，否则已删除的记忆仍会被全文搜索命中
+      removeFromFts(db, id);
       db.prepare(`UPDATE memories SET status = 'deleted', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
     }
     return true;
@@ -610,6 +618,8 @@ export function restoreFromRecycleBin(id: string): Memory | null {
 
   const now = new Date().toISOString();
   db.prepare(`UPDATE memories SET status = 'active', decay_factor = 1.0, updated_at = ? WHERE id = ?`).run(now, id);
+  // 恢复后必须重建 FTS 索引，否则恢复的记忆无法被全文搜索到
+  insertIntoFts(db, id);
   return getMemory(id);
 }
 

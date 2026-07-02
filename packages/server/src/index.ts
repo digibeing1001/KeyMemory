@@ -20,7 +20,11 @@ async function main() {
     console.warn('Embedding initialization failed (semantic search unavailable):', (err as Error).message);
   }
 
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: true,
+    // 限制请求体最大 10MB，防止超大 payload 导致 DoS
+    bodyLimit: 10 * 1024 * 1024,
+  });
 
   await app.register(cors, { origin: createCorsOriginPolicy() });
 
@@ -48,9 +52,15 @@ async function main() {
 
   startScheduler();
 
-  const shutdown = () => {
+  const shutdown = async () => {
     clearInterval(dailyTimer);
     stopScheduler();
+    try {
+      // 优雅关闭 HTTP 服务器，等待活跃连接完成
+      await app.close();
+    } catch (err) {
+      console.error('Error closing HTTP server:', (err as Error).message);
+    }
     closeDatabase();
     process.exit(0);
   };

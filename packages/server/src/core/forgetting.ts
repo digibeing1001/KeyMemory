@@ -5,6 +5,7 @@ import { getDatabase } from '../db/sqlite.js';
 import { deleteChunks } from './chunking.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
 import { getMemory } from './atom.js';
+import { insertIntoFts } from './fts-helpers.js';
 
 export function applyDecay(): { flashDecayed: number; shortDecayed: number; longDecayed: number; autoArchived: number; demotedToShort: number; demotedToFlash: number } {
   const db = getDatabase();
@@ -139,7 +140,8 @@ export function forgetMemory(id: string, method: ForgetMethod): boolean {
     })();
   }
 
-  return true;
+  // method 类型已穷尽 ('archive' | 'decay' | 'delete')，不应到达此处
+  return false;
 }
 
 export function restoreMemory(id: string): boolean {
@@ -153,6 +155,11 @@ export function restoreMemory(id: string): boolean {
     UPDATE memories SET status = 'active', decay_factor = 1.0, confidence = 1.0, updated_at = ?
     WHERE id = ? AND status IN ('archived', 'decayed')
   `).run(now, id);
+
+  // 恢复成功后重建 FTS 索引，否则恢复的记忆无法被全文搜索到
+  if (result.changes > 0) {
+    insertIntoFts(db, id);
+  }
 
   return result.changes > 0;
 }

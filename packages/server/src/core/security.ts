@@ -2,6 +2,18 @@ function cleanHost(host: string): string {
   return host.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
 }
 
+import { timingSafeEqual } from 'crypto';
+
+/**
+ * 时序安全的字符串比较，防止基于响应时间差异的侧信道攻击。
+ * 当两个字符串长度不同时，先比较长度（不泄漏内容信息），
+ * 然后用 timingSafeEqual 比较内容部分。
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+}
+
 export function isLoopbackHost(host: string): boolean {
   const normalized = cleanHost(host);
   return normalized === 'localhost'
@@ -43,7 +55,9 @@ export function extractRequestApiKey(headers: Record<string, HeaderValue>): stri
 export function isApiRequestAuthorized(headers: Record<string, HeaderValue>): boolean {
   const configuredKey = process.env.KEYMEMORY_API_KEY;
   if (!configuredKey) return true;
-  return extractRequestApiKey(headers) === configuredKey;
+  const requestKey = extractRequestApiKey(headers);
+  if (!requestKey) return false;
+  return timingSafeStringEqual(requestKey, configuredKey);
 }
 
 export function shouldAuthenticateHttpPath(path: string): boolean {

@@ -25,7 +25,23 @@ import { autoRemember } from '../core/auto.js';
 import { extractTags } from '../core/auto.js';
 import { isApiRequestAuthorized, shouldAuthenticateHttpPath } from '../core/security.js';
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, startLoopRun } from '../core/loop-harness.js';
+import path from 'path';
 import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
+
+/**
+ * 校验导入路径安全性，防止 null byte 注入和明显的路径攻击
+ */
+function assertSafeImportPath(filePath: string): void {
+  // Null byte 注入防护：文件路径中不允许包含 null 字节
+  if (filePath.includes('\0')) {
+    throw new Error('Invalid file path: null bytes are not allowed');
+  }
+  // 解析为绝对路径并规范化，消除 .. 等潜在问题
+  const resolved = path.resolve(filePath);
+  if (resolved.length > 4096) {
+    throw new Error('File path too long (max 4096 characters)');
+  }
+}
 
 function safeParseTags(tags: string | null): string[] {
   if (!tags) return [];
@@ -493,6 +509,12 @@ export function registerRoutes(app: FastifyInstance): void {
       return { error: 'filePath is required' };
     }
     try {
+      assertSafeImportPath(body.filePath);
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
+    try {
       const backup = createMigrationBackup(body.createBackupBeforeImport, body.dryRun);
       const result = await migrateMemoriesFromPath(body.filePath, {
         format: body.format,
@@ -538,6 +560,12 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!body.path) {
       reply.code(400);
       return { error: 'path is required' };
+    }
+    try {
+      assertSafeImportPath(body.path);
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
     }
     try {
       const backup = createMigrationBackup(body.createBackupBeforeImport, body.dryRun);
