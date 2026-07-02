@@ -58,6 +58,12 @@ export interface AgentContext {
   agentId: string;
   isolationMode: IsolationMode;
   privateSpace: string;
+  /**
+   * 绑定到该上下文的用户 id。存在时表示 agent_space 已升级为 user-scoped
+   * (privateSpace 形如 `user:<userId>:agent:<agentId>`)。
+   * 缺省时保持旧行为(`agent:<agentId>`),向后兼容单用户模式。
+   */
+  userId?: string;
 }
 
 export interface RoutingDecision {
@@ -154,11 +160,13 @@ export function routeMemory(
   return { targetSpace: agentContext.privateSpace, confidence: 0.5, needsConfirmation: true, reason: 'default: private' };
 }
 
-export function createAgentContext(agentId: string, isolationMode: IsolationMode = 'hybrid'): AgentContext {
+export function createAgentContext(agentId: string, isolationMode: IsolationMode = 'hybrid', userId?: string): AgentContext {
+  const privateSpace = userId ? `user:${userId}:agent:${agentId}` : `agent:${agentId}`;
   return {
     agentId,
     isolationMode,
-    privateSpace: `agent:${agentId}`,
+    privateSpace,
+    userId,
   };
 }
 
@@ -167,9 +175,12 @@ export function createAgentContext(agentId: string, isolationMode: IsolationMode
  * 默认所有隔离模式下 agent 都能读到 global 与自身私有空间；
  * isolated 模式下严格只读自身私有空间（不读 global，避免全局记忆污染独立 agent）。
  * 该集合用于 context-pack / loop-harness / search 等读取路径的隔离过滤。
+ *
+ * 传入 userId 时,agent_space 升级为 user-scoped(`user:<userId>:agent:<agentId>`),
+ * 否则保持旧 `agent:<agentId>` 行为(向后兼容)。
  */
-export function visibleSpacesFor(agentId: string, isolationMode?: IsolationMode): string[] {
-  const privateSpace = `agent:${agentId}`;
+export function visibleSpacesFor(agentId: string, isolationMode?: IsolationMode, userId?: string): string[] {
+  const privateSpace = userId ? `user:${userId}:agent:${agentId}` : `agent:${agentId}`;
   if (isolationMode === 'isolated') return [privateSpace];
   return ['global', privateSpace];
 }

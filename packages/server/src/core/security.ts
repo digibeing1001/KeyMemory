@@ -1,3 +1,6 @@
+import { verifyToken } from './auth.js';
+import type { CallerContext } from './auth.js';
+
 function cleanHost(host: string): string {
   return host.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
 }
@@ -40,6 +43,24 @@ export function extractRequestApiKey(headers: Record<string, HeaderValue>): stri
   return undefined;
 }
 
+/**
+ * 从 `Authorization: Bearer <token>` 或 `x-user-token` header 提取 user token。
+ * 与 extractRequestApiKey 区分:后者用于旧的全局 API key,前者用于 per-user token。
+ */
+export function extractRequestToken(headers: Record<string, HeaderValue>): string | undefined {
+  const userToken = firstHeaderValue(headers['x-user-token'])?.trim();
+  if (userToken) return userToken;
+
+  const authorization = firstHeaderValue(headers.authorization)?.trim();
+  if (!authorization) return undefined;
+
+  const bearerPrefix = 'Bearer ';
+  if (authorization.startsWith(bearerPrefix)) {
+    return authorization.slice(bearerPrefix.length).trim();
+  }
+  return undefined;
+}
+
 export function isApiRequestAuthorized(headers: Record<string, HeaderValue>): boolean {
   const configuredKey = process.env.KEYMEMORY_API_KEY;
   if (!configuredKey) return true;
@@ -48,6 +69,32 @@ export function isApiRequestAuthorized(headers: Record<string, HeaderValue>): bo
 
 export function shouldAuthenticateHttpPath(path: string): boolean {
   return path === '/mcp' || path === '/api' || path.startsWith('/api/');
+}
+
+/**
+ * 不需要鉴权的路径白名单。这些路径在 preHandler 中跳过 caller 解析与 401 拦截。
+ */
+const PUBLIC_PATHS = new Set<string>([
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/health',
+]);
+
+export function isPublicPath(path: string): boolean {
+  return PUBLIC_PATHS.has(path);
+}
+
+/**
+ * 解析调用者上下文。先尝试 per-user token 鉴权,失败则返回 null。
+ * 上层(preHandler)决定 null 时是否放行:公开路径放行,其他路径 fallback 到旧 API key 模式或返回 401。
+ *
+ * 注意:此函数不处理旧 API key 的放行逻辑(那是 isApiRequestAuthorized 的职责)。
+ * 它只负责"如果带了 user token,解析出 caller"。
+ */
+export function resolveCaller(headers: Record<string, HeaderValue>): CallerContext | null {
+  const token = extractRequestToken(headers);
+  if (!token) return null;
+  return verifyToken(token);
 }
 
 function configuredOrigins(): string[] {

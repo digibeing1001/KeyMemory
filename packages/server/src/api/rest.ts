@@ -23,7 +23,19 @@ import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory, rowToLoopRunSummary } from '../db/mapper.js';
 import { autoRemember } from '../core/auto.js';
 import { extractTags } from '../core/auto.js';
-import { isApiRequestAuthorized, shouldAuthenticateHttpPath } from '../core/security.js';
+import { isApiRequestAuthorized, shouldAuthenticateHttpPath, isPublicPath, resolveCaller, extractRequestToken } from '../core/security.js';
+import {
+  authenticateUser,
+  createSession,
+  createUser,
+  revokeSession,
+  listAllUsers,
+  updateUserRole,
+  hasAnyUser,
+  getUserById,
+  type CallerContext,
+  type UserRole,
+} from '../core/auth.js';
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, startLoopRun } from '../core/loop-harness.js';
 import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
 
@@ -50,27 +62,210 @@ function loopHttpStatus(code: string | undefined): number {
   return 409;
 }
 
+/**
+ * 从 request 上读取 caller 上下文(preHandler 已写入)。
+ * 返回 undefined 表示当前请求是匿名(单用户/旧 API key 兼容模式)。
+ */
+function getCaller(request: FastifyRequest): CallerContext | undefined {
+  return (request as any).user as CallerContext | undefined;
+}
+
+/**
+ * 判断 caller 是否可看全部数据(boss/admin),或仅看自己 owner_user_id 的数据。
+ * caller 为 undefined 时(匿名/旧模式)返回 true,保持旧行为(不过滤)。
+ */
+function callerIsAdminOrAnonymous(caller: CallerContext | undefined): boolean {
+  if (!caller) return true;
+  return caller.role === 'boss' || caller.role === 'admin';
+}
+
+/**
+ * 在 list 路由层对已映射的 Memory[] 做 owner_user_id 过滤:
+ * - boss/admin/匿名 看全部(不过滤)
+ * - member/exec/pm 只看 owner_user_id = 自己 id 的数据,以及 owner_user_id 为 NULL 的旧数据(向后兼容)
+ *
+ * 由于 Memory 类型不带 ownerUserId,这里批量查询一次 DB 拿到 id→owner_user_id 映射。
+ */
+function filterMemoriesByOwner<T extends { id: string }>(items: T[], caller: CallerContext | undefined, table: 'memories' | 'projects' | 'loop_runs' = 'memories'): T[] {
+  if (callerIsAdminOrAnonymous(caller)) return items;
+  if (items.length === 0) return items;
+  const db = getDatabase();
+  const ids = items.map(m => m.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT id, owner_user_id FROM ${table} WHERE id IN (${placeholders})`).all(...ids) as { id: string; owner_user_id: string | null }[];
+  const ownerMap = new Map<string, string | null>();
+  for (const r of rows) ownerMap.set(r.id, r.owner_user_id);
+  const uid = caller!.userId;
+  return items.filter(m => {
+    const owner = ownerMap.get(m.id);
+    return !owner || owner === uid;
+  });
+}
+
+/**
+ * 在 list 路由层对原始 DB 行(尚未映射)做 owner_user_id 过滤。
+ * 用于 recent-hits / recent-created / loop-runs 等直接 SQL 查询的端点。
+ */
+function filterRawRowsByOwner(rows: Record<string, unknown>[], caller: CallerContext | undefined): Record<string, unknown>[] {
+  if (callerIsAdminOrAnonymous(caller)) return rows;
+  const uid = caller!.userId;
+  return rows.filter(r => {
+    const owner = r.owner_user_id as string | null | undefined;
+    return !owner || owner === uid;
+  });
+}
+
+const ADMIN_ROLES: UserRole[] = ['boss', 'admin'];
+
+function requireAdmin(reply: any, caller: CallerContext | undefined): boolean {
+  if (caller && ADMIN_ROLES.includes(caller.role)) return true;
+  reply.code(403);
+  reply.send({ error: 'Forbidden: admin or boss role required' });
+  return false;
+}
+
 export function registerRoutes(app: FastifyInstance): void {
   const apiKey = process.env.KEYMEMORY_API_KEY;
 
-  // 简单的 API Key 认证（仅在 API Key 存在时启用）
-  if (apiKey) {
-    app.addHook('preHandler', async (request: FastifyRequest, reply) => {
-      // 健康检查端点不需要认证
-      if (request.url === '/api/health') return;
+  // 鉴权 preHandler:
+  // 1. 公开路径(/api/auth/login, /api/auth/register, /api/health)直接放行
+  // 2. 先尝试 per-user token 鉴权,成功则写入 request.user
+  // 3. 失败则 fallback 到旧 API key 模式:若 KEYMEMORY_API_KEY 配置且校验失败,返回 401
+  //    若未配置 KEYMEMORY_API_KEY,放行(单用户匿名模式,向后兼容)
+  app.addHook('preHandler', async (request: FastifyRequest, reply) => {
+    const path = request.url.split('?')[0];
 
-      const path = request.url.split('?')[0];
-      if (!shouldAuthenticateHttpPath(path) || path === '/api/health') return;
+    // 公开路径直接放行(但仍尝试解析 caller,以便 /api/auth/register 判断首个用户)
+    const caller = resolveCaller(request.headers as Record<string, string | string[] | undefined>);
+    if (caller) {
+      (request as any).user = caller;
+    }
 
+    if (isPublicPath(path)) return;
+
+    if (!shouldAuthenticateHttpPath(path)) return;
+
+    // 已通过 token 鉴权
+    if (caller) return;
+
+    // fallback 旧 API key 模式
+    if (apiKey) {
       if (!isApiRequestAuthorized(request.headers as Record<string, string | string[] | undefined>)) {
-        return reply.code(401).send({ error: 'Unauthorized: invalid API key' });
+        return reply.code(401).send({ error: 'Unauthorized: invalid token or API key' });
       }
-    });
-  }
+      return;
+    }
+
+    // 未配置 apiKey 也未带 token:单用户匿名模式,放行(向后兼容)
+  });
 
   app.get('/api/health', async () => {
     const stats = getLayerStats();
     return { status: 'ok', timestamp: new Date().toISOString(), stats };
+  });
+
+  // ===== Auth Routes =====
+
+  // 注册:
+  // - 系统尚无任何用户时,首个注册者自动成为 boss(主账户),无需鉴权
+  // - 已有用户时,需 boss/admin token 才能注册新成员
+  app.post('/api/auth/register', async (request, reply) => {
+    const body = request.body as { name?: string; email?: string; password?: string; role?: UserRole };
+    if (!body.name || !body.email || !body.password) {
+      reply.code(400);
+      return { error: 'name, email, and password are required' };
+    }
+    const noUserYet = !hasAnyUser();
+    const caller = getCaller(request);
+    if (!noUserYet) {
+      // 已有用户:必须有 boss/admin 权限
+      if (!requireAdmin(reply, caller)) return;
+    }
+    const role: UserRole = noUserYet ? 'boss' : (body.role ?? 'member');
+    try {
+      const user = createUser({
+        name: body.name,
+        email: body.email,
+        password: body.password,
+        role,
+        isMainAccount: noUserYet,
+      });
+      const session = createSession(user.id);
+      reply.code(201);
+      return { token: session.token, expiresAt: session.expiresAt, user };
+    } catch (err) {
+      reply.code(409);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.post('/api/auth/login', async (request, reply) => {
+    const body = request.body as { email?: string; password?: string };
+    if (!body.email || !body.password) {
+      reply.code(400);
+      return { error: 'email and password are required' };
+    }
+    const user = authenticateUser(body.email, body.password);
+    if (!user) {
+      reply.code(401);
+      return { error: 'Invalid email or password' };
+    }
+    const session = createSession(user.id);
+    return { token: session.token, expiresAt: session.expiresAt, user };
+  });
+
+  app.post('/api/auth/logout', async (request, reply) => {
+    const token = extractRequestToken(request.headers as Record<string, string | string[] | undefined>);
+    if (!token) {
+      reply.code(400);
+      return { error: 'No token provided' };
+    }
+    revokeSession(token);
+    return { success: true };
+  });
+
+  app.get('/api/auth/me', async (request, reply) => {
+    const caller = getCaller(request);
+    if (!caller) {
+      reply.code(401);
+      return { error: 'Not authenticated' };
+    }
+    const user = getUserById(caller.userId);
+    if (!user) {
+      reply.code(404);
+      return { error: 'User not found' };
+    }
+    return { user };
+  });
+
+  // 列出用户(仅 boss/admin)
+  app.get('/api/users', async (request, reply) => {
+    const caller = getCaller(request);
+    if (!requireAdmin(reply, caller)) return;
+    return { users: listAllUsers() };
+  });
+
+  // 更新用户角色(仅 boss/admin)
+  app.patch('/api/users/:id', async (request, reply) => {
+    const caller = getCaller(request);
+    if (!requireAdmin(reply, caller)) return;
+    const { id } = request.params as { id: string };
+    const body = request.body as { role?: UserRole };
+    if (!body.role) {
+      reply.code(400);
+      return { error: 'role is required' };
+    }
+    const validRoles: UserRole[] = ['boss', 'exec', 'pm', 'member', 'admin'];
+    if (!validRoles.includes(body.role)) {
+      reply.code(400);
+      return { error: `role must be one of: ${validRoles.join(', ')}` };
+    }
+    const updated = updateUserRole(id, body.role);
+    if (!updated) {
+      reply.code(404);
+      return { error: 'User not found' };
+    }
+    return { user: updated };
   });
 
   app.post('/api/memories', async (request, reply) => {
@@ -106,7 +301,8 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.get('/api/memories', async (request) => {
     const query = request.query as Record<string, string>;
-    return listMemories({
+    const caller = getCaller(request);
+    const memories = listMemories({
       layer: query.layer as Layer | undefined,
       projectId: query.projectId,
       includeDescendants: query.includeDescendants === 'true',
@@ -114,6 +310,7 @@ export function registerRoutes(app: FastifyInstance): void {
       limit: query.limit ? parseInt(query.limit, 10) : undefined,
       offset: query.offset ? parseInt(query.offset, 10) : undefined,
     });
+    return filterMemoriesByOwner(memories, caller);
   });
 
   // 近期工作集：按 last_hit_at 倒序返回近期被命中的记忆，让 UI 能直接展示"系统在流动"
@@ -122,6 +319,7 @@ export function registerRoutes(app: FastifyInstance): void {
   app.get('/api/memories/recent-hits', async (request) => {
     const query = request.query as Record<string, string>;
     const limit = query.limit ? Math.min(parseInt(query.limit, 10) || 20, 100) : 20;
+    const caller = getCaller(request);
     const db = getDatabase();
     const rows = db.prepare(`
       SELECT * FROM memories
@@ -129,13 +327,14 @@ export function registerRoutes(app: FastifyInstance): void {
       ORDER BY last_hit_at DESC
       LIMIT ?
     `).all(limit) as Record<string, unknown>[];
-    return rows.map(rowToMemory);
+    return filterRawRowsByOwner(rows, caller).map(rowToMemory);
   });
 
   // 近期创建工作集：按 created_at 倒序返回最近写入的记忆，让用户能看到"系统在产出"
   app.get('/api/memories/recent-created', async (request) => {
     const query = request.query as Record<string, string>;
     const limit = query.limit ? Math.min(parseInt(query.limit, 10) || 20, 100) : 20;
+    const caller = getCaller(request);
     const db = getDatabase();
     const rows = db.prepare(`
       SELECT * FROM memories
@@ -143,7 +342,7 @@ export function registerRoutes(app: FastifyInstance): void {
       ORDER BY created_at DESC
       LIMIT ?
     `).all(limit) as Record<string, unknown>[];
-    return rows.map(rowToMemory);
+    return filterRawRowsByOwner(rows, caller).map(rowToMemory);
   });
 
   app.get('/api/memories/:id', async (request, reply) => {
@@ -329,7 +528,8 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!body.agentSpaces) {
       const agentId = (request.headers['x-agent-id'] as string) || 'hermes';
       const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode) || 'hybrid';
-      body.agentSpaces = visibleSpacesFor(agentId, isolationMode);
+      const caller = getCaller(request);
+      body.agentSpaces = visibleSpacesFor(agentId, isolationMode, caller?.userId);
     }
     return buildAgentContextPack(body);
   });
@@ -340,17 +540,18 @@ export function registerRoutes(app: FastifyInstance): void {
   app.get('/api/loop/runs', async (request) => {
     const query = request.query as Record<string, string>;
     const limit = query.limit ? Math.min(parseInt(query.limit, 10) || 20, 100) : 20;
+    const caller = getCaller(request);
     const db = getDatabase();
     const rows = db.prepare(`
       SELECT id, objective, project_id, project_path, agent_id, status,
              checkpoint_version, last_event_sequence, trace_id,
              lease_owner, lease_expires_at, metadata,
-             created_at, updated_at, completed_at
+             created_at, updated_at, completed_at, owner_user_id
       FROM loop_runs
       ORDER BY updated_at DESC
       LIMIT ?
     `).all(limit) as Record<string, unknown>[];
-    return rows.map(rowToLoopRunSummary);
+    return filterRawRowsByOwner(rows, caller).map(rowToLoopRunSummary);
   });
 
   app.post('/api/loop/runs', async (request, reply) => {
@@ -406,7 +607,8 @@ export function registerRoutes(app: FastifyInstance): void {
       isolationMode?: IsolationMode;
       customRules?: { pattern: string; targetSpace: string; priority: number }[];
     };
-    const ctx = createAgentContext(agentId, isolationMode);
+    const caller = getCaller(request);
+    const ctx = createAgentContext(agentId, isolationMode, caller?.userId);
     return routeMemory(content, layer, ctx, customRules);
   });
 
@@ -1133,8 +1335,10 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   // Project routes
-  app.get('/api/projects', async () => {
-    return listProjects();
+  app.get('/api/projects', async (request) => {
+    const caller = getCaller(request);
+    const projects = listProjects();
+    return filterMemoriesByOwner(projects, caller, 'projects');
   });
 
   app.post('/api/projects', async (request, reply) => {
@@ -1194,7 +1398,8 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.get('/api/projects/:id/children', async (request, reply) => {
     const { id } = request.params as { id: string };
-    return listProjects(id);
+    const caller = getCaller(request);
+    return filterMemoriesByOwner(listProjects(id), caller, 'projects');
   });
 
   app.get('/api/projects/:id/descendants', async (request, reply) => {

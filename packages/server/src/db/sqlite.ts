@@ -346,6 +346,34 @@ function runMigrations(db: Database.Database): void {
       UNIQUE(run_id, sequence),
       FOREIGN KEY (run_id) REFERENCES loop_runs(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
+      is_main_account INTEGER DEFAULT 0,
+      user_status TEXT NOT NULL DEFAULT 'active',
+      company_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      last_used_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
   `);
 
   db.exec(`
@@ -395,6 +423,11 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memory_relations ADD COLUMN reason TEXT',
     'ALTER TABLE loop_runs ADD COLUMN request_hash TEXT',
     'ALTER TABLE loop_checkpoints ADD COLUMN memory_refs TEXT NOT NULL DEFAULT \'[]\'',
+    'ALTER TABLE memories ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE projects ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE loop_runs ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE tool_secrets ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE isolation_rules ADD COLUMN owner_user_id TEXT',
   ];
   for (const stmt of alterStatements) {
     try {
@@ -431,6 +464,9 @@ CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
 CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
     CREATE INDEX IF NOT EXISTS idx_project_suggestions_status ON project_suggestions(status);
+    CREATE INDEX IF NOT EXISTS idx_memories_owner_user ON memories(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_projects_owner_user ON projects(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_loop_runs_owner_user ON loop_runs(owner_user_id);
   `);
 
   ensureWelcomeMemory(db);

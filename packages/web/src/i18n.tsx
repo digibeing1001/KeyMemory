@@ -63,6 +63,7 @@ const zh: Record<string, string> = {
   'nav.organize': '项目整理',
   'nav.recycle': '回收站',
   'nav.workingSet': '工作集',
+  'nav.users': '用户',
 
   'sidebar.subtitle': '给 Agent 使用的长期记忆',
   'sidebar.newMemory': '新建记忆',
@@ -343,6 +344,7 @@ const en: Record<string, string> = {
   'nav.organize': 'Project cleanup',
   'nav.recycle': 'Recycle bin',
   'nav.workingSet': 'Working set',
+  'nav.users': 'Users',
 
   'sidebar.subtitle': 'Long-term memory for agents',
   'sidebar.newMemory': 'New memory',

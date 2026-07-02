@@ -201,3 +201,7 @@ export const Box: FC<IconProps> = (p) => (
 export const Sliders: FC<IconProps> = (p) => (
   <I {...p}><path d="M4 6h2M14 6h2M8 6h2M4 12h8M14 12h2M4 18h2M10 18h6" /><path d="M8 4v4M12 10v4M6 16v4" /></I>
 );
+
+export const LogOut: FC<IconProps> = (p) => (
+  <I {...p}><path d="M11 3H5a2 2 0 00-2 2v10a2 2 0 002 2h6M14 6l4 4-4 4M18 10H8" /></I>
+);

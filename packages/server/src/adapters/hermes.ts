@@ -8,10 +8,11 @@ import type { MemorySearchOptions } from './base.js';
 interface HermesAdapterOptions {
   agentId: string;
   isolationMode?: IsolationMode;
+  userId?: string;
 }
 
 export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapter {
-  const ctx = createAgentContext(options.agentId, options.isolationMode ?? 'hybrid');
+  const ctx = createAgentContext(options.agentId, options.isolationMode ?? 'hybrid', options.userId);
   // 预计算可见空间集合，供 search/context-pack 等读取路径做 pre-filter
   const accessibleSpaces = ctx.isolationMode === 'isolated'
     ? [ctx.privateSpace]

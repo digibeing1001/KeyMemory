@@ -7,6 +7,7 @@ import { canonicalToolName, MCP_TOOLS, MCP_RESOURCES, MCP_PROMPTS } from '../cor
 import { executeMcpTool } from '../core/mcp-executor.js';
 import type { IsolationMode } from '@keymemory/shared';
 import type { MemoryAdapter } from '../adapters/base.js';
+import { verifyToken } from '../core/auth.js';
 
 interface MCPRequest {
   jsonrpc: '2.0';
@@ -19,9 +20,19 @@ function getAdapter(request: FastifyRequest): MemoryAdapter {
   const agentType = request.headers['x-agent-type'] as string | undefined;
   const agentId = (request.headers['x-agent-id'] as string) || (agentType === 'openclaw' ? 'openclaw' : 'hermes');
   const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode) || 'hybrid';
+
+  // 从 header 读 x-user-token,如有则解析出 userId 传给 createAgentContext,
+  // 使 agent_space 升级为 user-scoped。没有则保持旧行为(向后兼容)。
+  let userId: string | undefined;
+  const userToken = (request.headers['x-user-token'] as string | undefined)?.trim();
+  if (userToken) {
+    const caller = verifyToken(userToken);
+    if (caller) userId = caller.userId;
+  }
+
   // openclaw 与 hermes 都从 header 创建带隔离的 adapter，确保每个请求用对应 agent 的可见空间
-  if (agentType === 'openclaw') return createOpenClawAdapter({ agentId, isolationMode });
-  return createHermesAdapter({ agentId, isolationMode });
+  if (agentType === 'openclaw') return createOpenClawAdapter({ agentId, isolationMode, userId });
+  return createHermesAdapter({ agentId, isolationMode, userId });
 }
 
 export function registerMCPRoutes(app: FastifyInstance): void {

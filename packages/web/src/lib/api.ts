@@ -2,6 +2,24 @@ import type { AgentContextPack, AgentContextPackRequest, Memory, Layer, CreateMe
 
 const BASE = '/api';
 const API_KEY_STORAGE_KEY = 'keymemory_api_key';
+const USER_TOKEN_STORAGE_KEY = 'keymemory_user_token';
+
+export type UserRole = 'boss' | 'exec' | 'pm' | 'member' | 'admin';
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  isMainAccount: boolean;
+  userStatus: string;
+  companyId: string | null;
+}
+
+export interface ListedUser extends AuthUser {
+  createdAt: string;
+  updatedAt: string;
+}
 
 export class ApiUnauthorizedError extends Error {
   constructor(message = 'Unauthorized') {
@@ -27,12 +45,37 @@ export function clearStoredApiKey(): void {
   sessionStorage.removeItem(API_KEY_STORAGE_KEY);
 }
 
+// === 用户 token（多用户鉴权）===
+export function getUserToken(): string {
+  return sessionStorage.getItem(USER_TOKEN_STORAGE_KEY) ?? '';
+}
+
+export function setUserToken(token: string): void {
+  const trimmed = token.trim();
+  if (trimmed) {
+    sessionStorage.setItem(USER_TOKEN_STORAGE_KEY, trimmed);
+  } else {
+    sessionStorage.removeItem(USER_TOKEN_STORAGE_KEY);
+  }
+}
+
+export function clearUserToken(): void {
+  sessionStorage.removeItem(USER_TOKEN_STORAGE_KEY);
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body != null;
   const isMutating = options?.method === 'POST' || options?.method === 'PUT' || options?.method === 'PATCH';
   const headers: Record<string, string> = (hasBody || isMutating) ? { 'Content-Type': 'application/json' } : {};
-  const apiKey = getStoredApiKey();
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  // 优先使用用户 token；如无则回退到旧 API key（向后兼容）
+  const userToken = getUserToken();
+  if (userToken) {
+    headers.Authorization = `Bearer ${userToken}`;
+    headers['x-user-token'] = userToken;
+  } else {
+    const apiKey = getStoredApiKey();
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  }
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: { ...headers, ...(options?.headers as Record<string, string> | undefined) },
@@ -46,6 +89,51 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.error || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+// === 鉴权 API ===
+export interface AuthLoginResponse {
+  token: string;
+  expiresAt?: string;
+  user: AuthUser;
+}
+
+export async function authLogin(email: string, password: string): Promise<AuthLoginResponse> {
+  return request<AuthLoginResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function authRegister(input: {
+  name: string;
+  email: string;
+  password: string;
+  role?: UserRole;
+}): Promise<AuthLoginResponse> {
+  return request<AuthLoginResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function authLogout(): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/auth/logout', { method: 'POST' });
+}
+
+export async function authMe(): Promise<{ user: AuthUser }> {
+  return request<{ user: AuthUser }>('/auth/me');
+}
+
+export async function listUsers(): Promise<{ users: ListedUser[] }> {
+  return request<{ users: ListedUser[] }>('/users');
+}
+
+export async function updateUserRole(id: string, role: UserRole): Promise<{ user: AuthUser }> {
+  return request<{ user: AuthUser }>(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role }),
+  });
 }
 
 export async function getHealth(): Promise<HealthReport & { status: string; timestamp: string }> {
