@@ -150,9 +150,16 @@ export default function Sidebar({
         <div>
           <h1 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0, lineHeight: 1.4 }}>
             KeyMemory
+            {user && (
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginLeft: 6 }}>
+                · {user.name}
+              </span>
+            )}
           </h1>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.45 }}>
-            {t('sidebar.subtitle')}
+            {user?.companyId
+              ? `${user.companyId} · ${t('sidebar.subtitle')}`
+              : t('sidebar.subtitle')}
           </p>
         </div>
         <button

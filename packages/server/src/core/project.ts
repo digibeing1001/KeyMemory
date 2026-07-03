@@ -9,6 +9,7 @@ export function createProject(input: {
   parentId?: string | null;
   description?: string;
   metadata?: Record<string, unknown>;
+  ownerUserId?: string;
 }): Project {
   const db = getDatabase();
   const now = new Date().toISOString();
@@ -26,8 +27,8 @@ export function createProject(input: {
   }
 
   db.prepare(`
-    INSERT INTO projects (id, parent_id, name, description, path, depth, created_at, updated_at, metadata)
-    VALUES (@id, @parentId, @name, @description, @path, @depth, @createdAt, @updatedAt, @metadata)
+    INSERT INTO projects (id, parent_id, name, description, path, depth, created_at, updated_at, metadata, owner_user_id)
+    VALUES (@id, @parentId, @name, @description, @path, @depth, @createdAt, @updatedAt, @metadata, @ownerUserId)
   `).run({
     id,
     parentId: input.parentId ?? null,
@@ -38,6 +39,7 @@ export function createProject(input: {
     createdAt: now,
     updatedAt: now,
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+    ownerUserId: input.ownerUserId ?? null,
   });
 
   return {
@@ -60,14 +62,27 @@ export function getProject(id: string): Project | null {
   return rowToProject(row);
 }
 
-export function listProjects(parentId?: string | null): Project[] {
+export function listProjects(parentId?: string | null, ownerUserId?: string): Project[] {
   const db = getDatabase();
   let rows: Record<string, unknown>[];
 
+  // ownerUserId 提供时:只看自己的项目 + owner_user_id 为 NULL 的旧项目(向后兼容)
+  const ownerClause = ownerUserId
+    ? '(owner_user_id = ? OR owner_user_id IS NULL)'
+    : '';
+
   if (parentId === undefined) {
-    rows = db.prepare('SELECT * FROM projects ORDER BY path').all() as Record<string, unknown>[];
+    if (ownerUserId) {
+      rows = db.prepare(`SELECT * FROM projects WHERE ${ownerClause} ORDER BY path`).all(ownerUserId) as Record<string, unknown>[];
+    } else {
+      rows = db.prepare('SELECT * FROM projects ORDER BY path').all() as Record<string, unknown>[];
+    }
   } else {
-    rows = db.prepare('SELECT * FROM projects WHERE parent_id IS ? ORDER BY path').all(parentId) as Record<string, unknown>[];
+    if (ownerUserId) {
+      rows = db.prepare(`SELECT * FROM projects WHERE parent_id IS ? AND ${ownerClause} ORDER BY path`).all(parentId, ownerUserId) as Record<string, unknown>[];
+    } else {
+      rows = db.prepare('SELECT * FROM projects WHERE parent_id IS ? ORDER BY path').all(parentId) as Record<string, unknown>[];
+    }
   }
 
   return rows.map(rowToProject);

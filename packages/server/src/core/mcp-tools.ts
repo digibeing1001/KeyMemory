@@ -110,6 +110,8 @@ const loopRunStartSchema = {
     leaseOwner: { type: 'string', description: 'Worker instance currently responsible for the run.' },
     leaseTtlSeconds: { type: 'number', minimum: 15, maximum: 3600, description: 'Lease lifetime. Default 60 seconds.' },
     metadata: { type: 'object', description: 'Structured run metadata. Secrets are redacted before persistence.' },
+    tokenBudget: { type: 'number', minimum: 1, description: 'Optional hard cap on total tokens used by the run. When tokenUsed >= tokenBudget the circuit breaker fires (circuit-breaker.token-budget).' },
+    costUsdBudget: { type: 'number', minimum: 0, description: 'Optional hard cap on total USD cost for the run. Tracked but not currently enforced as a breaker; use for observability and audit.' },
     ...loopBudgetProperties,
   },
   required: ['objective', 'agentId', 'idempotencyKey', 'leaseOwner'],
@@ -147,6 +149,9 @@ const loopCheckpointSchema = {
     eventName: { type: 'string', description: 'Optional stable event name. Default loop.checkpoint.saved.' },
     severity: { type: 'string', enum: ['debug', 'info', 'warn', 'error'] },
     spanId: { type: 'string', description: 'Optional caller trace span ID.' },
+    tokenUsage: { type: 'number', minimum: 0, description: 'Tokens consumed by this attempt. Accumulated into run.tokenUsed. When the running total reaches tokenBudget the circuit breaker fires.' },
+    attemptOutcome: { type: 'string', enum: ['success', 'failure', 'noop'], description: 'Outcome of this attempt. success resets consecutiveFailures to 0; failure increments it (circuit-breaker.no-progress at 5, stagnation at 3 identical signatures); noop leaves the counter unchanged.' },
+    error: { type: 'string', description: 'Failure message. When attemptOutcome=failure a normalized errorSignature is derived and stored for stagnation detection.' },
   },
   required: ['runId', 'expectedVersion', 'idempotencyKey', 'leaseOwner', 'phase', 'summary'],
 };
@@ -164,6 +169,9 @@ const loopFinishSchema = {
     artifacts: { type: 'array', items: { type: 'string' } },
     memoryRefs: { type: 'array', items: { type: 'string' }, description: 'IDs of validated durable memories produced by the run.' },
     spanId: { type: 'string', description: 'Optional caller trace span ID.' },
+    tokenUsage: { type: 'number', minimum: 0, description: 'Tokens consumed by this terminal attempt. Accumulated into run.tokenUsed for final audit.' },
+    attemptOutcome: { type: 'string', enum: ['success', 'failure', 'noop'], description: 'Outcome of the terminal attempt. When omitted, derived from status: completed->success, failed->failure, cancelled->noop.' },
+    error: { type: 'string', description: 'Failure message for failed runs. When status=failed or attemptOutcome=failure a normalized errorSignature is derived and stored.' },
   },
   required: ['runId', 'expectedVersion', 'idempotencyKey', 'leaseOwner', 'status', 'summary'],
 };

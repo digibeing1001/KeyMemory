@@ -324,6 +324,165 @@ assert.ok(backup.tables.loop_events);
 
 await app.close();
 
+// ===== Circuit breaker & token budget tests =====
+// 触发顺序：stagnation(3) → no-progress(5) → token-budget → max-iterations(10)
+//   tokenUsed >= tokenBudget 用 >=；checkpointVersion >= maxIterations 用 >=
+
+// 1. token-budget 熔断：tokenBudget=1000，累加到 1100 触发
+const budgetStart = await call('memory_loop_start', {
+  objective: 'Token budget breaker test',
+  project: 'LoopEval/Breaker',
+  agentId: 'loop-agent',
+  idempotencyKey: 'start-breaker-budget-001',
+  leaseOwner: 'breaker-worker',
+  leaseTtlSeconds: 120,
+  tokenBudget: 1000,
+});
+const budgetRunId = budgetStart.data.run.id;
+assert.equal(budgetStart.data.run.tokenBudget, 1000);
+assert.equal(budgetStart.data.run.tokenUsed, 0);
+assert.equal(budgetStart.data.circuitBreaker.triggered, false);
+assert.equal(budgetStart.data.circuitBreaker.maxIterations, 10);
+
+const budgetCp1 = await call('memory_loop_checkpoint', {
+  runId: budgetRunId,
+  expectedVersion: 0,
+  idempotencyKey: 'breaker-budget-cp1',
+  leaseOwner: 'breaker-worker',
+  phase: 'execute',
+  summary: 'First attempt used 600 tokens.',
+  tokenUsage: 600,
+  attemptOutcome: 'success',
+});
+assert.equal(budgetCp1.data.run.tokenUsed, 600);
+assert.equal(budgetCp1.data.run.consecutiveFailures, 0);
+assert.equal(budgetCp1.status, 'success');
+assert.equal(budgetCp1.data.circuitBreaker.triggered, false);
+
+const budgetCp2 = await call('memory_loop_checkpoint', {
+  runId: budgetRunId,
+  expectedVersion: 1,
+  idempotencyKey: 'breaker-budget-cp2',
+  leaseOwner: 'breaker-worker',
+  phase: 'execute',
+  summary: 'Second attempt used 500 more tokens, exceeding budget.',
+  tokenUsage: 500,
+  attemptOutcome: 'failure',
+  error: 'Build failed at /src/index.ts:42 with exit code 1',
+});
+assert.equal(budgetCp2.data.run.tokenUsed, 1100);
+assert.equal(budgetCp2.data.run.consecutiveFailures, 1);
+// tokenUsed(1100) >= tokenBudget(1000) → circuit-breaker.token-budget fires
+assert.equal(budgetCp2.status, 'warning');
+assert.equal(budgetCp2.data.circuitBreaker.triggered, true);
+assert.match(budgetCp2.data.circuitBreaker.reason, /token-budget/);
+
+// 2. stagnation 熔断：3 次相同 errorSignature 触发（stagnationThreshold=3）
+const stagnationStart = await call('memory_loop_start', {
+  objective: 'Stagnation breaker test',
+  project: 'LoopEval/Breaker',
+  agentId: 'loop-agent',
+  idempotencyKey: 'start-breaker-stagnation-001',
+  leaseOwner: 'breaker-worker',
+  leaseTtlSeconds: 120,
+});
+const stagnationRunId = stagnationStart.data.run.id;
+const sameError = 'TypeError: Cannot read property x at /app/handler.js:88';
+for (let i = 0; i < 3; i++) {
+  const cp = await call('memory_loop_checkpoint', {
+    runId: stagnationRunId,
+    expectedVersion: i,
+    idempotencyKey: `breaker-stagnation-cp-${i}`,
+    leaseOwner: 'breaker-worker',
+    phase: 'execute',
+    summary: `Failure attempt ${i + 1} with the same error.`,
+    attemptOutcome: 'failure',
+    error: sameError,
+  });
+  if (i < 2) {
+    assert.equal(cp.status, 'success', `stagnation should not fire before 3 (i=${i})`);
+    assert.equal(cp.data.circuitBreaker.triggered, false);
+  } else {
+    assert.equal(cp.data.run.consecutiveFailures, 3);
+    assert.equal(cp.status, 'warning', `stagnation should fire at i=${i}`);
+    assert.equal(cp.data.circuitBreaker.triggered, true);
+    assert.match(cp.data.circuitBreaker.reason, /stagnation/);
+  }
+}
+
+// 3. no-progress 熔断：5 次结构不同 errorSignature 的连续失败触发（noProgressThreshold=5）
+//    注意：errorSignature 会把数字替换为 #，所以仅数字不同的错误会归一为相同签名。
+//    这里用结构不同的错误文本确保签名各异，从而隔离 no-progress 分支。
+const noProgressStart = await call('memory_loop_start', {
+  objective: 'No-progress breaker test',
+  project: 'LoopEval/Breaker',
+  agentId: 'loop-agent',
+  idempotencyKey: 'start-breaker-noprogress-001',
+  leaseOwner: 'breaker-worker',
+  leaseTtlSeconds: 120,
+});
+const noProgressRunId = noProgressStart.data.run.id;
+const distinctErrors = [
+  'TypeError: cannot read property at handler.js',
+  'ReferenceError: variable is not defined at parser.js',
+  'SyntaxError: unexpected token at lexer.js',
+  'RuntimeError: timeout exceeded at network.js',
+  'Error: permission denied at filesystem.js',
+];
+for (let i = 0; i < 5; i++) {
+  const cp = await call('memory_loop_checkpoint', {
+    runId: noProgressRunId,
+    expectedVersion: i,
+    idempotencyKey: `breaker-noprogress-cp-${i}`,
+    leaseOwner: 'breaker-worker',
+    phase: 'execute',
+    summary: `Failure attempt ${i + 1} with a distinct error.`,
+    attemptOutcome: 'failure',
+    error: distinctErrors[i],
+  });
+  if (i < 4) {
+    assert.equal(cp.status, 'success', `no-progress should not fire before 5 (i=${i})`);
+    assert.equal(cp.data.circuitBreaker.triggered, false);
+  } else {
+    assert.equal(cp.data.run.consecutiveFailures, 5);
+    assert.equal(cp.status, 'warning');
+    assert.equal(cp.data.circuitBreaker.triggered, true);
+    assert.match(cp.data.circuitBreaker.reason, /no-progress/);
+  }
+}
+
+// 4. success 重置 consecutiveFailures
+const resetStart = await call('memory_loop_start', {
+  objective: 'Reset counter test',
+  project: 'LoopEval/Breaker',
+  agentId: 'loop-agent',
+  idempotencyKey: 'start-breaker-reset-001',
+  leaseOwner: 'breaker-worker',
+  leaseTtlSeconds: 120,
+});
+const resetRunId = resetStart.data.run.id;
+await call('memory_loop_checkpoint', {
+  runId: resetRunId,
+  expectedVersion: 0,
+  idempotencyKey: 'breaker-reset-cp-fail',
+  leaseOwner: 'breaker-worker',
+  phase: 'execute',
+  summary: 'A failure before success.',
+  attemptOutcome: 'failure',
+  error: 'Pre-reset failure at module.ts',
+});
+const resetCp = await call('memory_loop_checkpoint', {
+  runId: resetRunId,
+  expectedVersion: 1,
+  idempotencyKey: 'breaker-reset-cp-success',
+  leaseOwner: 'breaker-worker',
+  phase: 'execute',
+  summary: 'A success that resets the counter.',
+  attemptOutcome: 'success',
+});
+assert.equal(resetCp.data.run.consecutiveFailures, 0, 'success must reset consecutiveFailures to 0');
+assert.equal(resetCp.status, 'success');
+
 closeDatabase();
 fs.rmSync(dataDir, { recursive: true, force: true });
-console.log(JSON.stringify({ ok: true, runId, checkpoints: 3, events: 3 }, null, 2));
+console.log(JSON.stringify({ ok: true, runId, checkpoints: 3, events: 3, breakerTests: 'passed' }, null, 2));

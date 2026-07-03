@@ -161,4 +161,131 @@ pnpm smoke:loop
 pnpm release:check
 ```
 
-`smoke:loop` 覆盖 MCP 工具注册与执行、REST 生命周期、幂等重放、幂等冲突、版本冲突、租约冲突、事件游标、敏感状态脱敏、memory 引用和终态保护。
+`smoke:loop` 覆盖 MCP 工具注册与执行、REST 生命周期、幂等重放、幂等冲突、版本冲突、租约冲突、事件游标、敏感状态脱敏、memory 引用、终态保护、token 预算累加、circuit breaker（stagnation / no-progress / token-budget）与 success 重置计数。
+
+## Circuit Breaker 与 Token 预算
+
+KeyMemory 在 `loop_runs` 表上新增 6 列用于 loop 成本可观测性与熔断：
+
+| 列 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `token_budget` | INTEGER | NULL | 单 run 累计 token 硬上限（可选，由 `memory_loop_start` 设置） |
+| `token_used` | INTEGER | 0 | 累计已用 token（每次 checkpoint/finish 的 `tokenUsage` 累加） |
+| `cost_usd_budget` | REAL | NULL | 美元硬上限（可选，仅审计观测，当前不作为熔断条件） |
+| `cost_usd_used` | REAL | 0 | 累计已用美元 |
+| `consecutive_failures` | INTEGER | 0 | 连续失败计数（success 重置 0，failure +1，noop 不变） |
+| `last_error_signature` | TEXT | NULL | 最后一次 failure 的归一化错误签名 |
+
+### Circuit breaker 阈值
+
+| 条件 | 阈值 | 比较运算 | 触发优先级 |
+| --- | --- | --- | --- |
+| stagnation | 连续相同 `errorSignature` ≥ 3 | `>=` | 1（最高） |
+| no-progress | `consecutiveFailures` ≥ 5 | `>=` | 2 |
+| token-budget | `tokenUsed >= tokenBudget` | `>=` | 3 |
+| max-iterations | `checkpointVersion >= 10` | `>=` | 4（最低） |
+
+前一个命中即返回，不再检查后续。触发后 observation `status` 降级为 `warning`，但不强制终止 run——调用方决定升级、重试或 `memory_loop_finish`。
+
+### errorSignature 归一化（7 步）
+
+1. 取第一个非空行
+2. ISO 时间戳 → `<ts>`
+3. 十六进制地址（`0x...`）→ `<addr>`
+4. 路径折叠为 basename（取最后一段）
+5. 移除 `:line:col` 后缀
+6. 任何剩余数字 → `#`
+7. 多空格折叠为单空格，并 trim
+
+> 注意：仅数字不同的错误会归一为相同签名。做 no-progress 测试时必须用结构不同的错误文本。
+
+### Observation 中的 circuitBreaker 字段
+
+`memory_loop_context` 和 `memory_loop_checkpoint` 返回的 `data.circuitBreaker` 始终包含：
+
+```json
+{
+  "triggered": false,
+  "reason": null,
+  "nextActions": [],
+  "consecutiveFailures": 0,
+  "tokenUsed": 600,
+  "tokenBudget": 1000,
+  "checkpointVersion": 1,
+  "maxIterations": 10
+}
+```
+
+调用方应在每次恢复时检查 `triggered`，并在 `triggered=true` 时按 `nextActions` 升级或中止。
+
+## Loop Readiness 准入等级
+
+22 项评分与 L1/L2/L3 等级阈值。所有分值与阈值为硬编码，不允许调整。
+
+### 等级阈值
+
+| 等级 | 最低总分 | 附加硬性条件 |
+| --- | --- | --- |
+| L1 | 38 | `stateFile.present` |
+| L2 | 58 | `triage.present` |
+| L3 | 78 | `verifier.present` + `stateFile.present` + costReady + hasRealActivity |
+
+costReady = `budgetDoc.present` + `runLog.present` + `loopMdBudget.present`（三者皆需 present）。
+hasRealActivity = `loopActivity.present`。
+
+### 22 项评分项（分值不可调整）
+
+| # | 检查项 | 分值 |
+| --- | --- | --- |
+| 1 | base | 10 |
+| 2 | stateFile | 18 |
+| 3 | triage | 14 |
+| 4 | loopConfig | 9 |
+| 5 | agentsMd | 9 |
+| 6 | skillsTwoPlus | 14 |
+| 7 | skillsOne | 7 |
+| 8 | verifier | 14 |
+| 9 | safetyLoopMd | 4 |
+| 10 | safetyDoc | 4 |
+| 11 | github | 6 |
+| 12 | githubWorkflows | 4 |
+| 13 | mcp | 3 |
+| 14 | worktree | 3 |
+| 15 | registry | 2 |
+| 16 | budgetDoc | 3 |
+| 17 | runLog | 3 |
+| 18 | loopMdBudget | 2 |
+| 19 | budgetSkill | 2 |
+| 20 | constraintsFile | 4 |
+| 21 | constraintsSkill | 2 |
+| 22 | loopActivity | 6 |
+
+总分上限 = 139。运行 `pnpm loop:audit` 可得到当前仓库的逐项得分与最终等级。
+
+> KeyMemory 自身不强制要求达到某个等级才能使用 loop 工具。等级用于自检：低于 L1（38 分）的仓库不应把 autonomous loop 投入生产；低于 L2（58 分）不应启用 action 类 pattern；低于 L3（78 分）不应启用多 worker 并发 loop。
+
+## Anti-patterns 检查清单
+
+依据 `docs/anti-patterns.md`（10 条设计期反模式）与 `docs/loop-design-checklist.md`（5 条停止信号）。以下为逐条检查项，每条必须能用"是/否"回答。
+
+### 设计期反模式（10 条）
+
+1. **是否在 loop 内做不可逆外部副作用前没有 checkpoint？** 是→违规。
+2. **是否用自由文本而非 observation envelope 传递状态？** 是→违规。
+3. **是否让多个 worker 共享同一 leaseOwner？** 是→违规。
+4. **是否在终态 run 上继续写 checkpoint？** 是→违规。
+5. **是否把未经 `memory_create` 验证的推断直接放进 `memoryRefs`？** 是→违规。
+6. **是否在 loop 内做无 tokenBudget 的长期运行？** 是→违规。
+7. **是否忽略 circuit breaker warning 继续推进？** 是→违规。
+8. **是否用同一个 idempotencyKey 传不同载荷？** 是→违规。
+9. **是否让 checkpoint state 超过 256 KB 序列化上限？** 是→违规。
+10. **是否在 loop 中依赖跨项目上下文泄漏？** 是→违规。
+
+### 停止信号（5 条，命中任一即应中止 run）
+
+1. circuit breaker `triggered=true` 且升级路径不可行。
+2. 连续 3 次 checkpoint 的 `summary` 内容完全相同（语义停滞）。
+3. `tokenUsed` 超过 `tokenBudget` 的 90% 且剩余工作量大。
+4. `checkpointVersion` 达到 8（距 maxIterations=10 仅剩 2 次余量）。
+5. lease 连续被其他 worker 抢占超过 3 次（并发冲突不可调和）。
+

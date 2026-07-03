@@ -1,4 +1,4 @@
-import type { Memory, Layer, SelfCheckResult } from '@keymemory/shared';
+import type { Memory, Layer, SelfCheckResult, CreateMemoryInput } from '@keymemory/shared';
 import { createMemory } from './atom.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
@@ -13,6 +13,8 @@ interface AutoRememberInput {
   isolationMode?: import('@keymemory/shared').IsolationMode;
   currentProjectId?: string;
   conversationRound?: number;
+  /** 当前调用用户 id。提供时记忆写入 owner_user_id,实现 user-scoped 隔离 */
+  userId?: string;
 }
 
 interface AutoRememberResult {
@@ -119,7 +121,7 @@ export function extractTags(content: string): string[] {
 }
 
 export async function autoRemember(input: AutoRememberInput): Promise<AutoRememberResult> {
-  const { content, source, agentId, isolationMode, currentProjectId, conversationRound } = input;
+  const { content, source, agentId, isolationMode, currentProjectId, conversationRound, userId } = input;
 
   if (!content || content.trim().length < 10) {
     return { recorded: false, reason: '内容过短，不值得记录' };
@@ -181,7 +183,9 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     tags,
     metadata,
     source: source || 'auto-remember',
-  });
+    // 透传 ownerUserId 到 createMemory(扩展字段,shared 类型不感知)
+    ...(userId ? { ownerUserId: userId } : {}),
+  } as CreateMemoryInput & { ownerUserId?: string });
 
   // processContent 由 createMemory 内部自动调用，此处重复调用仅为获取 entities 返回值（幂等）
   const entityResult = processContent(mem.id, content);

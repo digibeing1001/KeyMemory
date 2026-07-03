@@ -278,7 +278,9 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!input.tags || input.tags.length === 0) {
       input.tags = extractTags(input.content);
     }
-    const mem = createMemory(input);
+    // 透传 caller userId 到 createMemory,使记忆写入 owner_user_id
+    const caller = getCaller(request);
+    const mem = createMemory({ ...input, ...(caller?.userId ? { ownerUserId: caller.userId } : {}) } as CreateMemoryInput & { ownerUserId?: string });
     // 后处理（实体链接 + embedding + autoAssociate）已内聚到 createMemory 内部
     reply.code(201);
     return mem;
@@ -635,15 +637,18 @@ export function registerRoutes(app: FastifyInstance): void {
     return evaluate(content, { currentProject, conversationRound, userEmphasis });
   });
 
-  app.post('/api/evolution/inspect', async () => {
+  app.post('/api/evolution/inspect', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     return runDailyInspection();
   });
 
-  app.get('/api/evolution/tasks', async () => {
+  app.get('/api/evolution/tasks', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     return getPendingTasks();
   });
 
-  app.post('/api/evolution/tasks/:id/resolve', async (request) => {
+  app.post('/api/evolution/tasks/:id/resolve', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { id } = request.params as { id: string };
     const { action } = request.body as { action: 'accepted' | 'rejected' };
     if (!action || !['accepted', 'rejected'].includes(action)) {
@@ -676,7 +681,9 @@ export function registerRoutes(app: FastifyInstance): void {
       conversationRound?: number;
     };
     if (!content) return { error: 'content is required' };
-    return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound });
+    // 透传 caller userId:使 autoRemember 产生的记忆写入 user-scoped agent_space
+    const caller = getCaller(request);
+    return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound, userId: caller?.userId });
   });
 
   app.post('/api/migration/import-file', async (request, reply) => {
@@ -794,18 +801,28 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.get('/api/agents', async () => {
+  app.get('/api/agents', async (request) => {
     const db = getDatabase();
+    const caller = getCaller(request);
+    // member/exec/pm 只看自己的 agent_space + owner_user_id 为 NULL 的旧数据
+    const ownerCondition = callerIsAdminOrAnonymous(caller)
+      ? ''
+      : 'AND (owner_user_id = @ownerUserId OR owner_user_id IS NULL)';
+    const params: Record<string, unknown> = {};
+    if (!callerIsAdminOrAnonymous(caller) && caller) {
+      params.ownerUserId = caller.userId;
+    }
     const agents = db.prepare(`
       SELECT DISTINCT owner_agent_id as agentId, agent_space as agentSpace, COUNT(*) as memoryCount
       FROM memories
-      WHERE owner_agent_id IS NOT NULL
+      WHERE owner_agent_id IS NOT NULL ${ownerCondition}
       GROUP BY owner_agent_id, agent_space
-    `).all();
+    `).all(params);
     return agents;
   });
 
   app.post('/api/backup', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const db = getDatabase();
     const data = db.prepare(`SELECT * FROM memories`).all();
     const fts = db.prepare(`SELECT * FROM memories_fts`).all();
@@ -822,6 +839,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/backup/create-file', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const body = request.body as {
       filePath?: string;
       includeEmbeddings?: boolean;
@@ -839,6 +857,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/backup/inspect-file', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const body = request.body as { filePath?: string };
     if (!body.filePath) {
       reply.code(400);
@@ -853,6 +872,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/backup/restore', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const body = request.body as { filePath?: string; dryRun?: boolean; replace?: boolean; preRestoreBackupPath?: string };
     if (!body.filePath) {
       reply.code(400);
@@ -870,22 +890,33 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.get('/api/graph/memory-connections', async () => {
+  app.get('/api/graph/memory-connections', async (request) => {
     const db = getDatabase();
+    const caller = getCaller(request);
+    // member/exec/pm 只看自己的记忆 + owner_user_id 为 NULL 的旧数据;
+    // boss/admin/匿名 看全部(不加 owner 条件)
+    const ownerCondition = callerIsAdminOrAnonymous(caller)
+      ? ''
+      : 'AND (m.owner_user_id = @ownerUserId OR m.owner_user_id IS NULL)';
+    const params: Record<string, unknown> = {};
+    if (!callerIsAdminOrAnonymous(caller) && caller) {
+      params.ownerUserId = caller.userId;
+    }
 
     const rows = db.prepare(`
       SELECT m.id, m.title, m.layer, m.tags, p.name as project_name
       FROM memories m
       LEFT JOIN projects p ON m.project_id = p.id
-      WHERE m.status = 'active'
-    `).all() as { id: string; title: string; layer: string; tags: string | null; project_name: string | null }[];
+      WHERE m.status = 'active' ${ownerCondition}
+    `).all(params) as { id: string; title: string; layer: string; tags: string | null; project_name: string | null }[];
 
     const entityRows = db.prepare(`
       SELECT me.memory_id, me.entity_id, e.name as entity_name
       FROM memory_entities me
       JOIN entities e ON e.id = me.entity_id
-      JOIN memories m ON m.id = me.memory_id AND m.status = 'active'
-    `).all() as { memory_id: string; entity_id: string; entity_name: string }[];
+      JOIN memories m ON m.id = me.memory_id
+      WHERE m.status = 'active' ${ownerCondition}
+    `).all(params) as { memory_id: string; entity_id: string; entity_name: string }[];
 
     const nodes = rows.map(r => ({
       id: r.id,
@@ -976,15 +1007,23 @@ export function registerRoutes(app: FastifyInstance): void {
     return { nodes, edges };
   });
 
-  app.get('/api/graph/tag-cloud', async () => {
+  app.get('/api/graph/tag-cloud', async (request) => {
     const db = getDatabase();
+    const caller = getCaller(request);
+    const ownerCondition = callerIsAdminOrAnonymous(caller)
+      ? ''
+      : 'AND (m.owner_user_id = @ownerUserId OR m.owner_user_id IS NULL)';
+    const params: Record<string, unknown> = {};
+    if (!callerIsAdminOrAnonymous(caller) && caller) {
+      params.ownerUserId = caller.userId;
+    }
 
     const rows = db.prepare(`
       SELECT m.tags, m.layer, p.name as project_name
       FROM memories m
       LEFT JOIN projects p ON m.project_id = p.id
-      WHERE m.status = 'active'
-    `).all() as { tags: string | null; layer: string; project_name: string | null }[];
+      WHERE m.status = 'active' ${ownerCondition}
+    `).all(params) as { tags: string | null; layer: string; project_name: string | null }[];
 
     const totalMemories = rows.length;
 
@@ -1059,14 +1098,18 @@ export function registerRoutes(app: FastifyInstance): void {
     return batchDeleteMemories(ids, permanent);
   });
 
-  app.get('/api/memories/export', async (request) => {
+  app.get('/api/memories/export', async (request, reply) => {
+    // 导出全库属于敏感操作,限 admin。非 admin 调用直接 403。
+    if (!requireAdmin(reply, getCaller(request))) return;
     const query = request.query as Record<string, string>;
     const layer = query.layer as Layer | undefined;
     const status = query.status as MemoryStatus | undefined;
     return exportMemoriesAsJson({ layer, status });
   });
 
-  app.post('/api/memories/import', async (request) => {
+  app.post('/api/memories/import', async (request, reply) => {
+    // 导入属于敏感操作,限 admin
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { data } = request.body as { data: string };
     return importMemories(data);
   });
@@ -1145,6 +1188,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/dream/run', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     try {
       const report = runDreamCycle();
       if (report.status === 'failed') {
@@ -1159,25 +1203,29 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.get('/api/dream/reports', async (request) => {
+  app.get('/api/dream/reports', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const query = request.query as Record<string, string>;
     const limit = query.limit ? parseInt(query.limit, 10) : 20;
     return listDreamReports(limit);
   });
 
-  app.get('/api/dream/reports/:reportId', async (request) => {
+  app.get('/api/dream/reports/:reportId', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { reportId } = request.params as { reportId: string };
     const report = getDreamReport(reportId);
     if (!report) return { error: 'Report not found' };
     return report;
   });
 
-  app.get('/api/dream/reports/:reportId/signals', async (request) => {
+  app.get('/api/dream/reports/:reportId/signals', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { reportId } = request.params as { reportId: string };
     return getDreamSignalsForReport(reportId);
   });
 
-  app.post('/api/dream/rollback/:reportId', async (request) => {
+  app.post('/api/dream/rollback/:reportId', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { reportId } = request.params as { reportId: string };
     try {
       return rollbackDream(reportId);
@@ -1187,6 +1235,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.delete('/api/dream/reports/:reportId', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { reportId } = request.params as { reportId: string };
     const result = deleteDreamReport(reportId);
     if (!result.success) {
@@ -1196,7 +1245,8 @@ export function registerRoutes(app: FastifyInstance): void {
     return { success: true };
   });
 
-  app.get('/api/dream/todos', async (request) => {
+  app.get('/api/dream/todos', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const query = request.query as Record<string, string>;
     const limit = query.limit ? parseInt(query.limit, 10) : undefined;
     return { todos: getPendingTodosForContext(limit) };
@@ -1204,6 +1254,7 @@ export function registerRoutes(app: FastifyInstance): void {
 
   // 解决冲突 todo 项
   app.post('/api/dream/conflicts/resolve', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const body = request.body as {
       memoryId: string;
       targetId: string;
@@ -1228,10 +1279,24 @@ export function registerRoutes(app: FastifyInstance): void {
   // Project Suggestion routes
   app.get('/api/project-suggestions', async (request) => {
     const query = request.query as Record<string, string>;
-    return listProjectSuggestions(query.status as 'pending' | 'accepted' | 'rejected' | undefined);
+    const suggestions = listProjectSuggestions(query.status as 'pending' | 'accepted' | 'rejected' | undefined);
+    const caller = getCaller(request);
+    if (callerIsAdminOrAnonymous(caller)) return suggestions;
+    // member/exec/pm:只看涉及自己拥有项目(或 owner 为 NULL 的旧项目)的建议
+    const db = getDatabase();
+    const uid = caller!.userId;
+    return suggestions.filter((s) => {
+      if (!s.projectIds || s.projectIds.length === 0) return true;
+      const placeholders = s.projectIds.map(() => '?').join(',');
+      const rows = db.prepare(`SELECT owner_user_id FROM projects WHERE id IN (${placeholders})`).all(...s.projectIds) as { owner_user_id: string | null }[];
+      // 至少一个项目是该 caller 拥有或 owner 为 NULL(旧数据)时保留
+      return rows.some(r => !r.owner_user_id || r.owner_user_id === uid);
+    });
   });
 
   app.post('/api/project-suggestions/:id/accept', async (request, reply) => {
+    // 项目结构调整,限 admin
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { id } = request.params as { id: string };
     const body = request.body as { customName?: string };
     const result = acceptProjectSuggestion(id, body?.customName);
@@ -1243,6 +1308,8 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/project-suggestions/:id/reject', async (request, reply) => {
+    // 项目结构调整,限 admin
+    if (!requireAdmin(reply, getCaller(request))) return;
     const { id } = request.params as { id: string };
     const ok = rejectProjectSuggestion(id);
     if (!ok) {
@@ -1347,7 +1414,9 @@ export function registerRoutes(app: FastifyInstance): void {
       reply.code(400);
       return { error: 'Project name is required' };
     }
-    const project = createProject(input);
+    // 透传 caller userId 到 createProject,使项目写入 owner_user_id
+    const caller = getCaller(request);
+    const project = createProject({ ...input, ...(caller?.userId ? { ownerUserId: caller.userId } : {}) });
     reply.code(201);
     return project;
   });
@@ -1423,11 +1492,13 @@ export function registerRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.get('/api/scheduler/config', async () => {
+  app.get('/api/scheduler/config', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     return getSchedulerConfig();
   });
 
   app.post('/api/scheduler/config', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
     const updates = request.body as Record<string, unknown>;
     try {
       const result = updateSchedulerConfig(updates);

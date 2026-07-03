@@ -83,16 +83,19 @@ function AppInner() {
   const { user } = useAuth();
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   const isAdmin = isAdminRole(user?.role);
+  // localStorage 偏好按用户隔离:登录后 key 带 userId 前缀;
+  // 未登录(LoginRoute 不会进入 AppInner,但保留兜底)用全局 key。
+  const prefPrefix = user?.id ? `keymemory_${user.id}_` : 'keymemory_';
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
-    const saved = localStorage.getItem('keymemory_view_mode');
+    const saved = localStorage.getItem(`${prefPrefix}view_mode`);
     return isViewMode(saved) ? saved : 'memories';
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
   const [projectRefreshToken, setProjectRefreshToken] = useState(0);
   const [isDark, setIsDark] = useState(() => {
-    const themeVersion = localStorage.getItem('keymemory_theme_version');
-    const saved = localStorage.getItem('keymemory_theme');
+    const themeVersion = localStorage.getItem(`${prefPrefix}theme_version`);
+    const saved = localStorage.getItem(`${prefPrefix}theme`);
     if (themeVersion === 'bright-notes-20260601' && (saved === 'dark' || saved === 'light')) {
       return saved === 'dark';
     }
@@ -109,9 +112,9 @@ function AppInner() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('keymemory_theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('keymemory_theme_version', 'bright-notes-20260601');
-  }, [isDark]);
+    localStorage.setItem(`${prefPrefix}theme`, isDark ? 'dark' : 'light');
+    localStorage.setItem(`${prefPrefix}theme_version`, 'bright-notes-20260601');
+  }, [isDark, prefPrefix]);
 
   useEffect(() => {
     getHealth()
@@ -123,9 +126,9 @@ function AppInner() {
   useEffect(() => {
     if (!isAdmin && ADMIN_ONLY_VIEWS.includes(viewMode)) {
       setViewModeState('memories');
-      localStorage.setItem('keymemory_view_mode', 'memories');
+      localStorage.setItem(`${prefPrefix}view_mode`, 'memories');
     }
-  }, [isAdmin, viewMode]);
+  }, [isAdmin, viewMode, prefPrefix]);
 
   useEffect(() => {
     if (viewMode === 'nebula' && !graphData) {
@@ -157,7 +160,7 @@ function AppInner() {
 
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
-    localStorage.setItem('keymemory_view_mode', mode);
+    localStorage.setItem(`${prefPrefix}view_mode`, mode);
     setSidebarOpen(false);
   };
 

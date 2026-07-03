@@ -308,6 +308,19 @@ function runMigrations(db: Database.Database): void {
       lease_owner TEXT NOT NULL,
       lease_expires_at TEXT NOT NULL,
       metadata TEXT,
+      -- Loop cost & circuit-breaker 可观测性列
+      -- token_budget: 单次 run 累计 token 硬上限（可选）
+      token_budget INTEGER,
+      -- token_used: 累计已用 token（每个 checkpoint 的 tokenUsage 累加）
+      token_used INTEGER NOT NULL DEFAULT 0,
+      -- cost_usd_budget: 美元硬上限（可选，仅审计观测，当前不作为熔断条件）
+      cost_usd_budget REAL,
+      -- cost_usd_used: 累计已用美元
+      cost_usd_used REAL NOT NULL DEFAULT 0,
+      -- consecutive_failures: 连续失败计数（达到 noProgressThreshold=5 触发 circuit breaker）
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      -- last_error_signature: 最后错误签名（达到 stagnationThreshold=3 触发 circuit breaker）
+      last_error_signature TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       completed_at TEXT,
@@ -402,6 +415,8 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_loop_runs_agent ON loop_runs(agent_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_run ON loop_checkpoints(run_id, version);
     CREATE INDEX IF NOT EXISTS idx_loop_events_run ON loop_events(run_id, sequence);
+    -- 支撑 token/cost 预算超限扫描：只扫描活跃 run 中设置了预算的行
+    CREATE INDEX IF NOT EXISTS idx_loop_runs_token_budget ON loop_runs(token_budget) WHERE token_budget IS NOT NULL;
   `);
 
   const alterStatements = [
@@ -428,6 +443,13 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE loop_runs ADD COLUMN owner_user_id TEXT',
     'ALTER TABLE tool_secrets ADD COLUMN owner_user_id TEXT',
     'ALTER TABLE isolation_rules ADD COLUMN owner_user_id TEXT',
+    // Loop cost & circuit-breaker 列
+    'ALTER TABLE loop_runs ADD COLUMN token_budget INTEGER',
+    'ALTER TABLE loop_runs ADD COLUMN token_used INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE loop_runs ADD COLUMN cost_usd_budget REAL',
+    'ALTER TABLE loop_runs ADD COLUMN cost_usd_used REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE loop_runs ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE loop_runs ADD COLUMN last_error_signature TEXT',
   ];
   for (const stmt of alterStatements) {
     try {
@@ -682,9 +704,12 @@ function migrateMemoryRelationData(db: Database.Database): void {
   })();
 }
 
-function ensureWelcomeMemory(db: Database.Database): void {
+function ensureWelcomeMemory(db: Database.Database, userId?: string): void {
   const WELCOME_SOURCE_ID = 'keymemory-welcome';
-  const existing = db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active'").get(WELCOME_SOURCE_ID);
+  // userId 提供时:按用户查重(每个用户一份欢迎记忆);未提供时:全局查重(旧行为)
+  const existing = userId
+    ? db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active' AND owner_user_id = ?").get(WELCOME_SOURCE_ID, userId)
+    : db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active' AND owner_user_id IS NULL").get(WELCOME_SOURCE_ID);
   if (existing) return;
 
   // Get or create default root project
@@ -740,8 +765,8 @@ KeyMemory 是一个以项目为核心的记忆系统，帮助 AI Agent 拥有持
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO memories (id, title, content, layer, project_id, agent_space, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, source, source_id)
-      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @source, @sourceId)
+      INSERT INTO memories (id, title, content, layer, project_id, agent_space, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, source, source_id, owner_user_id)
+      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @source, @sourceId, @ownerUserId)
     `).run({
       id, title, content,
       layer: 'long',
@@ -756,6 +781,7 @@ KeyMemory 是一个以项目为核心的记忆系统，帮助 AI Agent 拥有持
       tags,
       source: 'system',
       sourceId: WELCOME_SOURCE_ID,
+      ownerUserId: userId ?? null,
     });
 
     db.prepare(`
