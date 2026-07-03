@@ -2,8 +2,10 @@ import { createHash } from 'crypto';
 import { v4 as uuid } from 'uuid';
 import type {
   AgentContextPack,
+  LoopAttemptOutcome,
   LoopCheckpoint,
   LoopCheckpointRequest,
+  LoopCircuitBreakerStatus,
   LoopContextData,
   LoopContextRequest,
   LoopEvent,
@@ -22,6 +24,124 @@ import { visibleSpacesFor } from '../adapters/base.js';
 
 const SCHEMA_VERSION = 'keymemory.loop-observation.v1' as const;
 const TERMINAL_STATUSES = new Set<LoopRunStatus>(['completed', 'failed', 'cancelled']);
+
+/**
+ * Circuit breaker 默认阈值。
+ *   maxIterations: 10       — checkpoint 次数硬上限（每次 checkpoint = 1 次 attempt）
+ *   stagnationThreshold: 3  — 连续相同错误签名达到此数触发停滞熔断
+ *   noProgressThreshold: 5  — 连续失败达到此数触发无进展熔断
+ * 触发顺序：stagnation → no-progress → token-budget → max-iterations
+ * tokenBudget 为可选字段，由调用方在 startLoopRun 设置。
+ */
+const CIRCUIT_BREAKER_DEFAULTS = {
+  maxIterations: 10,
+  stagnationThreshold: 3,
+  noProgressThreshold: 5,
+} as const;
+
+/**
+ * 错误签名归一化（7 步）：
+ * 1. 取第一个非空行
+ * 2. ISO 时间戳 → <ts>
+ * 3. 十六进制地址（0x...）→ <addr>
+ * 4. 路径折叠为 basename（取最后一段）
+ * 5. 移除 :line:col 后缀
+ * 6. 任何剩余数字 → #
+ * 7. 多空格折叠为单空格，并 trim
+ */
+function errorSignature(error: string): string {
+  const firstLine = error.split('\n').find(l => l.trim().length > 0) ?? '';
+  return firstLine
+    .trim()
+    .replace(/\b\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\b/g, '<ts>')
+    .replace(/0x[0-9a-fA-F]+/g, '<addr>')
+    .replace(/[A-Za-z]:[\\/][^\s:]+|(?:[\\/][^\s:/\\]+)+/g, p => {
+      const parts = p.split(/[\\/]/);
+      return parts[parts.length - 1] || p;
+    })
+    .replace(/:\d+(:\d+)?/g, '')
+    .replace(/\b\d+\b/g, '#')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+interface CircuitBreakerResult {
+  triggered: boolean;
+  reason?: string;
+  nextActions: string[];
+}
+
+/**
+ * Circuit breaker 检查。
+ * 触发顺序：stagnation → no-progress → token-budget → max-iterations
+ * - stagnation: 连续相同错误签名 >= stagnationThreshold(3)
+ * - no-progress: 连续失败 >= noProgressThreshold(5)
+ * - token-budget: tokenBudget !== undefined && tokenUsed >= tokenBudget（用 >=）
+ * - max-iterations: checkpointVersion >= maxIterations(10)（用 >=）
+ */
+function checkCircuitBreaker(run: LoopRun): CircuitBreakerResult {
+  const { maxIterations, stagnationThreshold, noProgressThreshold } = CIRCUIT_BREAKER_DEFAULTS;
+
+  // 1. stagnation: 查询最近 failure 事件的 errorSignature，尾部回溯相同签名计数
+  if (run.consecutiveFailures >= stagnationThreshold) {
+    const failRows = getDatabase().prepare(`
+      SELECT attributes FROM loop_events
+      WHERE run_id = ? AND json_extract(attributes, '$.attemptOutcome') = 'failure'
+      ORDER BY sequence DESC
+      LIMIT ?
+    `).all(run.id, noProgressThreshold) as { attributes: string }[];
+    const signatures = failRows
+      .map(r => {
+        try { return JSON.parse(r.attributes).errorSignature as string | undefined; }
+        catch { return undefined; }
+      })
+      .filter((s): s is string => Boolean(s));
+    if (signatures.length >= stagnationThreshold) {
+      const lastSig = signatures[0];
+      let same = 0;
+      for (const sig of signatures) {
+        if (sig === lastSig) same++;
+        else break;
+      }
+      if (same >= stagnationThreshold) {
+        return {
+          triggered: true,
+          reason: `circuit-breaker.stagnation: same error signature "${lastSig}" repeated ${same} times (threshold=${stagnationThreshold})`,
+          nextActions: ['Escalate: the loop is stuck on the same error. Review the error signature, adjust strategy, or abort the run.'],
+        };
+      }
+    }
+  }
+
+  // 2. no-progress: 连续失败 >= noProgressThreshold(5)
+  if (run.consecutiveFailures >= noProgressThreshold) {
+    return {
+      triggered: true,
+      reason: `circuit-breaker.no-progress: ${run.consecutiveFailures} consecutive failures (threshold=${noProgressThreshold})`,
+      nextActions: ['Escalate: the loop has made no progress for too many attempts. Review recent failures and adjust the approach.'],
+    };
+  }
+
+  // 3. token-budget: tokenUsed >= tokenBudget（源码用 >=）
+  if (run.tokenBudget !== undefined && run.tokenBudget > 0 && run.tokenUsed >= run.tokenBudget) {
+    return {
+      triggered: true,
+      reason: `circuit-breaker.token-budget: tokenUsed ${run.tokenUsed} >= budget ${run.tokenBudget}`,
+      nextActions: ['Escalate: token budget exhausted. Increase tokenBudget in the next run or simplify the task.'],
+    };
+  }
+
+  // 4. max-iterations: checkpointVersion >= maxIterations(10)（源码用 >=）
+  if (run.checkpointVersion >= maxIterations) {
+    return {
+      triggered: true,
+      reason: `circuit-breaker.max-iterations: ${run.checkpointVersion} >= ${maxIterations}`,
+      nextActions: ['Escalate: iteration cap reached. Break the task into smaller subtasks or raise the cap via a fresh run.'],
+    };
+  }
+
+  return { triggered: false, nextActions: [] };
+}
 
 export class LoopProtocolError extends Error {
   readonly detail: LoopHarnessError;
@@ -148,6 +268,12 @@ function rowToRun(row: Record<string, unknown>): LoopRun {
     leaseOwner: String(row.lease_owner),
     leaseExpiresAt: String(row.lease_expires_at),
     metadata: Object.keys(parseObject(row.metadata)).length > 0 ? parseObject(row.metadata) : undefined,
+    tokenBudget: row.token_budget != null ? Number(row.token_budget) : undefined,
+    tokenUsed: Number(row.token_used ?? 0),
+    costUsdBudget: row.cost_usd_budget != null ? Number(row.cost_usd_budget) : undefined,
+    costUsdUsed: Number(row.cost_usd_used ?? 0),
+    consecutiveFailures: Number(row.consecutive_failures ?? 0),
+    lastErrorSignature: row.last_error_signature ? String(row.last_error_signature) : undefined,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     completedAt: row.completed_at ? String(row.completed_at) : undefined,
@@ -314,15 +440,37 @@ async function observe(
     // loop run 的 context pack 只暴露该 agent 可见空间的记忆，防止跨 agent 泄露
     agentSpaces: visibleSpacesFor(run.agentId),
   });
-  const nextActions = checkpoint.nextActions.length > 0
-    ? checkpoint.nextActions
+  // 每次观测都附带 circuit breaker 快照，便于调用方在任意时刻判断是否应升级/中止。
+  // 触发顺序：stagnation → no-progress → token-budget → max-iterations。
+  const breaker = checkCircuitBreaker(run);
+  const circuitBreaker: LoopCircuitBreakerStatus = {
+    triggered: breaker.triggered,
+    reason: breaker.reason,
+    nextActions: breaker.nextActions,
+    consecutiveFailures: run.consecutiveFailures,
+    tokenUsed: run.tokenUsed,
+    tokenBudget: run.tokenBudget,
+    checkpointVersion: run.checkpointVersion,
+    maxIterations: CIRCUIT_BREAKER_DEFAULTS.maxIterations,
+  };
+  // Circuit breaker 触发时把 success 降级为 warning，并把 reason 追加到 summary、把升级动作追加到 nextActions。
+  // 终态 run（completed/failed/cancelled）不降级——终态已无后续 attempt，breaker 仅作历史审计。
+  let finalStatus = status;
+  let finalSummary = summary ?? `Loop run ${run.id} is ${run.status} at checkpoint ${run.checkpointVersion}.`;
+  let nextActions = checkpoint.nextActions.length > 0
+    ? [...checkpoint.nextActions]
     : TERMINAL_STATUSES.has(run.status)
       ? []
       : ['Persist progress with memory_loop_checkpoint before the next irreversible action.'];
+  if (breaker.triggered && finalStatus === 'success' && !TERMINAL_STATUSES.has(run.status)) {
+    finalStatus = 'warning';
+    finalSummary = `${finalSummary} ${breaker.reason}`;
+    nextActions = [...nextActions, ...breaker.nextActions];
+  }
   return {
     schemaVersion: SCHEMA_VERSION,
-    status,
-    summary: summary ?? `Loop run ${run.id} is ${run.status} at checkpoint ${run.checkpointVersion}.`,
+    status: finalStatus,
+    summary: finalSummary,
     nextActions,
     artifacts: checkpoint.artifacts,
     data: {
@@ -331,6 +479,7 @@ async function observe(
       events: listEvents(run.id, input.afterSequence, input.maxEvents),
       contextPack,
       contextFingerprint: contextFingerprint(contextPack),
+      circuitBreaker,
     },
     cursor: { checkpointVersion: run.checkpointVersion, eventSequence: run.lastEventSequence },
   };
@@ -370,6 +519,8 @@ export async function startLoopRun(input: LoopRunStartRequest): Promise<LoopObse
   assertOptionalNumber(input.maxItems, 'maxItems');
   assertOptionalNumber(input.maxChars, 'maxChars');
   assertOptionalRecord(input.metadata, 'metadata');
+  assertOptionalNumber(input.tokenBudget, 'tokenBudget');
+  assertOptionalNumber(input.costUsdBudget, 'costUsdBudget');
   assertStringLimit(input.objective, 'objective', 8000);
   assertStringLimit(input.project, 'project', 512);
   assertStringLimit(input.projectId, 'projectId', 256);
@@ -420,10 +571,10 @@ export async function startLoopRun(input: LoopRunStartRequest): Promise<LoopObse
       INSERT INTO loop_runs (
         id, idempotency_key, request_hash, objective, project_id, project_path, agent_id, status,
         checkpoint_version, last_event_sequence, trace_id, lease_owner, lease_expires_at,
-        metadata, created_at, updated_at
+        metadata, token_budget, cost_usd_budget, created_at, updated_at
       ) VALUES (
         @id, @idempotencyKey, @requestHash, @objective, @projectId, @projectPath, @agentId, 'running',
-        0, 1, @traceId, @leaseOwner, @leaseExpiresAt, @metadata, @createdAt, @updatedAt
+        0, 1, @traceId, @leaseOwner, @leaseExpiresAt, @metadata, @tokenBudget, @costUsdBudget, @createdAt, @updatedAt
       )
     `).run({
       id: runId,
@@ -437,6 +588,8 @@ export async function startLoopRun(input: LoopRunStartRequest): Promise<LoopObse
       leaseOwner: input.leaseOwner.trim(),
       leaseExpiresAt,
       metadata: JSON.stringify(safeMetadata),
+      tokenBudget: input.tokenBudget ?? null,
+      costUsdBudget: input.costUsdBudget ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -459,6 +612,11 @@ export async function startLoopRun(input: LoopRunStartRequest): Promise<LoopObse
         leaseOwner: input.leaseOwner.trim(),
         leaseExpiresAt,
         metadata: safeMetadata,
+        tokenBudget: input.tokenBudget,
+        tokenUsed: 0,
+        costUsdBudget: input.costUsdBudget,
+        costUsdUsed: 0,
+        consecutiveFailures: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -552,6 +710,12 @@ export async function checkpointLoopRun(input: LoopCheckpointRequest): Promise<L
   assertStringArrayLimit(input.nextActions, 'nextActions', 100);
   assertStringArrayLimit(input.artifacts, 'artifacts', 100);
   assertStringArrayLimit(input.memoryRefs, 'memoryRefs', 200, 256);
+  assertOptionalNumber(input.tokenUsage, 'tokenUsage');
+  if (input.attemptOutcome !== undefined && !['success', 'failure', 'noop'].includes(input.attemptOutcome)) {
+    protocolError('INVALID_INPUT', 'attemptOutcome must be success, failure, or noop', false);
+  }
+  assertOptionalString(input.error, 'error');
+  assertStringLimit(input.error, 'error', 8000);
   if (input.status && !['running', 'waiting'].includes(input.status)) {
     protocolError('INVALID_INPUT', 'checkpoint status must be running or waiting', false);
   }
@@ -577,6 +741,12 @@ export async function checkpointLoopRun(input: LoopCheckpointRequest): Promise<L
   const safeNextActions = redactSensitiveValue(input.nextActions ?? []) as string[];
   const safeArtifacts = redactSensitiveValue(input.artifacts ?? []) as string[];
   const memoryRefs = Array.from(new Set(input.memoryRefs ?? [])).filter(Boolean);
+  // Circuit breaker / token 累加预算字段。
+  // attemptOutcome 未提供时按 'noop' 处理：不重置 consecutive_failures，也不递增。
+  const attemptOutcome: LoopAttemptOutcome = input.attemptOutcome ?? 'noop';
+  const tokenDelta = Math.max(0, Math.trunc(input.tokenUsage ?? 0));
+  const safeError = input.error ? redactSensitiveValue(input.error) as string : undefined;
+  const errorSig = attemptOutcome === 'failure' && safeError ? errorSignature(safeError) : null;
   let run = getRunOrThrow(input.runId);
   let nextVersion = 0;
   let nextSequence = 0;
@@ -623,10 +793,22 @@ export async function checkpointLoopRun(input: LoopCheckpointRequest): Promise<L
       memoryRefs: JSON.stringify(memoryRefs),
       createdAt: now,
     });
+    // UPDATE 中同步累加 token_used、推进/重置 consecutive_failures、更新 last_error_signature。
+    // success 重置失败计数，failure 递增，noop 不变。
     const update = db.prepare(`
       UPDATE loop_runs
       SET status = @status, checkpoint_version = @version, last_event_sequence = @sequence,
-          lease_owner = @leaseOwner, lease_expires_at = @leaseExpiresAt, updated_at = @updatedAt
+          lease_owner = @leaseOwner, lease_expires_at = @leaseExpiresAt, updated_at = @updatedAt,
+          token_used = token_used + @tokenDelta,
+          consecutive_failures = CASE
+            WHEN @attemptOutcome = 'success' THEN 0
+            WHEN @attemptOutcome = 'failure' THEN consecutive_failures + 1
+            ELSE consecutive_failures
+          END,
+          last_error_signature = CASE
+            WHEN @attemptOutcome = 'failure' AND @errorSignature IS NOT NULL THEN @errorSignature
+            ELSE last_error_signature
+          END
        WHERE id = @id AND checkpoint_version = @expectedVersion
          AND status IN ('running', 'waiting')
          AND (lease_owner = @leaseOwner OR lease_expires_at <= @updatedAt)
@@ -639,6 +821,9 @@ export async function checkpointLoopRun(input: LoopCheckpointRequest): Promise<L
       leaseExpiresAt: leaseExpiry(input.leaseTtlSeconds),
       updatedAt: now,
       expectedVersion: input.expectedVersion,
+      tokenDelta,
+      attemptOutcome,
+      errorSignature: errorSig,
     });
     if (update.changes !== 1) {
       protocolError('VERSION_CONFLICT', 'Checkpoint changed before this transaction could commit', true, {
@@ -650,10 +835,18 @@ export async function checkpointLoopRun(input: LoopCheckpointRequest): Promise<L
       run,
       sequence: nextSequence,
       eventName: input.eventName?.trim() || 'loop.checkpoint.saved',
-      severity: input.severity ?? 'info',
+      severity: input.severity ?? (attemptOutcome === 'failure' ? 'warn' : 'info'),
       spanId: input.spanId,
       body: safeSummary,
-      attributes: { checkpointVersion: nextVersion, phase: input.phase, status: input.status ?? 'running', memoryRefCount: memoryRefs.length },
+      attributes: {
+        checkpointVersion: nextVersion,
+        phase: input.phase,
+        status: input.status ?? 'running',
+        memoryRefCount: memoryRefs.length,
+        attemptOutcome,
+        tokenUsage: tokenDelta,
+        errorSignature: errorSig ?? undefined,
+      },
       timestamp: now,
     });
   }).immediate();
@@ -663,6 +856,8 @@ export async function checkpointLoopRun(input: LoopCheckpointRequest): Promise<L
     return observe(run, getCheckpoint(run.id), {}, 'warning', `Idempotent replay matched checkpoint ${concurrentReplay.version}; returning current checkpoint ${run.checkpointVersion}.`);
   }
 
+  // 事务后重新读取 run（含新的 token_used / consecutive_failures / last_error_signature）。
+  // observe() 内部会调用 checkCircuitBreaker：触发时自动把 status 降级为 warning 并追加升级动作。
   run = getRunOrThrow(run.id);
   return observe(run, getCheckpoint(run.id), {}, 'success', `Saved checkpoint ${nextVersion} for loop run ${run.id}.`);
 }
@@ -677,11 +872,17 @@ export async function finishLoopRun(input: LoopFinishRequest): Promise<LoopObser
   assertOptionalStringArray(input.artifacts, 'artifacts');
   assertOptionalStringArray(input.memoryRefs, 'memoryRefs');
   assertOptionalString(input.spanId, 'spanId');
+  assertOptionalNumber(input.tokenUsage, 'tokenUsage');
+  if (input.attemptOutcome !== undefined && !['success', 'failure', 'noop'].includes(input.attemptOutcome)) {
+    protocolError('INVALID_INPUT', 'attemptOutcome must be success, failure, or noop', false);
+  }
+  assertOptionalString(input.error, 'error');
   assertStringLimit(input.runId, 'runId', 256);
   assertStringLimit(input.idempotencyKey, 'idempotencyKey', 512);
   assertStringLimit(input.leaseOwner, 'leaseOwner', 256);
   assertStringLimit(input.summary, 'summary', 20000);
   assertStringLimit(input.spanId, 'spanId', 256);
+  assertStringLimit(input.error, 'error', 8000);
   assertSpanId(input.spanId);
   assertJsonLimit(input.state, 'state', 262144);
   assertStringArrayLimit(input.artifacts, 'artifacts', 100);
@@ -706,6 +907,13 @@ export async function finishLoopRun(input: LoopFinishRequest): Promise<LoopObser
   const safeSummary = redactSensitiveValue(input.summary) as string;
   const safeArtifacts = redactSensitiveValue(input.artifacts ?? []) as string[];
   const memoryRefs = Array.from(new Set(input.memoryRefs ?? [])).filter(Boolean);
+  // 终态 attemptOutcome：调用方显式提供优先；否则由 status 派生（completed→success, failed→failure, cancelled→noop）。
+  // 用于审计与 last_error_signature 更新，终态不再触发 circuit breaker。
+  const attemptOutcome: LoopAttemptOutcome = input.attemptOutcome
+    ?? (input.status === 'failed' ? 'failure' : input.status === 'completed' ? 'success' : 'noop');
+  const tokenDelta = Math.max(0, Math.trunc(input.tokenUsage ?? 0));
+  const safeError = input.error ? redactSensitiveValue(input.error) as string : undefined;
+  const errorSig = attemptOutcome === 'failure' && safeError ? errorSignature(safeError) : null;
   const db = getDatabase();
   let run = getRunOrThrow(input.runId);
   let nextVersion = 0;
@@ -737,13 +945,24 @@ export async function finishLoopRun(input: LoopFinishRequest): Promise<LoopObser
         state, next_actions, artifacts, memory_refs, created_at
       ) VALUES (?, ?, ?, ?, ?, 'finished', ?, ?, '[]', ?, ?, ?)
     `).run(uuid(), run.id, nextVersion, input.idempotencyKey, hash, safeSummary, JSON.stringify(safeState), JSON.stringify(safeArtifacts), JSON.stringify(memoryRefs), now);
+    // 终态同样累加 token_used 与 consecutive_failures / last_error_signature，便于事后审计与统计。
     const update = db.prepare(`
       UPDATE loop_runs
-      SET status = ?, checkpoint_version = ?, last_event_sequence = ?, updated_at = ?, completed_at = ?
+      SET status = ?, checkpoint_version = ?, last_event_sequence = ?, updated_at = ?, completed_at = ?,
+          token_used = token_used + ?,
+          consecutive_failures = CASE
+            WHEN ? = 'success' THEN 0
+            WHEN ? = 'failure' THEN consecutive_failures + 1
+            ELSE consecutive_failures
+          END,
+          last_error_signature = CASE
+            WHEN ? = 'failure' AND ? IS NOT NULL THEN ?
+            ELSE last_error_signature
+          END
       WHERE id = ? AND checkpoint_version = ?
         AND status IN ('running', 'waiting')
         AND (lease_owner = ? OR lease_expires_at <= ?)
-    `).run(input.status, nextVersion, nextSequence, now, now, run.id, input.expectedVersion, input.leaseOwner, now);
+    `).run(input.status, nextVersion, nextSequence, now, now, tokenDelta, attemptOutcome, attemptOutcome, attemptOutcome, errorSig, errorSig, run.id, input.expectedVersion, input.leaseOwner, now);
     if (update.changes !== 1) {
       protocolError('VERSION_CONFLICT', 'Checkpoint changed before this transaction could commit', true, {
         expected: input.expectedVersion,
@@ -757,7 +976,14 @@ export async function finishLoopRun(input: LoopFinishRequest): Promise<LoopObser
       severity: input.status === 'failed' ? 'error' : input.status === 'cancelled' ? 'warn' : 'info',
       spanId: input.spanId,
       body: safeSummary,
-      attributes: { checkpointVersion: nextVersion, status: input.status, memoryRefCount: memoryRefs.length },
+      attributes: {
+        checkpointVersion: nextVersion,
+        status: input.status,
+        memoryRefCount: memoryRefs.length,
+        attemptOutcome,
+        tokenUsage: tokenDelta,
+        errorSignature: errorSig ?? undefined,
+      },
       timestamp: now,
     });
   }).immediate();

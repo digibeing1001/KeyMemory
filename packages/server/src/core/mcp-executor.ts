@@ -308,6 +308,8 @@ export async function executeMcpTool(
           maxItems: optionalNumber(args, 'maxItems'),
           maxChars: optionalNumber(args, 'maxChars'),
           metadata: optionalRecord(args, 'metadata'),
+          tokenBudget: optionalNumber(args, 'tokenBudget'),
+          costUsdBudget: optionalNumber(args, 'costUsdBudget'),
         } satisfies LoopRunStartRequest));
 
       case 'memory_loop_context':
@@ -339,6 +341,9 @@ export async function executeMcpTool(
           eventName: optionalString(args, 'eventName'),
           severity: optionalString(args, 'severity') as LoopCheckpointRequest['severity'],
           spanId: optionalString(args, 'spanId'),
+          tokenUsage: optionalNumber(args, 'tokenUsage'),
+          attemptOutcome: optionalString(args, 'attemptOutcome') as LoopCheckpointRequest['attemptOutcome'],
+          error: optionalString(args, 'error'),
         } satisfies LoopCheckpointRequest));
 
       case 'memory_loop_finish':
@@ -353,6 +358,9 @@ export async function executeMcpTool(
           artifacts: optionalStringArray(args, 'artifacts'),
           memoryRefs: optionalStringArray(args, 'memoryRefs'),
           spanId: optionalString(args, 'spanId'),
+          tokenUsage: optionalNumber(args, 'tokenUsage'),
+          attemptOutcome: optionalString(args, 'attemptOutcome') as LoopFinishRequest['attemptOutcome'],
+          error: optionalString(args, 'error'),
         } satisfies LoopFinishRequest));
 
       case 'memory_read': {

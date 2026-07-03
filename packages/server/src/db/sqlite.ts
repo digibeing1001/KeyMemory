@@ -308,6 +308,19 @@ function runMigrations(db: Database.Database): void {
       lease_owner TEXT NOT NULL,
       lease_expires_at TEXT NOT NULL,
       metadata TEXT,
+      -- Loop cost & circuit-breaker 可观测性列
+      -- token_budget: 单次 run 累计 token 硬上限（可选）
+      token_budget INTEGER,
+      -- token_used: 累计已用 token（每个 checkpoint 的 tokenUsage 累加）
+      token_used INTEGER NOT NULL DEFAULT 0,
+      -- cost_usd_budget: 美元硬上限（可选，仅审计观测，当前不作为熔断条件）
+      cost_usd_budget REAL,
+      -- cost_usd_used: 累计已用美元
+      cost_usd_used REAL NOT NULL DEFAULT 0,
+      -- consecutive_failures: 连续失败计数（达到 noProgressThreshold=5 触发 circuit breaker）
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      -- last_error_signature: 最后错误签名（达到 stagnationThreshold=3 触发 circuit breaker）
+      last_error_signature TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       completed_at TEXT,
@@ -374,6 +387,8 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_loop_runs_agent ON loop_runs(agent_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_run ON loop_checkpoints(run_id, version);
     CREATE INDEX IF NOT EXISTS idx_loop_events_run ON loop_events(run_id, sequence);
+    -- 支撑 token/cost 预算超限扫描：只扫描活跃 run 中设置了预算的行
+    CREATE INDEX IF NOT EXISTS idx_loop_runs_token_budget ON loop_runs(token_budget) WHERE token_budget IS NOT NULL;
   `);
 
   const alterStatements = [
@@ -395,6 +410,13 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memory_relations ADD COLUMN reason TEXT',
     'ALTER TABLE loop_runs ADD COLUMN request_hash TEXT',
     'ALTER TABLE loop_checkpoints ADD COLUMN memory_refs TEXT NOT NULL DEFAULT \'[]\'',
+    // Loop cost & circuit-breaker 列
+    'ALTER TABLE loop_runs ADD COLUMN token_budget INTEGER',
+    'ALTER TABLE loop_runs ADD COLUMN token_used INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE loop_runs ADD COLUMN cost_usd_budget REAL',
+    'ALTER TABLE loop_runs ADD COLUMN cost_usd_used REAL NOT NULL DEFAULT 0',
+    'ALTER TABLE loop_runs ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE loop_runs ADD COLUMN last_error_signature TEXT',
   ];
   for (const stmt of alterStatements) {
     try {

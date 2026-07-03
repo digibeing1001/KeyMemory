@@ -24,6 +24,7 @@
     "smoke": "node scripts/smoke-keymemory.mjs",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "smoke:loop": "node scripts/smoke-loop-harness.mjs",
+    "loop:audit": "node scripts/loop-readiness-audit.mjs",
     "smoke:launchers": "node scripts/smoke-launchers.mjs",
     "release:check": "node scripts/release-check.mjs",
     "postinstall": "pnpm build",

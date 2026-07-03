@@ -256,6 +256,14 @@ export interface AgentContextPack {
 
 export type LoopRunStatus = 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
 export type LoopEventSeverity = 'debug' | 'info' | 'warn' | 'error';
+/**
+ * 单次 attempt 的结局分类：
+ * 'success' | 'failure' | 'noop'
+ * - success: 该 attempt 达成目标
+ * - failure: 该 attempt 失败（触发 consecutive_failures 递增）
+ * - noop: 该 attempt 无操作（early-exit / 空闲轮询）
+ */
+export type LoopAttemptOutcome = 'success' | 'failure' | 'noop';
 
 export interface LoopRun {
   id: string;
@@ -270,6 +278,18 @@ export interface LoopRun {
   leaseOwner: string;
   leaseExpiresAt: string;
   metadata?: Record<string, unknown>;
+  /** 单次 run 累计 token 硬上限（可选；对应 CircuitBreakerConfig.tokenBudget） */
+  tokenBudget?: number;
+  /** 累计已用 token（每个 checkpoint 的 tokenUsage 累加） */
+  tokenUsed: number;
+  /** 美元硬上限（可选；对应 loop-cost 的 suggested_daily_cap 概念） */
+  costUsdBudget?: number;
+  /** 累计已用美元 */
+  costUsdUsed: number;
+  /** 连续失败计数（达到 noProgressThreshold=5 触发 circuit breaker） */
+  consecutiveFailures: number;
+  /** 最后错误签名（达到 stagnationThreshold=3 触发 circuit breaker） */
+  lastErrorSignature?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -337,6 +357,10 @@ export interface LoopRunStartRequest {
   maxItems?: number;
   maxChars?: number;
   metadata?: Record<string, unknown>;
+  /** 单次 run 累计 token 硬上限（可选；对应 CircuitBreakerConfig.tokenBudget） */
+  tokenBudget?: number;
+  /** 美元硬上限（可选） */
+  costUsdBudget?: number;
 }
 
 export interface LoopContextRequest {
@@ -366,6 +390,12 @@ export interface LoopCheckpointRequest {
   eventName?: string;
   severity?: LoopEventSeverity;
   spanId?: string;
+  /** 本次 attempt 消耗的 token 数（累加到 run 的 tokenUsed；对应 Attempt.tokensUsed） */
+  tokenUsage?: number;
+  /** 本次 attempt 的结局（对应 Attempt.outcome；'failure' 触发 consecutive_failures 递增） */
+  attemptOutcome?: LoopAttemptOutcome;
+  /** 失败时的错误信息（用于生成 errorSignature 做 stagnation 检测） */
+  error?: string;
 }
 
 export interface LoopFinishRequest {
@@ -379,6 +409,32 @@ export interface LoopFinishRequest {
   artifacts?: string[];
   memoryRefs?: string[];
   spanId?: string;
+  /** 本次 attempt 消耗的 token 数（累加到 run 的 tokenUsed） */
+  tokenUsage?: number;
+  /** 本次 attempt 的结局（'failure' 触发 consecutive_failures 递增） */
+  attemptOutcome?: LoopAttemptOutcome;
+  /** 失败时的错误信息（用于生成 errorSignature） */
+  error?: string;
+}
+
+/**
+ * Circuit breaker 状态快照。
+ * 触发顺序 stagnation → no-progress → token-budget → max-iterations。
+ * 仅在 triggered=true 时 reason/nextActions 有值；未触发时为 triggered=false。
+ */
+export interface LoopCircuitBreakerStatus {
+  triggered: boolean;
+  reason?: string;
+  /** 触发时建议的升级/中止动作（来源 checkCircuitBreaker 返回的 nextActions） */
+  nextActions: string[];
+  /** 当前连续失败计数（consecutiveFailures，便于调用方做阈值判断） */
+  consecutiveFailures: number;
+  /** 当前累计 token / 预算（tokenUsed / tokenBudget）；tokenBudget 未设时为 undefined */
+  tokenUsed: number;
+  tokenBudget?: number;
+  /** 当前 checkpoint 次数 / 上限（checkpointVersion / maxIterations=10） */
+  checkpointVersion: number;
+  maxIterations: number;
 }
 
 export interface LoopContextData {
@@ -387,6 +443,8 @@ export interface LoopContextData {
   events: LoopEvent[];
   contextPack: AgentContextPack;
   contextFingerprint: string;
+  /** Circuit breaker 评估结果。getLoopContext 总是返回，便于调用方判断是否应升级。 */
+  circuitBreaker: LoopCircuitBreakerStatus;
 }
 
 export type ConsolidationActionType = 'merge' | 'deduplicate' | 'archive_stale' | 'archive_flash' | 'solidify';
