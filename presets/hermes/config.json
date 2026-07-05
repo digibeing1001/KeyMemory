@@ -1,6 +1,6 @@
 {
   "preset": "hermes",
-  "description": "预设的 Hermes 集成配置",
+  "description": "Hermes integration preset configuration",
   "isolationMode": "hybrid",
   "autoRecord": true,
   "autoSearch": true,

@@ -109,11 +109,11 @@ export const DREAM_AUTONOMY = {
 } as const;
 
 /**
- * Phase 6: LLM 关联推理配置
+ * 关联推理（LLM Relation Reasoning）配置
  *
- * 设计原则（来自用户）：
- * - 批量大小 = 未扫描存量（不是 1 新 + 5 旧，而是扫描所有未做过 LLM 推理的记忆）
- * - 不过分控制 token 成本（用户明确要求）
+ * 设计原则：
+ * - 批量大小 = 未扫描存量（扫描所有未做过 LLM 推理的记忆）
+ * - 不过分控制 token 成本
  * - 提示词要"有确认性，尽可能少自主发挥，但可以从中发现新的洞见"
  */
 export const RELATION_REASONER_CONFIG = {
@@ -134,9 +134,9 @@ export const RELATION_REASONER_CONFIG = {
 } as const;
 
 /**
- * Phase 7: 项目接龙注入配置
+ * 项目接龙（Project Handoff）注入配置
  *
- * 设计原则（来自用户）：
+ * 设计原则：
  * - 不是定时 LLM 生成日志，而是事件触发
  * - agent 接近项目记忆时，反向注入"请写日志"指令
  * - agent 自己写入 project_journal，形成跨会话接龙链

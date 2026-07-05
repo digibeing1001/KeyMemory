@@ -13,8 +13,8 @@ interface UseWorkingSetReturn {
 
 const DEFAULT_LIMIT = 20;
 
-// 工作集视图的数据 hook：把"近期被命中 / 近期被写入 / 近期 loop 运行"三类
-// 系统真正流动的数据合并到一处，作为 loop 上下文记忆库的核心观测面板。
+// 使用动态视图的数据 hook：把"近期被命中 / 近期被写入 / 智能体活动"三类
+// 系统真正流动的数据合并到一处，作为记忆库使用情况的核心观测面板。
 // 这一层是为了让用户能在 UI 上直观看到"哪些记忆被实际用到了、系统有没有在产出"，
 // 而不是只看到长期层堆满的孤儿条目。
 export function useWorkingSet(): UseWorkingSetReturn {

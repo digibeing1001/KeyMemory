@@ -14,3 +14,7 @@ onnx-models/
 .codegraph/
 .cursor/
 scripts/*.txt
+
+# Local research notes (not for public release)
+docs/research-and-product-upgrade.md
+docs/loop-harness-research.md

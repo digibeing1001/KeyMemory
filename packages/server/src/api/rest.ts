@@ -135,9 +135,8 @@ export function registerRoutes(app: FastifyInstance): void {
     });
   });
 
-  // 近期工作集：按 last_hit_at 倒序返回近期被命中的记忆，让 UI 能直接展示"系统在流动"
-  // 真实数据中 long 层有 26 条零命中、整体 short active=0——这个端点让用户在 UI 上能直接看到
-  // 哪些记忆被实际用到了、哪些从未被命中，作为 loop 上下文记忆库的核心入口视图
+  // 近期命中：按 last_hit_at 倒序返回近期被命中的记忆，让 UI 能直接展示系统的实际使用情况
+  // 用户可以直观看到哪些记忆被实际用到了、哪些从未被命中，作为记忆库使用情况的核心入口视图
   app.get('/api/memories/recent-hits', async (request) => {
     const query = request.query as Record<string, string>;
     const limit = query.limit ? Math.min(parseInt(query.limit, 10) || 20, 100) : 20;
@@ -1213,9 +1212,9 @@ export function registerRoutes(app: FastifyInstance): void {
     };
   });
 
-  // ===== Phase 6/7 手动触发 API =====
+  // ===== Relation reasoning & project handoff API =====
 
-  app.post('/api/dream/phase6/run', async (request, reply) => {
+  app.post('/api/relation-reasoning/run', async (request, reply) => {
     try {
       const report = await runRelationReasonerBatch();
       return report;
@@ -1225,11 +1224,11 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.get('/api/dream/phase6/stats', async () => {
+  app.get('/api/relation-reasoning/stats', async () => {
     return getScanStats();
   });
 
-  app.post('/api/dream/phase6/reset', async (request) => {
+  app.post('/api/relation-reasoning/reset', async (request) => {
     const body = request.body as { memoryId?: string; all?: boolean };
     if (body.all) {
       const count = resetAllScanStatus();
@@ -1242,7 +1241,7 @@ export function registerRoutes(app: FastifyInstance): void {
     return { success: false, error: 'Provide memoryId or all=true' };
   });
 
-  app.post('/api/dream/phase7/run', async (request, reply) => {
+  app.post('/api/project-handoff/run', async (request, reply) => {
     try {
       const report = scanProjectJournalInjections();
       return report;
@@ -1252,17 +1251,17 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.get('/api/dream/phase7/injections', async (request) => {
+  app.get('/api/project-handoff/injections', async (request) => {
     const query = request.query as Record<string, string>;
     const status = query.status as 'pending' | 'injected' | 'logged' | undefined;
     return listInjections(status);
   });
 
-  app.get('/api/dream/phase7/stats', async () => {
+  app.get('/api/project-handoff/stats', async () => {
     return getInjectionStats();
   });
 
-  app.post('/api/dream/phase7/reset/:projectId', async (request) => {
+  app.post('/api/project-handoff/reset/:projectId', async (request) => {
     const { projectId } = request.params as { projectId: string };
     const ok = resetInjection(projectId);
     return { success: ok };

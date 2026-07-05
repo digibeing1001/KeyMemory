@@ -551,9 +551,9 @@ export interface DreamReportDetails {
   promoted: { memoryId: string; title: string; score: number }[];
   archived: { memoryId: string; title: string; reason: string }[];
   merged: { memoryId: string; title: string; intoId: string; intoTitle: string }[];
-  /** Phase 6: LLM 关联推理建立的演化关系 */
+  /** 关联推理建立的演化关系 */
   relationReasoned?: { memoryId: string; title: string; relationsCreated: number }[];
-  /** Phase 7: 标记为需要项目接龙注入的项目 */
+  /** 标记为需要项目接龙注入的项目 */
   projectJournalInjected?: { projectId: string; projectName: string; lastActivityAt: string }[];
 }
 
@@ -570,9 +570,9 @@ export interface DreamReport {
   durationMs?: number;
   todoItems: DreamTodoItem[];
   details?: DreamReportDetails;
-  /** Phase 6: LLM 关联推理建立的关系总数 */
+  /** 关联推理建立的关系总数 */
   relationsReasoned?: number;
-  /** Phase 7: 标记需要接龙注入的项目数 */
+  /** 标记需要接龙注入的项目数 */
   projectJournalsInjected?: number;
 }
 
@@ -587,7 +587,7 @@ export interface LLMProviderConfig {
   baseUrl: string;
   /** 选定的模型 ID，如 gpt-4o / qwen2.5:7b / deepseek-chat */
   model: string;
-  /** 是否启用 LLM 关联推理（关闭则 Dream Phase 6 跳过） */
+  /** 是否启用 LLM 关联推理（关闭则跳过关联推理阶段） */
   enabled: boolean;
   /** 上次连通性检测通过的时间 */
   lastVerifiedAt?: string;

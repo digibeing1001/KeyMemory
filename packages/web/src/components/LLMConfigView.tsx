@@ -9,12 +9,12 @@ import {
   verifyLLMConnection,
   fetchLLMModels,
   getLLMStatus,
-  getPhase6Stats,
-  runPhase6,
-  getPhase7Stats,
-  runPhase7,
-  type Phase6Stats,
-  type Phase7Stats,
+  getRelationReasoningStats,
+  runRelationReasoning,
+  getProjectHandoffStats,
+  runProjectHandoff,
+  type RelationReasoningStats,
+  type ProjectHandoffStats,
 } from '../lib/api';
 import {
   Brain,
@@ -55,10 +55,10 @@ export default function LLMConfigView() {
   const [fetchingModels, setFetchingModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifyResult, setVerifyResult] = useState<LLMVerifyResult | null>(null);
-  const [phase6Stats, setPhase6Stats] = useState<Phase6Stats | null>(null);
-  const [phase7Stats, setPhase7Stats] = useState<Phase7Stats | null>(null);
-  const [runningPhase6, setRunningPhase6] = useState(false);
-  const [runningPhase7, setRunningPhase7] = useState(false);
+  const [relationReasoningStats, setRelationReasoningStats] = useState<RelationReasoningStats | null>(null);
+  const [projectHandoffStats, setProjectHandoffStats] = useState<ProjectHandoffStats | null>(null);
+  const [runningRelationReasoning, setRunningRelationReasoning] = useState(false);
+  const [runningProjectHandoff, setRunningProjectHandoff] = useState(false);
 
   async function loadConfig() {
     setLoading(true);
@@ -80,56 +80,56 @@ export default function LLMConfigView() {
     } finally {
       setLoading(false);
     }
-    // 并行加载 Phase 6/7 统计（不阻塞主配置加载）
-    loadPhaseStats();
+    // 并行加载关联推理与项目接龙统计（不阻塞主配置加载）
+    loadFeatureStats();
   }
 
-  async function loadPhaseStats() {
+  async function loadFeatureStats() {
     try {
-      const [p6, p7] = await Promise.all([getPhase6Stats(), getPhase7Stats()]);
-      setPhase6Stats(p6);
-      setPhase7Stats(p7);
+      const [relationStats, handoffStats] = await Promise.all([getRelationReasoningStats(), getProjectHandoffStats()]);
+      setRelationReasoningStats(relationStats);
+      setProjectHandoffStats(handoffStats);
     } catch {
       // 静默失败，状态卡片不是核心功能
     }
   }
 
-  async function handleRunPhase6() {
+  async function handleRunRelationReasoning() {
     if (!available) {
-      toast(t('llm.phase6NoLlm'), 'info');
+      toast(t('llm.relationReasoningNoLlm'), 'info');
       return;
     }
-    setRunningPhase6(true);
+    setRunningRelationReasoning(true);
     try {
-      const report = await runPhase6();
+      const report = await runRelationReasoning();
       if (report.skipped.length > 0) {
-        toast(t('llm.phase6Skipped', { count: report.skipped.length }), 'info');
+        toast(t('llm.relationReasoningSkipped', { count: report.skipped.length }), 'info');
       }
       toast(
-        t('llm.phase6Success', { scanned: report.scanned, relations: report.relationsCreated, ms: report.durationMs }),
+        t('llm.relationReasoningSuccess', { scanned: report.scanned, relations: report.relationsCreated, ms: report.durationMs }),
         report.scanned > 0 ? 'success' : 'info'
       );
-      await loadPhaseStats();
+      await loadFeatureStats();
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
-      setRunningPhase6(false);
+      setRunningRelationReasoning(false);
     }
   }
 
-  async function handleRunPhase7() {
-    setRunningPhase7(true);
+  async function handleRunProjectHandoff() {
+    setRunningProjectHandoff(true);
     try {
-      const report = await runPhase7();
+      const report = await runProjectHandoff();
       toast(
-        t('llm.phase7Success', { marked: report.marked, ms: report.durationMs }),
+        t('llm.projectHandoffSuccess', { marked: report.marked, ms: report.durationMs }),
         report.marked > 0 ? 'success' : 'info'
       );
-      await loadPhaseStats();
+      await loadFeatureStats();
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
-      setRunningPhase7(false);
+      setRunningProjectHandoff(false);
     }
   }
 
@@ -565,7 +565,7 @@ export default function LLMConfigView() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {/* Phase 6: 关联推理 */}
+          {/* 关联推理 */}
           <div
             style={{
               padding: '12px 14px',
@@ -576,34 +576,34 @@ export default function LLMConfigView() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>{t('llm.phase6Title')}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.5 }}>{t('llm.phase6Desc')}</div>
+                <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>{t('llm.relationReasoningTitle')}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.5 }}>{t('llm.relationReasoningDesc')}</div>
               </div>
               <button
                 className="btn btn-primary"
-                onClick={handleRunPhase6}
-                disabled={runningPhase6 || !available}
-                title={available ? '' : t('llm.phase6NoLlm')}
+                onClick={handleRunRelationReasoning}
+                disabled={runningRelationReasoning || !available}
+                title={available ? '' : t('llm.relationReasoningNoLlm')}
                 style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
               >
-                {runningPhase6 ? (
+                {runningRelationReasoning ? (
                   <span className="animate-spin" style={{ width: 11, height: 11, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
                 ) : (
                   <Zap size={11} />
                 )}
-                {runningPhase6 ? t('llm.phase6Running') : t('llm.phase6Run')}
+                {runningRelationReasoning ? t('llm.relationReasoningRunning') : t('llm.relationReasoningRun')}
               </button>
             </div>
             <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-secondary)' }}>
-              <span>{t('llm.phase6Scanned')}: <strong style={{ color: 'var(--text-primary)' }}>{phase6Stats?.totalScanned ?? 0}</strong></span>
-              <span>{t('llm.phase6Relations')}: <strong style={{ color: 'var(--text-primary)' }}>{phase6Stats?.totalRelations ?? 0}</strong></span>
+              <span>{t('llm.relationReasoningScanned')}: <strong style={{ color: 'var(--text-primary)' }}>{relationReasoningStats?.totalScanned ?? 0}</strong></span>
+              <span>{t('llm.relationReasoningRelations')}: <strong style={{ color: 'var(--text-primary)' }}>{relationReasoningStats?.totalRelations ?? 0}</strong></span>
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-              {t('llm.phase6LastScan')}: {phase6Stats?.lastScanAt ? new Date(phase6Stats.lastScanAt).toLocaleString() : t('llm.phase6Never')}
+              {t('llm.relationReasoningLastScan')}: {relationReasoningStats?.lastScanAt ? new Date(relationReasoningStats.lastScanAt).toLocaleString() : t('llm.relationReasoningNever')}
             </div>
           </div>
 
-          {/* Phase 7: 项目接龙 */}
+          {/* 项目接龙 */}
           <div
             style={{
               padding: '12px 14px',
@@ -614,27 +614,27 @@ export default function LLMConfigView() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>{t('llm.phase7Title')}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.5 }}>{t('llm.phase7Desc')}</div>
+                <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>{t('llm.projectHandoffTitle')}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.5 }}>{t('llm.projectHandoffDesc')}</div>
               </div>
               <button
                 className="btn"
-                onClick={handleRunPhase7}
-                disabled={runningPhase7}
+                onClick={handleRunProjectHandoff}
+                disabled={runningProjectHandoff}
                 style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
               >
-                {runningPhase7 ? (
+                {runningProjectHandoff ? (
                   <span className="animate-spin" style={{ width: 11, height: 11, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
                 ) : (
                   <RefreshCw size={11} />
                 )}
-                {runningPhase7 ? t('llm.phase7Running') : t('llm.phase7Run')}
+                {runningProjectHandoff ? t('llm.projectHandoffRunning') : t('llm.projectHandoffRun')}
               </button>
             </div>
             <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-secondary)' }}>
-              <span>{t('llm.phase7Pending')}: <strong style={{ color: 'var(--text-primary)' }}>{phase7Stats?.pending ?? 0}</strong></span>
-              <span>{t('llm.phase7Injected')}: <strong style={{ color: 'var(--text-primary)' }}>{phase7Stats?.injected ?? 0}</strong></span>
-              <span>{t('llm.phase7Logged')}: <strong style={{ color: 'var(--text-primary)' }}>{phase7Stats?.logged ?? 0}</strong></span>
+              <span>{t('llm.projectHandoffPending')}: <strong style={{ color: 'var(--text-primary)' }}>{projectHandoffStats?.pending ?? 0}</strong></span>
+              <span>{t('llm.projectHandoffInjected')}: <strong style={{ color: 'var(--text-primary)' }}>{projectHandoffStats?.injected ?? 0}</strong></span>
+              <span>{t('llm.projectHandoffLogged')}: <strong style={{ color: 'var(--text-primary)' }}>{projectHandoffStats?.logged ?? 0}</strong></span>
             </div>
           </div>
         </div>

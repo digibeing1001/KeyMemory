@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'crypto';
 import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
 import { getMemory, listMemories } from './atom.js';
 import { searchHybrid } from './query.js';
@@ -310,8 +311,92 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     }
   }
 
-  return {
+  const result = {
     ...packBase,
     markdown: formatMarkdown(packBase, handoff),
   };
+
+  // 记录 agent 活动到 loop_runs 表，让使用动态页能看到智能体何时访问了记忆库。
+  recordAgentActivity(input, result);
+
+  return result;
+}
+
+/**
+ * 记录 agent 活动到 loop_runs 表。
+ *
+ * 设计目的：让使用动态页的"智能体活动"列有真实数据。当 agent 通过 MCP/REST
+ * 调用 buildAgentContextPack 时，自动创建/更新一条 loop_run 记录。
+ *
+ * 避免噪声：同一 agent 在 60 秒内的多次请求只更新同一条记录（bump updated_at
+ * 和 checkpoint_version），超过 60 秒才创建新记录。这样既保留活动历史，又不会刷屏。
+ *
+ * 失败不阻塞：记录活动是可观测性增强，任何失败只记日志不影响 context pack 返回。
+ */
+function recordAgentActivity(input: AgentContextPackRequest, pack: AgentContextPack): void {
+  try {
+    const db = getDatabase();
+
+    // 从 agentSpaces 推断 agentId（如 ['global', 'agent:foo'] → 'foo'）
+    const agentSpace = input.agentSpaces?.find(s => s.startsWith('agent:'));
+    const agentId = agentSpace ? agentSpace.slice('agent:'.length) : 'default-agent';
+
+    // 构造 objective：优先用查询文本，其次用项目名，最后用通用描述
+    let objective: string;
+    if (input.query?.trim()) {
+      objective = input.query.trim().slice(0, 200);
+    } else if (pack.project) {
+      objective = `Context retrieval (${pack.project})`;
+    } else {
+      objective = 'Memory context retrieval';
+    }
+
+    const now = new Date().toISOString();
+    const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+
+    // 检查 60 秒内是否有同一 agent 的记录，有则更新，无则新建
+    const recent = db.prepare(`
+      SELECT id FROM loop_runs
+      WHERE agent_id = ? AND updated_at > ?
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(agentId, oneMinuteAgo) as { id: string } | undefined;
+
+    if (recent) {
+      db.prepare(`
+        UPDATE loop_runs
+        SET objective = ?, updated_at = ?, checkpoint_version = checkpoint_version + 1
+        WHERE id = ?
+      `).run(objective, now, recent.id);
+    } else {
+      const runId = randomUUID();
+      const traceId = createHash('sha256').update(`${runId}:${now}`).digest('hex').slice(0, 32);
+      const idempotencyKey = `auto:${agentId}:${now}`;
+
+      db.prepare(`
+        INSERT INTO loop_runs (
+          id, idempotency_key, objective, project_id, project_path, agent_id, status,
+          checkpoint_version, last_event_sequence, trace_id, lease_owner, lease_expires_at,
+          created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, 'completed',
+          1, 0, ?, ?, ?,
+          ?, ?
+        )
+      `).run(
+        runId,
+        idempotencyKey,
+        objective,
+        pack.projectId ?? null,
+        pack.project ?? null,
+        agentId,
+        traceId,
+        'keymemory-auto',
+        now,
+        now,
+        now,
+      );
+    }
+  } catch (err) {
+    console.error('[context-pack] recordAgentActivity failed (non-fatal):', (err as Error).message);
+  }
 }

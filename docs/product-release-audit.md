@@ -21,7 +21,6 @@ This audit maps the original KeyMemory product requirements to implementation ev
 | Production safety | redaction before storage/indexing/embedding/versioning, API-key auth for exposed servers, loopback default binding, portable backups, dry-run restore |
 | User control and reversibility | dry-run migration, pre-import backups, dream rollback, recycle bin, archive/decay/delete, backup inspect/restore |
 | Cross-platform release | Windows/Linux/macOS CI matrix plus WSL smoke step in `.github/workflows/ci.yml`; launcher smoke for paths with spaces |
-| Research-backed product direction | market and paper synthesis in `docs/research-and-product-upgrade.md` |
 
 ## Release Gates
 

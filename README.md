@@ -30,7 +30,7 @@ KeyMemory 就是为了系统性地解决这些问题而设计的。
 
 - 数据默认存在本地 SQLite 数据库，**不出本机、不上云**。单文件即整个记忆库，备份和迁移就是复制一个文件的事。
 - 写入、索引、向量化、版本记录、迁移输出**前**会自动脱敏常见密钥与凭证（API key、JWT、私钥、带密码的连接串等），从源头防止凭证误入库。
-- 工具用的 API key 等凭据单独加密保存（AES-256-GCM 行业标准加密），和普通记忆彻底隔开——不会被搜索、不会被向量化、不会进梦境整理、也不会被带进备份文件。
+- 工具用的 API key 等凭据单独加密保存（AES-256-GCM 行业标准加密），和普通记忆彻底隔开——不会被搜索、不会被向量化、不会进自动整理、也不会被带进备份文件。
 - Web 服务默认只在本机（`127.0.0.1`）监听；要开放到局域网或公网，必须显式设置访问密钥 `KEYMEMORY_API_KEY`，否则拒绝启动。
 
 ### 2. 项目树组织，记忆不再串味
@@ -84,13 +84,13 @@ Agent 做长期任务前最需要的不只是"搜索结果"，而是**按用途�
 - 在每条记忆下附上简短的来源说明（如"已被 mem-xxx 取代"），让 Agent 知道哪些是最新结论。
 - 同时输出结构化 JSON 和 Markdown，可直接作为系统提示或任务上下文注入。
 
-### 7. 梦境整理：记忆越用越干净，而不是越用越乱
+### 7. 自动整理：记忆越用越干净，而不是越用越乱
 
 记忆库会自然膨胀。KeyMemory 借鉴人脑睡眠周期，把整理分成五个阶段自动完成：
 
-- **浅睡阶段**：去重近期记忆，合并重复项。
-- **REM 阶段**（快速眼动期，即做梦期）：分析主题、优化标签，在相关记忆之间建立关联。
-- **深睡阶段**：评分升级（把重要的短期记忆提升为长期）、智能合并、归档低价值记忆。
+- **去重检查**：去重近期记忆，合并重复项。
+- **关联补全**：分析主题、优化标签，在相关记忆之间建立关联。
+- **长期整理**：评分升级（把重要的短期记忆提升为长期）、智能合并、归档低价值记忆。
 - **语义合并**：在语义层面合并意思相近的记忆。
 - **项目聚类**：发现共享同一批实体的项目，给出项目树整理建议（比如"这两个项目其实该归到同一个父项目下"）。
 
@@ -124,7 +124,7 @@ Agent 做长期任务前最需要的不只是"搜索结果"，而是**按用途�
 
 ```bash
 keymemory onboard            # 先预览，不写入
-keymemory onboard --yes --run-dream --agent-target all   # 确认后真迁移
+keymemory onboard --yes --run-dream --agent-target all   # 确认后真迁移（--run-dream 迁移后自动运行整理）
 ```
 
 - 支持格式：`.md` / `.markdown` / `.json` / `.jsonl` / `.ndjson` / `.txt`。
@@ -170,7 +170,7 @@ keymemory onboard
 keymemory onboard --yes --run-dream --agent-target all
 ```
 
-它会完成：发现旧记忆来源 → 估算迁移结果 → 写入前备份 → 导入并规范化 → 推断项目路径与类型 → 可选运行梦境整理 → 输出 Agent 接入配置片段。
+它会完成：发现旧记忆来源 → 估算迁移结果 → 写入前备份 → 导入并规范化 → 推断项目路径与类型 → 可选运行自动整理 → 输出 Agent 接入配置片段。
 
 ### 启动 Web UI
 
@@ -178,7 +178,7 @@ keymemory onboard --yes --run-dream --agent-target all
 keymemory dashboard
 ```
 
-浏览器打开 `http://127.0.0.1:3210`，包含记忆编辑器、项目树、搜索、标签云、梦境报告与调度、迁移导入、项目整理建议、回收站。
+浏览器打开 `http://127.0.0.1:3210`，包含记忆编辑器、项目树、搜索、标签云、整理报告与调度、迁移导入、项目整理建议、回收站。
 
 ### 接入 Agent
 
@@ -215,12 +215,12 @@ keymemory agent-config openclaw --format json
 | `memory_loop_finish` | 结束任务，写入最终断点和事件记录 |
 | `memory_migration_discover` | 发现旧记忆来源 |
 | `memory_migration_import` | 导入并重组旧记忆 |
-| `memory_backup_create` | 迁移或梦境前创建备份 |
+| `memory_backup_create` | 迁移或整理前创建备份 |
 | `memory_backup_inspect` | 检查备份结构与校验和 |
 | `memory_backup_restore_dry_run` | 验证备份是否可恢复 |
 | `memory_relate` | 创建记忆之间的关系（相关、取代、衍生、引用等） |
 | `memory_related` | 查看相关记忆 |
-| `memory_project_suggestions` | 查看梦境生成的项目整理建议 |
+| `memory_project_suggestions` | 查看自动整理生成的项目整理建议 |
 | `memory_project_suggestion_accept` | 接受项目整理建议 |
 | `memory_project_suggestion_reject` | 拒绝项目整理建议 |
 | `memory_secret_set` / `keymemory_secret_set` | 加密保存工具 API key |
@@ -241,8 +241,8 @@ keymemory search "user preference" --kind preference
 keymemory relate <sourceId> <targetId> --type supersedes
 keymemory related <sourceId> --type supersedes
 keymemory backup-create ./keymemory-backup.json
-keymemory scheduler                                       # 查看或修改梦境调度
-keymemory dream                                           # 手动运行一次梦境整理
+keymemory scheduler                                       # 查看或修改整理调度
+keymemory dream                                           # 手动运行一次自动整理
 keymemory update                                          # 更新 KeyMemory
 ```
 
@@ -270,7 +270,7 @@ keymemory backup-restore ./keymemory-backup.json --dry-run
 keymemory backup-restore ./keymemory-backup.json --replace
 ```
 
-梦境调度：
+整理调度：
 
 ```bash
 keymemory scheduler
@@ -340,14 +340,12 @@ Windows、Linux、macOS、Windows WSL。
 - [Agent Context Pack](docs/agent-context-pack.md)
 - [Loop Harness 接入](docs/loop-harness.md)
 - [Loop Patterns 配方](docs/loop-patterns.md)
-- [Loop Harness 研究与设计依据](docs/loop-harness-research.md)
 - [备份与恢复](docs/backup-and-recovery.md)
 - [记忆关系](docs/memory-relations.md)
 - [隐私与安全](docs/privacy-and-safety.md)
 - [性能预算](docs/performance.md)
 - [发布就绪检查](docs/release-readiness.md)
 - [产品发布审计](docs/product-release-audit.md)
-- [研究与产品升级](docs/research-and-product-upgrade.md)
 
 ---
 

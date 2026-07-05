@@ -27,7 +27,7 @@ const PROJECT_PATTERN = /\[\[([^\]]+)\]\]/g;
  * - supersedes: 取代关系（A 取代了 B）
  * - references: 引用关系（A 引用了 B）
  *
- * 演化关系（Phase 6 新增，LLM 推理驱动，来自 starcluster-indexer 四问范式）：
+ * 演化关系（LLM 推理驱动，四问范式）：
  * - extends: A 延伸了 B（A 是 B 的自然下一步/具体化）
  * - reverses: A 反转了 B（A 推翻/否定了 B）
  * - reinforces: A 补强了 B（A 强化/佐证了 B）

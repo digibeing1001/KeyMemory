@@ -93,10 +93,10 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
         console.error('[Dream] Project clustering phase failed (non-fatal):', (err as Error).message);
       }
 
-      // Phase 7: 项目接龙注入扫描（同步，不调 LLM）
+      // 项目接龙注入扫描（同步，不调 LLM）
       // 扫描哪些项目近 N 天有活动但缺少 project_journal，标记为 pending。
       // 当 agent 检索命中这些项目时，context-pack 会注入"请写日志"指令。
-      // 注意：Phase 7 只做标记，不生成日志内容。日志由 agent 自己写。
+      // 注意：本阶段只做标记，不生成日志内容。日志由 agent 自己写。
       try {
         const journalReport = scanProjectJournalInjections();
         if (journalReport.marked > 0) {
@@ -105,15 +105,15 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
             projectName: d.projectName,
             lastActivityAt: d.lastActivityAt,
           }));
-          console.log(`[Dream] Phase 7: marked ${journalReport.marked} projects for journal injection`);
+          console.log(`[Dream] Project handoff: marked ${journalReport.marked} projects for journal injection`);
         }
       } catch (err) {
-        console.error('[Dream] Phase 7 (project journal scan) failed (non-fatal):', (err as Error).message);
+        console.error('[Dream] Project handoff scan failed (non-fatal):', (err as Error).message);
       }
 
-      // Phase 6: LLM 关联推理（异步，不在此同步函数中执行）
-      // Phase 6 调用 LLM 做四问深度扫描，是异步操作。
-      // 调用方应使用 runDreamCycleAsync() 来包含 Phase 6。
+      // 关联推理（异步，不在此同步函数中执行）
+      // 关联推理调用 LLM 做四问深度扫描，是异步操作。
+      // 调用方应使用 runDreamCycleAsync() 来包含关联推理。
       // 此处仅标记 relationsReasoned = 0，实际结果由 runDreamCycleAsync 更新。
     }
 
@@ -176,41 +176,41 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
     todoItems,
     details,
     durationMs: Date.now() - startTime,
-    relationsReasoned: 0, // Phase 6 结果由 runDreamCycleAsync 填充
+    relationsReasoned: 0, // 关联推理结果由 runDreamCycleAsync 填充
     projectJournalsInjected: details.projectJournalInjected?.length ?? 0,
   };
 }
 
 /**
- * 异步 Dream 周期（含 Phase 6: LLM 关联推理）。
+ * 异步 Dream 周期（含 LLM 关联推理）。
  *
- * Phase 6 调用 LLM 做四问深度扫描，是异步操作。
- * 本函数在 runDreamCycle（同步，含 Phase 1-5 + 7）完成后，异步执行 Phase 6。
+ * 关联推理调用 LLM 做四问深度扫描，是异步操作。
+ * 本函数在 runDreamCycle（同步整理 + 项目接龙扫描）完成后，异步执行关联推理。
  *
  * 调用方：
  * - scheduler.ts: full dream 定时器
  * - rest.ts: POST /api/dream/run
- * - 不需要 Phase 6 的场景（migration、cli）可直接调 runDreamCycle
+ * - 不需要关联推理的场景（migration、cli）可直接调 runDreamCycle
  *
- * @param quickMode 快速模式，跳过 Phase 4/5/6/7
+ * @param quickMode 快速模式，跳过语义/聚类/关联推理/项目接龙等高级阶段
  */
 export async function runDreamCycleAsync(quickMode: boolean = false): Promise<DreamReport> {
-  // 1. 执行同步部分（Phase 1-5 + 7）
+  // 1. 执行同步部分（整理 + 项目接龙扫描）
   const report = runDreamCycle(quickMode);
 
-  // 2. quickMode 或失败时不执行 Phase 6
+  // 2. quickMode 或失败时不执行关联推理
   if (quickMode || report.status !== 'completed') return report;
 
-  // 3. 执行 Phase 6: LLM 关联推理
+  // 3. 执行 LLM 关联推理
   try {
-    const phase6Report = await runRelationReasonerBatch();
+    const relationReport = await runRelationReasonerBatch();
 
     // 更新 DreamReport
-    report.relationsReasoned = phase6Report.relationsCreated;
+    report.relationsReasoned = relationReport.relationsCreated;
 
-    if (phase6Report.details.length > 0) {
+    if (relationReport.details.length > 0) {
       if (!report.details) report.details = { promoted: [], archived: [], merged: [] };
-      report.details.relationReasoned = phase6Report.details;
+      report.details.relationReasoned = relationReport.details;
     }
 
     // 持久化更新到数据库
@@ -221,12 +221,12 @@ export async function runDreamCycleAsync(quickMode: boolean = false): Promise<Dr
       WHERE id = ?
     `).run(JSON.stringify(report.details), JSON.stringify(report.sessions), report.id);
 
-    console.log(`[Dream] Phase 6: scanned ${phase6Report.scanned} memories, created ${phase6Report.relationsCreated} relations`);
-    if (phase6Report.skipped.length > 0) {
-      console.log(`[Dream] Phase 6 skipped: ${phase6Report.skipped.join('; ')}`);
+    console.log(`[Dream] Relation reasoning: scanned ${relationReport.scanned} memories, created ${relationReport.relationsCreated} relations`);
+    if (relationReport.skipped.length > 0) {
+      console.log(`[Dream] Relation reasoning skipped: ${relationReport.skipped.join('; ')}`);
     }
   } catch (err) {
-    console.error('[Dream] Phase 6 (LLM relation reasoning) failed (non-fatal):', (err as Error).message);
+    console.error('[Dream] Relation reasoning failed (non-fatal):', (err as Error).message);
   }
 
   return report;

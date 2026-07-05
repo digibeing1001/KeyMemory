@@ -242,6 +242,7 @@ interface MemoryRowProps {
 
 function MemoryRow({ memory, locale, language, layerLabel, onClick, timeLabel, timeLabelKind }: MemoryRowProps) {
   const layerColor = LAYER_COLORS[memory.layer];
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -270,7 +271,7 @@ function MemoryRow({ memory, locale, language, layerLabel, onClick, timeLabel, t
           </span>
           {memory.hitCount > 0 && (
             <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-              · {language === 'zh' ? `${memory.hitCount} 次命中` : `${memory.hitCount} hits`}
+              · {t('workingSet.hitCount', { count: String(memory.hitCount) })}
             </span>
           )}
           <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
@@ -306,7 +307,7 @@ function MemoryRow({ memory, locale, language, layerLabel, onClick, timeLabel, t
         </div>
         {timeLabelKind === 'hit' && memory.lastHitAt && (
           <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-            {language === 'zh' ? '最近命中' : 'Last hit'}: {formatDate(memory.lastHitAt, locale)}
+            {t('workingSet.lastHit')}: {formatDate(memory.lastHitAt, locale)}
           </div>
         )}
       </div>
@@ -315,9 +316,10 @@ function MemoryRow({ memory, locale, language, layerLabel, onClick, timeLabel, t
 }
 
 function LoopRunRow({ run, language }: { run: LoopRun; language: 'zh' | 'en' }) {
+  const { t } = useI18n();
   const statusColor = LOOP_STATUS_COLOR[run.status] ?? 'var(--text-muted)';
-  const objective = run.objective || (language === 'zh' ? '（未设置目标）' : '(no objective)');
-  const projectLabel = run.projectPath || run.projectId || (language === 'zh' ? '未关联项目' : 'No project');
+  const objective = run.objective || t('workingSet.noObjective');
+  const projectLabel = run.projectPath || run.projectId || t('workingSet.noProject');
   return (
     <div
       style={{

@@ -459,7 +459,7 @@ export async function importDiscoveredMemories(data: {
 }
 
 // ===== LLM Provider Config =====
-// Phase 6 (LLM 关联推理) 的配置入口。用户配置自己的 LLM API（OpenAI 兼容协议），
+// 关联推理的配置入口。用户配置自己的 LLM API（OpenAI 兼容协议），
 // 用于自动整理记忆时的关联推理。详见 core/llm-provider.ts 和 core/relation-reasoner.ts。
 
 export async function getLLMConfig(): Promise<LLMProviderConfig | null> {
@@ -503,16 +503,16 @@ export async function getLLMStatus(): Promise<{ available: boolean; config: LLMP
   return request('/llm/status');
 }
 
-// ===== Phase 6/7 状态查询与手动触发 =====
+// ===== Relation reasoning & project handoff status and manual triggers =====
 // 让用户在 LLM 配置页直接看到关联推理和项目接龙的运行状态，并提供手动触发入口。
 
-export interface Phase6Stats {
+export interface RelationReasoningStats {
   totalScanned: number;
   totalRelations: number;
   lastScanAt?: string;
 }
 
-export interface Phase6RunReport {
+export interface RelationReasoningRunReport {
   scanned: number;
   relationsCreated: number;
   details: { memoryId: string; title: string; relationsCreated: number; latencyMs: number }[];
@@ -520,31 +520,31 @@ export interface Phase6RunReport {
   durationMs: number;
 }
 
-export interface Phase7Stats {
+export interface ProjectHandoffStats {
   pending: number;
   injected: number;
   logged: number;
   total: number;
 }
 
-export interface Phase7RunReport {
+export interface ProjectHandoffRunReport {
   marked: number;
   details: { projectId: string; projectName: string; lastActivityAt: string; memoryCount: number }[];
   durationMs: number;
 }
 
-export async function getPhase6Stats(): Promise<Phase6Stats> {
-  return request('/dream/phase6/stats');
+export async function getRelationReasoningStats(): Promise<RelationReasoningStats> {
+  return request('/relation-reasoning/stats');
 }
 
-export async function runPhase6(): Promise<Phase6RunReport> {
-  return request('/dream/phase6/run', { method: 'POST', body: '{}' });
+export async function runRelationReasoning(): Promise<RelationReasoningRunReport> {
+  return request('/relation-reasoning/run', { method: 'POST', body: '{}' });
 }
 
-export async function getPhase7Stats(): Promise<Phase7Stats> {
-  return request('/dream/phase7/stats');
+export async function getProjectHandoffStats(): Promise<ProjectHandoffStats> {
+  return request('/project-handoff/stats');
 }
 
-export async function runPhase7(): Promise<Phase7RunReport> {
-  return request('/dream/phase7/run', { method: 'POST', body: '{}' });
+export async function runProjectHandoff(): Promise<ProjectHandoffRunReport> {
+  return request('/project-handoff/run', { method: 'POST', body: '{}' });
 }

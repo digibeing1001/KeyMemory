@@ -1,13 +1,10 @@
 /**
- * 项目接龙注入机制（Dream Phase 7）
+ * 项目接龙注入机制（Project Handoff Injection）
  *
- * 设计原则（来自用户原话，与原"定时 LLM 生成日志"完全不同）：
- * - "项目测试的触发频率应该是当用户接近了这个相关记忆的时候，就已经接入了这个记忆库"
- * - "它在开始用各种 coding agent 或者 AI agent 来进行工作的时候，给它反向注一条命令"
- * - "要求 AI agent 或 coding agent 往我们的知识库写入相关的日志"
- * - "而且这个日志是一定要与用户的工作进程相关的"
- * - "它的目的是作为项目接龙去使用"
- * - "也就是用户在一个聊天窗口中所进行的工作，只要他打开了一个新的窗口，依然能够从这个记忆库里面找到相关的上下文，并且接力继续去工作"
+ * 设计原则：
+ * - 不是定时 LLM 生成日志，而是事件触发
+ * - agent 接近项目记忆时，反向注入"请写日志"指令
+ * - agent 自己写入 project_journal，形成跨会话接龙链
  *
  * 核心机制：
  * 1. Dream 扫描：哪些项目近 N 天有记忆活动但缺少 project_journal？→ 标记 pending
@@ -24,7 +21,7 @@ import { PROJECT_JOURNAL_CONFIG } from '@keymemory/shared';
 import type { ProjectJournalInjection } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 
-/** Phase 7 扫描报告 */
+/** 项目接龙扫描报告 */
 export interface ProjectJournalScanReport {
   /** 本次新标记为 pending 的项目数 */
   marked: number;
@@ -65,7 +62,7 @@ export function initProjectJournalInjectionsTable(): void {
 }
 
 /**
- * Dream Phase 7 入口：扫描需要接龙注入的项目。
+ * 项目接龙扫描入口：扫描需要接龙注入的项目。
  *
  * 判定逻辑：
  * - 项目近 staleDays 天有记忆活动（有记忆被创建/更新/命中）

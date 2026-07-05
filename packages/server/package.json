@@ -2,7 +2,7 @@
   "name": "keymemory-mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "KeyMemory - 个人记忆系统 MCP 服务器",
+  "description": "KeyMemory - local-first agent memory layer and MCP server",
   "keywords": [
     "mcp",
     "memory",
@@ -11,7 +11,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/keymemory"
+    "url": "https://github.com/digibeing1001/KeyMemory"
   },
   "license": "MIT",
   "type": "module",

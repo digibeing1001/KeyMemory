@@ -1,17 +1,13 @@
 /**
- * LLM 关联推理器（Dream Phase 6）
+ * LLM 关联推理器（Relation Reasoner）
  *
- * 设计原则（来自用户原话）：
- * - "在自动整理的时候要进行一次关联的推理"
- * - "这一条记忆跟之前的某一条记忆是不是有补强的关系"
- * - "包括被延伸过的、被演化过的等等"
- * - "包括记忆建立新的桥接"
- * - "被整理过的这些记忆相互之间要有双向关联来标注它们的关系"
- * - "批量大小按照之前没有被扫描过的存量" → 扫描所有未做过 LLM 推理的记忆
- * - "通过这条新的记忆去找老的记忆，这个时候不需要过分控制 token 的成本"
- * - "关联推理一定要有确认性，尽可能少自主发挥，但是也可以从中发现新的洞见"
+ * 设计原则：
+ * - 在自动整理时进行关联推理，识别记忆间的补强、延伸、反转、桥接关系
+ * - 被整理过的记忆相互之间要有双向关联来标注它们的关系
+ * - 批量大小按未扫描存量处理，通过新记忆查找老记忆时不过分控制 token 成本
+ * - 关联推理要有确认性，尽可能少自主发挥，但可以从中发现新的洞见
  *
- * 四问范式（来自 Notion starcluster-indexer 参考）：
+ * 四问范式：
  * - extends 延伸：A 是 B 的自然下一步/具体化
  * - reverses 反转：A 推翻/否定 B
  * - reinforces 补强：A 强化/佐证 B
@@ -390,7 +386,7 @@ function recordScanResult(memoryId: string, relationsCreated: number, llmModel: 
 }
 
 /**
- * 批量执行关联推理（Dream Phase 6 入口）。
+ * 批量执行关联推理。
  *
  * @returns 扫描汇总报告
  */
@@ -402,13 +398,13 @@ export async function runRelationReasonerBatch(): Promise<RelationReasonerReport
 
   // 1. 检查 LLM 是否可用
   if (!isLLMAvailable()) {
-    skipped.push('LLM 未配置或未启用，Phase 6 跳过');
+    skipped.push('LLM 未配置或未启用，关联推理跳过');
     return { scanned: 0, relationsCreated: 0, details: [], skipped, durationMs: Date.now() - start };
   }
 
   // 2. 检查 embedding 是否可用
   if (!isEmbeddingAvailable()) {
-    skipped.push('Embedding 未就绪，Phase 6 跳过');
+    skipped.push('Embedding 未就绪，关联推理跳过');
     return { scanned: 0, relationsCreated: 0, details: [], skipped, durationMs: Date.now() - start };
   }
 
