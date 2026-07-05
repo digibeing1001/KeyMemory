@@ -12,7 +12,10 @@ import { compressProjectMemories, compressEntityMemories, listCompressibleProjec
 import { getHealthReport, injectContext } from '../core/health.js';
 import { buildAgentContextPack } from '../core/context-pack.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
-import { runDreamCycle, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport, getPendingTodosForContext, resolveConflict } from '../core/dreaming.js';
+import { runDreamCycleAsync, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport, getPendingTodosForContext, resolveConflict } from '../core/dreaming.js';
+import { getLLMConfig, saveLLMConfig, verifyLLMConnection, saveLLMVerifyResult, clearLLMConfig, isLLMAvailable } from '../core/llm-provider.js';
+import { runRelationReasonerBatch, getScanStats, resetScanStatus, resetAllScanStatus } from '../core/relation-reasoner.js';
+import { scanProjectJournalInjections, listInjections, getInjectionStats, resetInjection } from '../core/project-journal.js';
 import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../core/scheduler.js';
 import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from '../core/migration.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from '../core/backup.js';
@@ -972,7 +975,7 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.post('/api/dream/run', async (request, reply) => {
     try {
-      const report = runDreamCycle();
+      const report = await runDreamCycleAsync();
       if (report.status === 'failed') {
         reply.code(500);
       } else {
@@ -1158,6 +1161,111 @@ export function registerRoutes(app: FastifyInstance): void {
     return Object.fromEntries(
       Array.from(namespaces.entries()).map(([k, v]) => [k, Array.from(v).sort()])
     );
+  });
+
+  // ===== LLM Provider 配置 API =====
+  // 用户在 Web UI 填写 baseUrl + apiKey → 点检测 → 拉模型 → 下拉选 → 保存
+  // 注意：apiKey 可选（本地 Ollama 模型不需要 key）
+
+  app.get('/api/llm/config', async () => {
+    return getLLMConfig();
+  });
+
+  app.post('/api/llm/config', async (request, reply) => {
+    const body = request.body as { baseUrl: string; apiKey: string; model: string; enabled: boolean };
+    if (!body.baseUrl) {
+      reply.code(400);
+      return { error: 'baseUrl is required' };
+    }
+    return saveLLMConfig({
+      baseUrl: body.baseUrl,
+      model: body.model || '',
+      enabled: body.enabled ?? true,
+    }, body.apiKey || '');
+  });
+
+  app.post('/api/llm/verify', async (request) => {
+    const body = request.body as { baseUrl?: string; apiKey?: string };
+    const result = await verifyLLMConnection(body.baseUrl, body.apiKey);
+    if (result.ok) {
+      saveLLMVerifyResult(result);
+    }
+    return result;
+  });
+
+  app.get('/api/llm/models', async (request) => {
+    const query = request.query as Record<string, string>;
+    const baseUrl = query.baseUrl;
+    const apiKey = query.apiKey;
+    const result = await verifyLLMConnection(baseUrl, apiKey);
+    return { ok: result.ok, models: result.models, error: result.error };
+  });
+
+  app.delete('/api/llm/config', async () => {
+    const ok = clearLLMConfig();
+    return { success: ok };
+  });
+
+  app.get('/api/llm/status', async () => {
+    return {
+      available: isLLMAvailable(),
+      config: getLLMConfig(),
+    };
+  });
+
+  // ===== Phase 6/7 手动触发 API =====
+
+  app.post('/api/dream/phase6/run', async (request, reply) => {
+    try {
+      const report = await runRelationReasonerBatch();
+      return report;
+    } catch (err) {
+      reply.code(500);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.get('/api/dream/phase6/stats', async () => {
+    return getScanStats();
+  });
+
+  app.post('/api/dream/phase6/reset', async (request) => {
+    const body = request.body as { memoryId?: string; all?: boolean };
+    if (body.all) {
+      const count = resetAllScanStatus();
+      return { success: true, reset: count };
+    }
+    if (body.memoryId) {
+      const ok = resetScanStatus(body.memoryId);
+      return { success: ok };
+    }
+    return { success: false, error: 'Provide memoryId or all=true' };
+  });
+
+  app.post('/api/dream/phase7/run', async (request, reply) => {
+    try {
+      const report = scanProjectJournalInjections();
+      return report;
+    } catch (err) {
+      reply.code(500);
+      return { error: (err as Error).message };
+    }
+  });
+
+  app.get('/api/dream/phase7/injections', async (request) => {
+    const query = request.query as Record<string, string>;
+    const status = query.status as 'pending' | 'injected' | 'logged' | undefined;
+    return listInjections(status);
+  });
+
+  app.get('/api/dream/phase7/stats', async () => {
+    return getInjectionStats();
+  });
+
+  app.post('/api/dream/phase7/reset/:projectId', async (request) => {
+    const { projectId } = request.params as { projectId: string };
+    const ok = resetInjection(projectId);
+    return { success: ok };
   });
 
   // Project routes

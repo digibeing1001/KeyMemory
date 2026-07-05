@@ -5,6 +5,7 @@ import { findProjectRef, getProject } from './project.js';
 import { getDatabase } from '../db/sqlite.js';
 import { findRelatedMemories } from '../graph/entity.js';
 import { getPendingTodosForContext } from './dreaming.js';
+import { getPendingInjectionForProject, getLatestProjectJournal } from './project-journal.js';
 
 const KIND_ORDER: MemoryKind[] = [
   'preference',
@@ -13,6 +14,7 @@ const KIND_ORDER: MemoryKind[] = [
   'task',
   'procedure',
   'project_fact',
+  'project_journal',
   'relationship',
   'concept',
   'event',
@@ -26,6 +28,7 @@ const KIND_TITLES: Record<MemoryKind, string> = {
   task: 'Open Tasks',
   procedure: 'Procedures',
   project_fact: 'Project Facts',
+  project_journal: 'Project Journal',
   relationship: 'Relationships',
   concept: 'Concepts',
   event: 'Events',
@@ -156,7 +159,7 @@ function formatItem(item: AgentContextItem): string {
   return `- [${item.layer}, ${shortId}${source}] ${item.title}: ${item.content}${relationLine(item)}`;
 }
 
-function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>): string {
+function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, handoff?: { instruction?: string; lastJournal?: { id: string; title: string; content: string; createdAt: string } | null }): string {
   const lines = ['# KeyMemory Context'];
   if (pack.project) lines.push(`Project: ${pack.project}`);
   if (pack.query) lines.push(`Query: ${pack.query}`);
@@ -171,6 +174,21 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>): string {
       for (const item of section.items) lines.push(formatItem(item));
       lines.push('');
     }
+  }
+
+  // 注入项目接龙：上次工作日志 + 本次接龙指令
+  // 设计目的：让用户在新会话中能从上次工作的进展继续，避免重复劳动
+  if (handoff?.lastJournal) {
+    lines.push('## Last Session Journal (Project Handoff)');
+    lines.push(`以下是该项目最近一次的工作日志（${handoff.lastJournal.createdAt.slice(0, 10)}），请基于此接力工作：`);
+    lines.push(`- [${handoff.lastJournal.id.slice(0, 8)}] ${handoff.lastJournal.title}`);
+    lines.push(handoff.lastJournal.content);
+    lines.push('');
+  }
+
+  if (handoff?.instruction) {
+    lines.push(handoff.instruction);
+    lines.push('');
   }
 
   // 注入待确认项：让 Agent 在对话中自然地提醒用户
@@ -272,8 +290,28 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     sections,
   };
 
+  // 项目接龙：当 agent 命中某项目时，注入"上次工作日志"和"写日志指令"
+  // 设计目的：跨会话工作连续性。新窗口能从上次进展接力，并在结束时写新日志供下次接力。
+  // 注意：getPendingInjectionForProject 有副作用（pending→injected），且受冷却时间保护
+  let handoff: { instruction?: string; lastJournal?: { id: string; title: string; content: string; createdAt: string } | null } | undefined;
+  if (projectId) {
+    try {
+      const lastJournal = getLatestProjectJournal(projectId);
+      const injection = getPendingInjectionForProject(projectId);
+      if (lastJournal || injection) {
+        handoff = {
+          lastJournal,
+          instruction: injection?.instruction,
+        };
+      }
+    } catch (err) {
+      // 接龙机制失败不应阻塞 context pack 生成
+      console.error('[context-pack] Project journal handoff failed (non-fatal):', (err as Error).message);
+    }
+  }
+
   return {
     ...packBase,
-    markdown: formatMarkdown(packBase),
+    markdown: formatMarkdown(packBase, handoff),
   };
 }

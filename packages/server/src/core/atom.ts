@@ -123,6 +123,22 @@ export function createMemory(input: CreateMemoryInput): Memory {
       }
     });
 
+    // 项目接龙自动完成：当 agent 写入 kind:project_journal 记忆时，标记该项目注入为 logged
+    // 设计目的：agent 接到接龙指令后写入日志，系统自动闭环注入状态，避免重复注入
+    if (mem.projectId && mem.tags?.some(t => t === 'kind:project_journal')) {
+      setImmediate(async () => {
+        try {
+          const { markJournalLogged } = await import('./project-journal.js');
+          const ok = markJournalLogged(mem.projectId!, mem.id);
+          if (ok) {
+            console.log(`[CreateMemory] Project journal handoff completed for project ${mem.projectId} (memory ${mem.id})`);
+          }
+        } catch (err) {
+          console.error(`[CreateMemory] markJournalLogged failed for project ${mem.projectId}:`, (err as Error).message);
+        }
+      });
+    }
+
     return mem;
   })();
 }

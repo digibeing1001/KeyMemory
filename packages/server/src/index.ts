@@ -50,7 +50,7 @@ async function main() {
     }
   }, 86400000);
 
-  startScheduler();
+  startScheduler().catch(err => console.error('Scheduler startup failed:', (err as Error).message));
 
   const shutdown = async () => {
     clearInterval(dailyTimer);

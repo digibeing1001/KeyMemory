@@ -1,5 +1,5 @@
 import { getDatabase } from '../db/sqlite.js';
-import { runDreamCycle, autoResolveStaleTodos } from './dreaming.js';
+import { runDreamCycle, runDreamCycleAsync, autoResolveStaleTodos } from './dreaming.js';
 import { runAutoConsolidation } from './consolidation.js';
 import { DREAM_CONFIG, DREAM_AUTONOMY } from '@keymemory/shared';
 
@@ -129,12 +129,12 @@ function scheduleNextDream(): void {
   const delay = msUntilNextRun(config.dreamingCron);
   console.log(`[Scheduler] Next dream cycle in ${Math.round(delay / 60000)} minutes`);
 
-  dreamTimer = setTimeout(() => {
+  dreamTimer = setTimeout(async () => {
     try {
       console.log('[Scheduler] Running scheduled dream cycle...');
-      const report = runDreamCycle();
+      const report = await runDreamCycleAsync();
       updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
-      console.log(`[Scheduler] Dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
+      console.log(`[Scheduler] Dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged, ${report.relationsReasoned ?? 0} relations reasoned`);
       // dream 完成后紧接执行 consolidation：让跨记忆的去重/归档/固化也有机会被定时跑，
       // 修复真实数据中 consolidation_plans 永远为 0 的问题。
       try {
@@ -219,7 +219,7 @@ function startStaleTodoResolution(): void {
 
 let signalHandlersRegistered = false;
 
-export function startScheduler(): void {
+export async function startScheduler(): Promise<void> {
   const config = getSchedulerConfig();
   console.log(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, cron: ${config.dreamingCron})`);
 
@@ -241,9 +241,9 @@ export function startScheduler(): void {
     if (now.getTime() > todayRunTime.getTime() && lastRunDay.getTime() < todayDay.getTime()) {
       console.log('[Scheduler] Detected missed dream cycle today, running now...');
       try {
-        const report = runDreamCycle();
+        const report = await runDreamCycleAsync();
         updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
-        console.log(`[Scheduler] Missed dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
+        console.log(`[Scheduler] Missed dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged, ${report.relationsReasoned ?? 0} relations reasoned`);
       } catch (err) {
         console.error('[Scheduler] Missed dream cycle failed:', (err as Error).message);
       }

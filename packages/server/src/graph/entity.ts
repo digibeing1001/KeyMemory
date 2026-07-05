@@ -16,7 +16,47 @@ const ENTITY_PATTERNS = [
 ];
 
 const PROJECT_PATTERN = /\[\[([^\]]+)\]\]/g;
-export const MEMORY_RELATION_TYPES = ['part_of', 'derived_from', 'relates_to', 'supersedes', 'references'] as const;
+
+/**
+ * 记忆关系类型（含演化关系）
+ *
+ * 基础关系（Phase 1-5 已有，规则驱动）：
+ * - part_of: 部分关系（记忆 A 是 B 的一部分）
+ * - derived_from: 派生关系（A 从 B 派生而来）
+ * - relates_to: 关联关系（A 与 B 相关，最宽泛）
+ * - supersedes: 取代关系（A 取代了 B）
+ * - references: 引用关系（A 引用了 B）
+ *
+ * 演化关系（Phase 6 新增，LLM 推理驱动，来自 starcluster-indexer 四问范式）：
+ * - extends: A 延伸了 B（A 是 B 的自然下一步/具体化）
+ * - reverses: A 反转了 B（A 推翻/否定了 B）
+ * - reinforces: A 补强了 B（A 强化/佐证了 B）
+ * - bridges: A 桥接了 B 与某条 C（A 连接了两个本不相关的记忆）
+ *
+ * 反向关系（自动维护，不需要 LLM 显式判定）：
+ * - extended_by: 被...延伸
+ * - reversed_by: 被...反转
+ * - reinforced_by: 被...补强
+ * - bridges_with: 与...桥接
+ *
+ * 双向回填规则：建立 A extends B 时，自动建立 B extended_by A。
+ */
+export const MEMORY_RELATION_TYPES = [
+  // 基础关系
+  'part_of', 'derived_from', 'relates_to', 'supersedes', 'references',
+  // 演化关系（正向，LLM 判定）
+  'extends', 'reverses', 'reinforces', 'bridges',
+  // 演化关系（反向，自动回填）
+  'extended_by', 'reversed_by', 'reinforced_by', 'bridges_with',
+] as const;
+
+/** 演化关系的正向→反向映射，用于双向回填 */
+export const EVOLUTION_RELATION_PAIRS: Record<string, string> = {
+  extends: 'extended_by',
+  reverses: 'reversed_by',
+  reinforces: 'reinforced_by',
+  bridges: 'bridges_with',
+};
 
 const ORG_SUFFIXES = ['公司', '集团', '有限公司', '有限责任公司', '股份公司', '工作室', '实验室', '研究所', '研究院', '协会', '联盟', '基金会', '银行', '医院', '大学', '学院', '学校'];
 const ORG_SUFFIX_REGEX = new RegExp(`([\\u4e00-\\u9fa5]{2,8}(?:${ORG_SUFFIXES.join('|')}))`, 'g');
@@ -291,6 +331,27 @@ export function createMemoryRelation(sourceId: string, targetId: string, relatio
     reason: reason ?? null,
     createdAt: now,
   });
+
+  // 演化关系双向回填：建立 A extends B 时，自动建立 B extended_by A
+  // 反向关系不需要再次回填（避免无限递归）
+  const reverseType = EVOLUTION_RELATION_PAIRS[relationType];
+  if (reverseType) {
+    const reverseId = uuid();
+    db.prepare(`
+      INSERT INTO memory_relations (id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at)
+      VALUES (@id, @sourceId, @targetId, @relationType, @strength, @reason, @createdAt)
+      ON CONFLICT(source_memory_id, target_memory_id, relation_type)
+      DO UPDATE SET strength = excluded.strength, reason = excluded.reason, created_at = excluded.created_at
+    `).run({
+      id: reverseId,
+      sourceId: targetId,       // 反向：B → A
+      targetId: sourceId,
+      relationType: reverseType,
+      strength,
+      reason: reason ? `[反向回填] ${reason}` : '[反向回填]',
+      createdAt: now,
+    });
+  }
 
   const row = db.prepare(`
     SELECT id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at

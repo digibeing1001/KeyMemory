@@ -1,11 +1,11 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, Settings } from './Icons';
 import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -38,6 +38,7 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers 
   { mode: 'nebula', labelKey: 'nav.nebula', icon: Globe },
   { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
   { mode: 'dream', labelKey: 'nav.dream', icon: Moon },
+  { mode: 'llm', labelKey: 'nav.llm', icon: Settings },
   { mode: 'migration', labelKey: 'nav.migration', icon: Inbox },
   { mode: 'organize', labelKey: 'nav.organize', icon: GitMerge },
   { mode: 'recycle', labelKey: 'nav.recycle', icon: Trash },

@@ -12,6 +12,7 @@ import LayerCards from './components/LayerCards';
 import NebulaGraph from './components/NebulaGraph';
 import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
+import LLMConfigView from './components/LLMConfigView';
 import MigrationView from './components/MigrationView';
 import ProjectSuggestionsView from './components/ProjectSuggestionsView';
 import WorkingSetView from './components/WorkingSetView';
@@ -31,7 +32,7 @@ import {
 import type { MemoryGraphData, TagCloudData } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm';
 
 function isViewMode(value: string | null): value is ViewMode {
   return value === 'memories'
@@ -41,7 +42,8 @@ function isViewMode(value: string | null): value is ViewMode {
     || value === 'migration'
     || value === 'organize'
     || value === 'recycle'
-    || value === 'workingSet';
+    || value === 'workingSet'
+    || value === 'llm';
 }
 
 function AppInner() {
@@ -497,6 +499,12 @@ function AppInner() {
                   store.selectMemory(id);
                 }}
               />
+            </div>
+          )}
+
+          {viewMode === 'llm' && (
+            <div className="flex-1 overflow-y-auto">
+              <LLMConfigView />
             </div>
           )}
 

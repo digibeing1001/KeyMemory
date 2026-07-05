@@ -108,6 +108,62 @@ export const DREAM_AUTONOMY = {
   maxTodosInContext: 5,
 } as const;
 
+/**
+ * Phase 6: LLM 关联推理配置
+ *
+ * 设计原则（来自用户）：
+ * - 批量大小 = 未扫描存量（不是 1 新 + 5 旧，而是扫描所有未做过 LLM 推理的记忆）
+ * - 不过分控制 token 成本（用户明确要求）
+ * - 提示词要"有确认性，尽可能少自主发挥，但可以从中发现新的洞见"
+ */
+export const RELATION_REASONER_CONFIG = {
+  /** 每条锚记忆的候选旧记忆数量（top-K，放大以保证召回） */
+  topK: 25,
+  /** 一次 Dream 周期最多处理多少条未扫描记忆（防止首次运行爆炸） */
+  batchSize: 50,
+  /** 语义相似度预筛阈值（低于此值不送 LLM，省 token 但不漏） */
+  prefilterThreshold: 0.55,
+  /** 关系强度阈值，低于此值的关系不建立 */
+  minRelationStrength: 0.5,
+  /** LLM 温度：关联推理要确定性，0.1 极低 */
+  temperature: 0.1,
+  /** LLM 最大输出 token */
+  maxTokens: 2000,
+  /** 请求超时 ms */
+  timeoutMs: 30000,
+} as const;
+
+/**
+ * Phase 7: 项目接龙注入配置
+ *
+ * 设计原则（来自用户）：
+ * - 不是定时 LLM 生成日志，而是事件触发
+ * - agent 接近项目记忆时，反向注入"请写日志"指令
+ * - agent 自己写入 project_journal，形成跨会话接龙链
+ */
+export const PROJECT_JOURNAL_CONFIG = {
+  /** 项目近 N 天有记忆活动但无 project_journal → 标记为待注入 */
+  staleDays: 3,
+  /** 一次 Dream 周期最多标记多少个项目（防止注入泛滥） */
+  maxPendingPerCycle: 10,
+  /** 注入指令在 context-pack 中的最大数量 */
+  maxInjectionsInContext: 3,
+  /** 注入指令冷却时间（小时），避免对同一项目重复注入 */
+  injectionCooldownHours: 6,
+} as const;
+
+/** LLM Provider 默认配置（用户可在 Web UI 覆盖） */
+export const LLM_PROVIDER_DEFAULTS = {
+  /** 默认 Base URL（Ollama 本地） */
+  defaultBaseUrl: 'http://localhost:11434/v1',
+  /** 请求超时 ms */
+  timeoutMs: 15000,
+  /** 模型列表拉取路径 */
+  modelsEndpoint: '/models',
+  /** Chat 路径 */
+  chatEndpoint: '/chat/completions',
+} as const;
+
 export const DEFAULT_PORT = 3210;
 export const DEFAULT_HOST = '127.0.0.1';
 export const DATA_DIR_NAME = '.keymemory';

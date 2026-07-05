@@ -15,7 +15,8 @@ export type MemoryKind =
   | 'relationship'
   | 'event'
   | 'constraint'
-  | 'raw_note';
+  | 'raw_note'
+  | 'project_journal';
 
 export interface Project {
   id: string;
@@ -550,6 +551,10 @@ export interface DreamReportDetails {
   promoted: { memoryId: string; title: string; score: number }[];
   archived: { memoryId: string; title: string; reason: string }[];
   merged: { memoryId: string; title: string; intoId: string; intoTitle: string }[];
+  /** Phase 6: LLM 关联推理建立的演化关系 */
+  relationReasoned?: { memoryId: string; title: string; relationsCreated: number }[];
+  /** Phase 7: 标记为需要项目接龙注入的项目 */
+  projectJournalInjected?: { projectId: string; projectName: string; lastActivityAt: string }[];
 }
 
 export interface DreamReport {
@@ -565,6 +570,110 @@ export interface DreamReport {
   durationMs?: number;
   todoItems: DreamTodoItem[];
   details?: DreamReportDetails;
+  /** Phase 6: LLM 关联推理建立的关系总数 */
+  relationsReasoned?: number;
+  /** Phase 7: 标记需要接龙注入的项目数 */
+  projectJournalsInjected?: number;
+}
+
+/**
+ * LLM Provider 配置（OpenAI 兼容协议）
+ *
+ * 存储在 tool_secrets 表（tool='llm-provider'），API key 加密保存。
+ * 用户在 Web UI 填写 baseUrl + apiKey → 点检测 → 拉取模型列表 → 下拉选择 → 保存。
+ */
+export interface LLMProviderConfig {
+  /** Base URL，如 https://api.openai.com/v1 或 http://localhost:11434/v1 */
+  baseUrl: string;
+  /** 选定的模型 ID，如 gpt-4o / qwen2.5:7b / deepseek-chat */
+  model: string;
+  /** 是否启用 LLM 关联推理（关闭则 Dream Phase 6 跳过） */
+  enabled: boolean;
+  /** 上次连通性检测通过的时间 */
+  lastVerifiedAt?: string;
+  /** 上次检测可用的模型列表（供下拉框使用） */
+  availableModels?: string[];
+}
+
+/** LLM 连通性检测结果 */
+export interface LLMVerifyResult {
+  ok: boolean;
+  models: string[];
+  error?: string;
+  latencyMs?: number;
+}
+
+/** LLM 推理请求 */
+export interface LLMChatRequest {
+  /** 系统提示词 */
+  systemPrompt: string;
+  /** 用户消息 */
+  userMessage: string;
+  /** 温度，关联推理用 0.1，项目日志总结用 0.3 */
+  temperature?: number;
+  /** 最大输出 token */
+  maxTokens?: number;
+}
+
+/** LLM 推理响应 */
+export interface LLMChatResponse {
+  content: string;
+  model: string;
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+  latencyMs: number;
+}
+
+/**
+ * LLM 关联推理单条判定结果。
+ *
+ * 强制 JSON 结构，禁止 LLM 自由发挥。
+ * relation 必须是 5 个枚举值之一，evidence_quote 必须来自旧记忆原文。
+ */
+export interface LLMRelationJudgment {
+  /** 候选旧记忆的 ID */
+  target_id: string;
+  /** 关系类型：extends 延伸 / reverses 反转 / reinforces 补强 / bridges 桥接 / none 无 */
+  relation: 'extends' | 'reverses' | 'reinforces' | 'bridges' | 'none';
+  /** 关系强度 0-1，低于 0.5 建议选 none */
+  strength: number;
+  /** 一句话说明为什么是这个关系（允许洞见，但必须基于证据） */
+  reason: string;
+  /** 从旧记忆原文摘的证据片段（不得改写或编造） */
+  evidence_quote: string;
+}
+
+/** 一次关联推理的完整输出 */
+export interface LLMRelationReasoningResult {
+  /** 锚记忆 ID */
+  anchorId: string;
+  /** 对每条候选的判定 */
+  judgments: LLMRelationJudgment[];
+  /** LLM 推理耗时 ms */
+  latencyMs: number;
+  /** token 用量 */
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+}
+
+/**
+ * 项目接龙注入状态。
+ *
+ * 当 Dream 检测到某项目近 N 天有记忆活动但缺少 project_journal 时，
+ * 标记为 pending。agent 检索命中该项目记忆时，context-pack 注入写日志指令。
+ * agent 写入 project_journal 后，状态转为 injected。
+ */
+export interface ProjectJournalInjection {
+  id: string;
+  projectId: string;
+  /** pending: 待注入 / injected: 已注入指令 / logged: agent 已写入日志 */
+  status: 'pending' | 'injected' | 'logged';
+  /** 上次检测到项目有记忆活动的时间 */
+  lastActivityAt: string;
+  /** 注入指令发送时间 */
+  injectedAt?: string;
+  /** agent 写入的 project_journal 记忆 ID */
+  journalMemoryId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AutoRememberResult {

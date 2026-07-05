@@ -65,7 +65,7 @@ if (launchedByKeyMemoryLauncher) {
     try { await runDailyInspection(); applyDecay(); } catch (err) { console.error('[MCP] Daily inspection failed:', (err as Error).message); }
   }, 86400000);
 
-  startScheduler();
+  startScheduler().catch(err => console.error('[MCP] Scheduler startup failed:', (err as Error).message));
 
   startRestServerInBackground();
 }

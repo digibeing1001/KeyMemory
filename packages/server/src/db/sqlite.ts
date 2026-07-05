@@ -387,8 +387,8 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_loop_runs_agent ON loop_runs(agent_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_run ON loop_checkpoints(run_id, version);
     CREATE INDEX IF NOT EXISTS idx_loop_events_run ON loop_events(run_id, sequence);
-    -- 支撑 token/cost 预算超限扫描：只扫描活跃 run 中设置了预算的行
-    CREATE INDEX IF NOT EXISTS idx_loop_runs_token_budget ON loop_runs(token_budget) WHERE token_budget IS NOT NULL;
+    -- 注意：idx_loop_runs_token_budget 索引在 alterStatements 之后创建，
+    -- 因为旧数据库的 loop_runs 表可能还没有 token_budget 列（在 ALTER 中才添加）
   `);
 
   const alterStatements = [
