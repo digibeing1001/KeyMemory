@@ -1629,7 +1629,7 @@ function runProjectClusteringPhase(reportId: string): { session: DreamSession; s
       const projectA = projects.find(p => p.id === pair.projectA)!;
       const projectB = projects.find(p => p.id === pair.projectB)!;
 
-      // 生成建议的父项目名称
+      // 生成建议的父项目名称（遵循项目命名规范）
       const suggestedName = suggestParentName(projectA.name, projectB.name);
 
       db.prepare(`
@@ -1639,7 +1639,7 @@ function runProjectClusteringPhase(reportId: string): { session: DreamSession; s
         uuid(),
         JSON.stringify([pair.projectA, pair.projectB]),
         suggestedName,
-        `项目「${projectA.name}」与「${projectB.name}」共享 ${pair.sharedEntities} 个实体，语义关联度 ${(pair.jaccard * 100).toFixed(0)}%，建议归入同一父项目`,
+        `项目「${projectA.name}」与「${projectB.name}」共享 ${pair.sharedEntities} 个实体，语义关联度 ${(pair.jaccard * 100).toFixed(0)}%，建议归入同一父项目。建议父项目名遵循命名规范：使用组织名（如"支付团队"）、领域名（如"前端"）或客户名（如"某银行"），避免使用"XX相关"或"A/B"拼接式名称。`,
         Math.min(0.95, pair.jaccard + 0.3),
         now,
       );
@@ -1684,16 +1684,23 @@ function runProjectClusteringPhase(reportId: string): { session: DreamSession; s
 }
 
 function suggestParentName(nameA: string, nameB: string): string {
-  // 简单的名称生成：找共同前缀，或使用通用名称
-  const commonPrefix = findCommonPrefix(nameA, nameB);
-  if (commonPrefix.length >= 2) {
-    return commonPrefix + '相关';
-  }
-  // 如果两个名称有包含关系
+  // 遵循项目命名规范：父项目应是组织名、领域名或客户名
+  // 自动整理无法确定真实的组织/领域/客户，因此生成提示性占位名供用户修改
+
+  // 1. 如果两个名称有包含关系，较长的名称更可能是父级概念
   if (nameA.includes(nameB) || nameB.includes(nameA)) {
     return nameA.length > nameB.length ? nameA : nameB;
   }
-  return `${nameA}/${nameB}`;
+
+  // 2. 尝试提取共同前缀作为领域名（如"订单支付"和"订单退款"→"订单"）
+  const commonPrefix = findCommonPrefix(nameA, nameB);
+  if (commonPrefix.length >= 2) {
+    return commonPrefix;
+  }
+
+  // 3. 无法自动推断时，生成占位名提示用户自定义
+  // 用户在 accept 时应替换为符合规范的组织/领域/客户名
+  return `待命名（${nameA} 与 ${nameB} 的父项目）`;
 }
 
 function findCommonPrefix(a: string, b: string): string {

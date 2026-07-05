@@ -8,6 +8,49 @@ import { findRelatedMemories } from '../graph/entity.js';
 import { getPendingTodosForContext } from './dreaming.js';
 import { getPendingInjectionForProject, getLatestProjectJournal } from './project-journal.js';
 
+/**
+ * 项目命名规范指南（注入到 context pack，让 agent 在写入记忆时遵循）
+ *
+ * 设计目的：
+ * - 让 agent 知道如何为记忆选择/创建合适的项目
+ * - 让项目命名符合公司机构实际习惯，方便人类和 agent 调用
+ * - 避免出现"工作"、"杂项"、"temp"等无意义项目名
+ *
+ * 这份指南是 docs/project-naming-convention.md 的精简可执行版本，
+ * 每次 context pack 都会注入，确保 agent 始终遵循规范。
+ */
+const PROJECT_NAMING_GUIDE = `## Project Naming Guide
+
+当你写入记忆时，请遵循以下项目命名规范：
+
+### 命名公式（选择最合适的一种）
+
+1. **产品/系统直命名**：独立产品直接用产品名（如 KeyMemory、个人博客）
+2. **组织+项目**：父项目是团队/部门，子项目是具体项目（如"支付团队/订单中台"）
+3. **领域+项目**：父项目是业务领域，子项目是具体项目（如"前端/官网改版"）
+4. **客户+项目**：父项目是客户名，子项目是具体项目（如"某银行/核心系统升级"）
+
+### 命名原则
+
+- **具体优先于通用**：用"订单中台"而非"工作"；用"KeyMemory"而非"项目"
+- **稳定优先于临时**：用"个人博客"而非"2024年博客"；用"简历系统"而非"v2 重构"
+- **可读优先于可编码**：用"订单中台"而非"order_platform"；用"用户画像"而非"UserProfile"
+- **名实一致**：项目名应与记忆内容主题一致，找不到合适项目时提示用户创建
+
+### 禁止的命名
+
+- 通用名：工作、学习、笔记、临时、杂项、其他、默认、文档、待办、任务
+- 编程风格：order_platform、UserProfile、q3finance
+- 代号编号：模块A、项目001、阿波罗计划
+- 会过期的名：2024年博客、本月阅读、v2 重构
+
+### 写入记忆时的项目选择
+
+1. 优先选择与记忆内容最匹配的现有项目
+2. 如果记忆属于某项目的子模块，选择子项目（如"订单中台/支付模块"）
+3. 如果找不到合适项目，提示用户创建新项目，而非强行归类到通用项目
+4. 创建新项目时，遵循上述命名公式和原则`;
+
 const KIND_ORDER: MemoryKind[] = [
   'preference',
   'constraint',
@@ -176,6 +219,11 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, handoff?: { in
       lines.push('');
     }
   }
+
+  // 注入项目命名规范：让 agent 在写入记忆时遵循统一的项目命名规则
+  // 设计目的：人类和 agent 都能方便地调用、查看、检索项目
+  lines.push(PROJECT_NAMING_GUIDE);
+  lines.push('');
 
   // 注入项目接龙：上次工作日志 + 本次接龙指令
   // 设计目的：让用户在新会话中能从上次工作的进展继续，避免重复劳动
