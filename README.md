@@ -344,6 +344,7 @@ Windows、Linux、macOS、Windows WSL。
 - [记忆关系](docs/memory-relations.md)
 - [隐私与安全](docs/privacy-and-safety.md)
 - [性能预算](docs/performance.md)
+- [项目命名规范](docs/project-naming-convention.md)
 - [发布就绪检查](docs/release-readiness.md)
 - [产品发布审计](docs/product-release-audit.md)
 

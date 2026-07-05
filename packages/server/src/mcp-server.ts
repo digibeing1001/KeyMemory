@@ -183,7 +183,10 @@ async function handleRequest(request: any) {
         const query = params?.arguments?.query;
         const project = params?.arguments?.project;
         const projectId = params?.arguments?.projectId;
-        const pack = await buildAgentContextPack({ query, project, projectId, maxItems: 8, maxChars: 4000 });
+        const pack = await buildAgentContextPack({
+          query, project, projectId, maxItems: 8, maxChars: 4000,
+          agentSpaces: stdioAdapter.getAgentSpaces?.(),
+        });
         return {
           description: '注入相关记忆到对话上下文',
           messages: [

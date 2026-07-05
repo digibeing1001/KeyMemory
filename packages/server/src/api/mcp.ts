@@ -113,7 +113,11 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         const projectId = args.projectId;
         const project = args.project;
         const query = args.query;
-        const pack = await buildAgentContextPack({ query, project, projectId, maxItems: 8, maxChars: 4000 });
+        const adapter = getAdapter(request);
+        const pack = await buildAgentContextPack({
+          query, project, projectId, maxItems: 8, maxChars: 4000,
+          agentSpaces: adapter.getAgentSpaces?.(),
+        });
 
         return {
           jsonrpc: '2.0',
