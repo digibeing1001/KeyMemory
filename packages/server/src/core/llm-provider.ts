@@ -118,10 +118,10 @@ export async function verifyLLMConnection(baseUrl?: string, apiKey?: string): Pr
   const modelsUrl = url.replace(/\/+$/, '') + LLM_PROVIDER_DEFAULTS.modelsEndpoint;
   const start = Date.now();
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), LLM_PROVIDER_DEFAULTS.timeoutMs);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_PROVIDER_DEFAULTS.timeoutMs);
 
+  try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     // 仅当有 apiKey 时才发送 Authorization header（Ollama 本地模型不需要）
     if (key) {
@@ -157,6 +157,8 @@ export async function verifyLLMConnection(baseUrl?: string, apiKey?: string): Pr
       latencyMs: Date.now() - start,
     };
   } catch (err) {
+    // 与 chatWithLLM 保持一致：catch 中也必须清理 timeout，避免定时器泄漏阻止进程退出
+    clearTimeout(timeout);
     const msg = err instanceof Error ? err.message : String(err);
     const isTimeout = msg.includes('abort') || msg.includes('timeout');
     return {

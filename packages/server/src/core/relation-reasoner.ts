@@ -326,25 +326,35 @@ export async function reasonRelationsForMemory(anchorId: string): Promise<LLMRel
   // 6. 解析判定结果
   const judgments = parseJudgments(llmResp.content);
 
-  // 7. 对判定为演化关系的，建立双向关联
-  let relationsCreated = 0;
-  for (const j of judgments) {
-    if (j.relation === 'none') continue;
-    if (j.strength < RELATION_REASONER_CONFIG.minRelationStrength) continue;
+  // 7. 对判定为演化关系的，建立双向关联（事务保护：单条锚记忆的所有关系原子性）
+  // 之前无事务，中途失败会导致部分关系建立、部分丢失，造成记忆图不一致
+  const validJudgments = judgments.filter(j =>
+    j.relation !== 'none' && j.strength >= RELATION_REASONER_CONFIG.minRelationStrength
+  );
 
+  let relationsCreated = 0;
+  if (validJudgments.length > 0) {
     try {
-      // 锚 → 候选：正向关系
-      // createMemoryRelation 内部会自动建立反向回填
-      createMemoryRelation(
-        anchorId,         // source = 新记忆
-        j.target_id,      // target = 旧记忆
-        j.relation,       // extends / reverses / reinforces / bridges
-        j.strength,
-        `${j.reason} | 证据: "${j.evidence_quote}"`
-      );
-      relationsCreated++;
+      relationsCreated = db.transaction(() => {
+        let created = 0;
+        for (const j of validJudgments) {
+          // 锚 → 候选：正向关系
+          // createMemoryRelation 内部会自动建立反向回填
+          createMemoryRelation(
+            anchorId,         // source = 新记忆
+            j.target_id,      // target = 旧记忆
+            j.relation,       // extends / reverses / reinforces / bridges
+            j.strength,
+            `${j.reason} | 证据: "${j.evidence_quote}"`
+          );
+          created++;
+        }
+        return created;
+      })();
     } catch (err) {
-      console.error(`[RelationReasoner] 建立关系失败 ${anchorId} → ${j.target_id} (${j.relation}):`, (err as Error).message);
+      console.error(`[RelationReasoner] 事务建立关系失败 ${anchorId}（${validJudgments.length} 条关系全部回滚）:`, (err as Error).message);
+      // 事务失败时关系未建立，但仍标记已扫描避免下次重试（LLM 判定结果已固化）
+      // 若需要重试，可手动清除 llm_reasoning_log 记录
     }
   }
 

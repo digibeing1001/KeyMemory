@@ -633,9 +633,13 @@ export function restoreFromRecycleBin(id: string): Memory | null {
   if (!existing || existing.status === 'active') return null;
 
   const now = new Date().toISOString();
-  db.prepare(`UPDATE memories SET status = 'active', decay_factor = 1.0, updated_at = ? WHERE id = ?`).run(now, id);
-  // 恢复后必须重建 FTS 索引，否则恢复的记忆无法被全文搜索到
-  insertIntoFts(db, id);
+  // 事务保护：UPDATE 状态 + 重建 FTS 索引必须原子性
+  // 之前无事务，UPDATE 成功但 insertIntoFts 失败时，记忆已 active 但全文搜索永久不可见
+  db.transaction(() => {
+    db.prepare(`UPDATE memories SET status = 'active', decay_factor = 1.0, updated_at = ? WHERE id = ?`).run(now, id);
+    // 恢复后必须重建 FTS 索引，否则恢复的记忆无法被全文搜索到
+    insertIntoFts(db, id);
+  })();
   return getMemory(id);
 }
 

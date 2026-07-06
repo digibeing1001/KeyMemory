@@ -60,53 +60,57 @@ export function executeConsolidation(planId: string): ConsolidationPlan {
   const actions = JSON.parse(row.actions as string) as ConsolidationAction[];
   const now = new Date().toISOString();
 
-  db.prepare(`UPDATE consolidation_plans SET status = 'executing' WHERE id = ?`).run(planId);
+  // 事务保护：状态流转 + 快照创建 + action 执行 + 最终状态更新必须原子性
+  // 之前无事务，中途崩溃会导致计划永久卡在 'executing'，快照可能只写一半，无法干净回滚
+  return db.transaction(() => {
+    db.prepare(`UPDATE consolidation_plans SET status = 'executing' WHERE id = ?`).run(planId);
 
-  const memoriesBefore = (db.prepare(`SELECT COUNT(*) as cnt FROM memories WHERE status = 'active'`).get() as { cnt: number }).cnt;
+    const memoriesBefore = (db.prepare(`SELECT COUNT(*) as cnt FROM memories WHERE status = 'active'`).get() as { cnt: number }).cnt;
 
-  const allAffectedIds = new Set<string>();
-  for (const action of actions) {
-    for (const id of action.sourceIds) {
-      allAffectedIds.add(id);
+    const allAffectedIds = new Set<string>();
+    for (const action of actions) {
+      for (const id of action.sourceIds) {
+        allAffectedIds.add(id);
+      }
+      if (action.targetId) allAffectedIds.add(action.targetId);
     }
-    if (action.targetId) allAffectedIds.add(action.targetId);
-  }
 
-  createSnapshots(db, planId, Array.from(allAffectedIds));
+    createSnapshots(db, planId, Array.from(allAffectedIds));
 
-  for (const action of actions) {
-    try {
-      executeAction(action);
-      action.status = 'executed';
-    } catch (err) {
-      action.status = 'skipped';
-      console.error(`[Consolidation] Action ${action.id} (${action.type}) skipped:`, (err as Error).message);
+    for (const action of actions) {
+      try {
+        executeAction(action);
+        action.status = 'executed';
+      } catch (err) {
+        action.status = 'skipped';
+        console.error(`[Consolidation] Action ${action.id} (${action.type}) skipped:`, (err as Error).message);
+      }
     }
-  }
 
-  const summary = buildSummary(db, actions, memoriesBefore);
+    const summary = buildSummary(db, actions, memoriesBefore);
 
-  db.prepare(`
-    UPDATE consolidation_plans
-    SET status = 'completed', actions = ?, snapshot_count = ?, summary = ?, executed_at = ?
-    WHERE id = ?
-  `).run(
-    JSON.stringify(actions),
-    allAffectedIds.size,
-    JSON.stringify(summary),
-    now,
-    planId,
-  );
+    db.prepare(`
+      UPDATE consolidation_plans
+      SET status = 'completed', actions = ?, snapshot_count = ?, summary = ?, executed_at = ?
+      WHERE id = ?
+    `).run(
+      JSON.stringify(actions),
+      allAffectedIds.size,
+      JSON.stringify(summary),
+      now,
+      planId,
+    );
 
-  return {
-    id: planId,
-    actions,
-    status: 'completed',
-    snapshotCount: allAffectedIds.size,
-    createdAt: row.created_at as string,
-    executedAt: now,
-    summary,
-  };
+    return {
+      id: planId,
+      actions,
+      status: 'completed' as const,
+      snapshotCount: allAffectedIds.size,
+      createdAt: row.created_at as string,
+      executedAt: now,
+      summary,
+    };
+  })();
 }
 
 function createSnapshots(db: Database.Database, planId: string, memoryIds: string[]): void {
@@ -260,54 +264,58 @@ export function rollbackConsolidation(planId: string, actionIds?: string[]): Con
 
   const relevantSnapshots = snapshots.filter(s => affectedSourceIds.has(s.memory_id as string));
 
-  for (const snap of relevantSnapshots) {
-    const memId = snap.memory_id as string;
-    const existing = getMemory(memId);
+  // 事务保护：记忆恢复/还原 + action 状态更新 + 计划状态更新必须原子性
+  // 之前无事务，部分回滚会导致记忆图不一致，且计划状态可能仍是 'completed' 导致重复回滚
+  return db.transaction(() => {
+    for (const snap of relevantSnapshots) {
+      const memId = snap.memory_id as string;
+      const existing = getMemory(memId);
 
-    if (existing && existing.status === 'archived') {
-      restoreMemory(memId);
+      if (existing && existing.status === 'archived') {
+        restoreMemory(memId);
+      }
+
+      if (!existing || existing.status === 'active') {
+        let tags: string[] | undefined;
+        let metadata: Record<string, unknown> | undefined;
+        try {
+          tags = snap.tags ? JSON.parse(snap.tags as string) : undefined;
+        } catch { /* tags corrupted, skip */ }
+        try {
+          metadata = snap.metadata ? JSON.parse(snap.metadata as string) : undefined;
+        } catch { /* metadata corrupted, skip */ }
+
+        updateMemory(memId, {
+          title: snap.title as string,
+          content: snap.content as string,
+          tags,
+          metadata,
+        }, `回滚整理计划 ${planId}`);
+      }
     }
 
-    if (!existing || existing.status === 'active') {
-      let tags: string[] | undefined;
-      let metadata: Record<string, unknown> | undefined;
-      try {
-        tags = snap.tags ? JSON.parse(snap.tags as string) : undefined;
-      } catch { /* tags corrupted, skip */ }
-      try {
-        metadata = snap.metadata ? JSON.parse(snap.metadata as string) : undefined;
-      } catch { /* metadata corrupted, skip */ }
-
-      updateMemory(memId, {
-        title: snap.title as string,
-        content: snap.content as string,
-        tags,
-        metadata,
-      }, `回滚整理计划 ${planId}`);
+    for (const action of actions) {
+      if (affectedActionIds.has(action.id)) {
+        action.status = 'rolled_back';
+      }
     }
-  }
 
-  for (const action of actions) {
-    if (affectedActionIds.has(action.id)) {
-      action.status = 'rolled_back';
-    }
-  }
+    const isFullRollback = !actionIds;
+    const newStatus: ConsolidationPlan['status'] = isFullRollback ? 'rolled_back' : 'partial_rollback';
 
-  const isFullRollback = !actionIds;
-  const newStatus = isFullRollback ? 'rolled_back' : 'partial_rollback';
+    db.prepare(`
+      UPDATE consolidation_plans SET status = ?, actions = ? WHERE id = ?
+    `).run(newStatus, JSON.stringify(actions), planId);
 
-  db.prepare(`
-    UPDATE consolidation_plans SET status = ?, actions = ? WHERE id = ?
-  `).run(newStatus, JSON.stringify(actions), planId);
-
-  return {
-    id: planId,
-    actions,
-    status: newStatus,
-    snapshotCount: row.snapshot_count as number,
-    createdAt: row.created_at as string,
-    executedAt: row.executed_at as string | undefined,
-  };
+    return {
+      id: planId,
+      actions,
+      status: newStatus,
+      snapshotCount: row.snapshot_count as number,
+      createdAt: row.created_at as string,
+      executedAt: row.executed_at as string | undefined,
+    };
+  })();
 }
 
 export function getConsolidationPlan(planId: string): ConsolidationPlan | null {

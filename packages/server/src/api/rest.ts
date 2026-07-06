@@ -314,12 +314,12 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.post('/api/compress/project', async (request) => {
     const { project } = request.body as { project: string };
-    return compressProjectMemories(project);
+    return await compressProjectMemories(project);
   });
 
   app.post('/api/compress/entity', async (request) => {
     const { entityId } = request.body as { entityId: string };
-    return compressEntityMemories(entityId);
+    return await compressEntityMemories(entityId);
   });
 
   app.get('/api/compress/candidates', async () => {

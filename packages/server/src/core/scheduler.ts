@@ -121,6 +121,19 @@ let quickDreamTimer: ReturnType<typeof setTimeout> | null = null;
 let lastQuickDreamAt: number | null = null;
 let staleTodoTimer: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * 调度器重入保护：避免 startScheduler 被多次调用导致多套定时器并行。
+ * restartScheduler 不重置此标志，因为它只重排已有定时器。
+ */
+let schedulerStarted = false;
+
+/**
+ * Full Dream 互斥锁：full dream 涉及全库扫描 + O(n²) 合并 + LLM 关联推理，
+ * 单次执行可能耗时数分钟。若上次 dream 未完成时下次触发时间已到，
+ * 必须跳过本次执行，避免并发写 dream_reports 和重复整理同一批记忆。
+ */
+let dreamRunning = false;
+
 function scheduleNextDream(): void {
   if (dreamTimer) clearTimeout(dreamTimer);
   const config = getSchedulerConfig();
@@ -130,6 +143,13 @@ function scheduleNextDream(): void {
   console.log(`[Scheduler] Next dream cycle in ${Math.round(delay / 60000)} minutes`);
 
   dreamTimer = setTimeout(async () => {
+    // 互斥锁：上次 dream 仍在运行（耗时较长），跳过本次执行
+    if (dreamRunning) {
+      console.warn('[Scheduler] Previous dream still running, skipping this cycle');
+      scheduleNextDream();
+      return;
+    }
+    dreamRunning = true;
     try {
       console.log('[Scheduler] Running scheduled dream cycle...');
       const report = await runDreamCycleAsync();
@@ -147,6 +167,8 @@ function scheduleNextDream(): void {
       }
     } catch (err) {
       console.error('[Scheduler] Dream cycle failed:', (err as Error).message);
+    } finally {
+      dreamRunning = false;
     }
     scheduleNextDream();
   }, delay);
@@ -220,6 +242,13 @@ function startStaleTodoResolution(): void {
 let signalHandlersRegistered = false;
 
 export async function startScheduler(): Promise<void> {
+  // 重入保护：避免热重载或多次启动导致多套定时器并行
+  if (schedulerStarted) {
+    console.log('[Scheduler] Already started, skipping duplicate startScheduler call');
+    return;
+  }
+  schedulerStarted = true;
+
   const config = getSchedulerConfig();
   console.log(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, cron: ${config.dreamingCron})`);
 
@@ -238,14 +267,18 @@ export async function startScheduler(): Promise<void> {
     todayDay.setHours(0, 0, 0, 0);
 
     // 如果今天已经过了运行时间，但上次运行不是今天，立即补跑
+    // 互斥锁保护：补跑也是 full dream
     if (now.getTime() > todayRunTime.getTime() && lastRunDay.getTime() < todayDay.getTime()) {
       console.log('[Scheduler] Detected missed dream cycle today, running now...');
+      dreamRunning = true;
       try {
         const report = await runDreamCycleAsync();
         updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
         console.log(`[Scheduler] Missed dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged, ${report.relationsReasoned ?? 0} relations reasoned`);
       } catch (err) {
         console.error('[Scheduler] Missed dream cycle failed:', (err as Error).message);
+      } finally {
+        dreamRunning = false;
       }
     }
   }
@@ -274,5 +307,8 @@ export function stopScheduler(): void {
   quickDreamTimer = null;
   if (staleTodoTimer) clearInterval(staleTodoTimer);
   staleTodoTimer = null;
+  // 重置标志，允许 stopScheduler 后重新 startScheduler（测试场景）
+  schedulerStarted = false;
+  dreamRunning = false;
   console.log('[Scheduler] Stopped');
 }

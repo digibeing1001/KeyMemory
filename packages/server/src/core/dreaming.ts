@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, DreamReportDetails, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality, isSpecificProjectName } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality, isSpecificProjectName, CONFLICT_PATTERNS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
@@ -603,8 +603,10 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
       archived += result.archived;
       merged += result.merged;
       action.status = 'executed';
-    } catch {
+    } catch (err) {
       action.status = 'skipped';
+      // 之前静默吞错，排查 action 失败原因时无迹可寻；与 consolidation.ts 保持一致记录日志
+      console.error(`[Dream] Action ${action.type} skipped:`, (err as Error).message);
     }
   }
 
@@ -1078,17 +1080,8 @@ function detectOrphanMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem
 }
 
 function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
-  // 更精确的冲突模式：检测成对的对立表述
-  const conflictPairs: [string[], string[]][] = [
-    [['喜欢', '喜爱', '爱'], ['讨厌', '厌恶', '恨', '不喜欢']],
-    [['支持', '赞成', '同意'], ['反对', '否定', '拒绝']],
-    [['成功', '完成', '达成'], ['失败', '落空', '未达成']],
-    [['是', '属于', '为'], ['不是', '非', '不属于', '不为']],
-    [['有', '拥有', '具备'], ['没有', '无', '缺乏', '不具备']],
-    [['正确', '准确', '无误'], ['错误', '有误', '不正确']],
-    [['开启', '打开', '启用'], ['关闭', '停用', '禁用']],
-    [['增加', '上升', '提升'], ['减少', '下降', '降低']],
-  ];
+  // 冲突词表统一从 shared 导入，避免与 evolution.ts 重复维护
+  const conflictPairs = CONFLICT_PATTERNS;
   const items: DreamTodoItem[] = [];
 
   const entities = db.prepare(`
@@ -1387,55 +1380,59 @@ export function rollbackDream(reportId: string): DreamReport {
     SELECT * FROM consolidation_snapshots WHERE plan_id = ?
   `).all(reportId) as Record<string, unknown>[];
 
-  for (const snap of snapshots) {
-    const memId = snap.memory_id as string;
-    const existing = getMemory(memId);
+  // 事务保护：记忆恢复/还原 + 关系删除 + 报告状态更新必须原子性
+  // 之前无事务，部分回滚会导致记忆图半回滚状态，报告可能仍是 'completed' 导致重复触发
+  return db.transaction(() => {
+    for (const snap of snapshots) {
+      const memId = snap.memory_id as string;
+      const existing = getMemory(memId);
 
-    if (!existing) {
-      const now = new Date().toISOString();
-      const tags = safeParseTagList(snap.tags as string | null);
-      const metadata = safeParseRecord(snap.metadata as string | null);
-      db.prepare(`
-        INSERT INTO memories (id, title, content, layer, project_id, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        memId,
-        snap.title as string,
-        snap.content as string,
-        snap.layer as string,
-        snap.project_id as string,
-        snap.agent_space as string,
-        null,
-        snap.confidence as number,
-        snap.decay_factor as number,
-        snap.captured_at as string,
-        now,
-        tags ? JSON.stringify(tags) : null,
-        metadata ? JSON.stringify(metadata) : null,
-        null,
-        null,
-      );
-      continue;
+      if (!existing) {
+        const now = new Date().toISOString();
+        const tags = safeParseTagList(snap.tags as string | null);
+        const metadata = safeParseRecord(snap.metadata as string | null);
+        db.prepare(`
+          INSERT INTO memories (id, title, content, layer, project_id, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          memId,
+          snap.title as string,
+          snap.content as string,
+          snap.layer as string,
+          snap.project_id as string,
+          snap.agent_space as string,
+          null,
+          snap.confidence as number,
+          snap.decay_factor as number,
+          snap.captured_at as string,
+          now,
+          tags ? JSON.stringify(tags) : null,
+          metadata ? JSON.stringify(metadata) : null,
+          null,
+          null,
+        );
+        continue;
+      }
+
+      if (existing.status === 'archived' || existing.status === 'decayed') {
+        restoreMemory(memId);
+      }
+
+      if (existing.status === 'active') {
+        updateMemory(memId, {
+          title: snap.title as string,
+          content: snap.content as string,
+          tags: safeParseTagList(snap.tags as string | null),
+          metadata: safeParseRecord(snap.metadata as string | null),
+        }, `回滚整理 ${reportId}`);
+      }
     }
 
-    if (existing.status === 'archived' || existing.status === 'decayed') {
-      restoreMemory(memId);
-    }
+    db.prepare(`DELETE FROM memory_relations WHERE reason LIKE ?`).run(`dream:${reportId}:%`);
+    db.prepare(`UPDATE dream_reports SET status = 'rolled_back' WHERE id = ?`).run(reportId);
 
-    if (existing.status === 'active') {
-      updateMemory(memId, {
-        title: snap.title as string,
-        content: snap.content as string,
-        tags: safeParseTagList(snap.tags as string | null),
-        metadata: safeParseRecord(snap.metadata as string | null),
-      }, `回滚整理 ${reportId}`);
-    }
-  }
-
-  db.prepare(`DELETE FROM memory_relations WHERE reason LIKE ?`).run(`dream:${reportId}:%`);
-  db.prepare(`UPDATE dream_reports SET status = 'rolled_back' WHERE id = ?`).run(reportId);
-
-  return { ...report, status: 'rolled_back' };
+    return { ...report, status: 'rolled_back' as const };
+  })();
 }
 
 export function getDreamReport(reportId: string): DreamReport | null {
@@ -1848,23 +1845,27 @@ export function autoResolveStaleTodos(): { resolved: number; remaining: number }
     const pending = todos.filter(t => t.status === 'pending');
     if (pending.length === 0) continue;
 
-    for (const todo of pending) {
-      try {
-        // 安全默认操作：archive 而非 delete
-        if (todo.memoryId) {
-          forgetMemory(todo.memoryId, DREAM_AUTONOMY.staleDefaultAction);
+    // 事务保护：每个 report 的 todo 处理 + todo_items 更新必须原子性
+    // 之前无事务，forgetMemory 成功但 UPDATE dream_reports 失败时，记忆已归档但报告仍显示 pending，下次会重复归档
+    db.transaction(() => {
+      for (const todo of pending) {
+        try {
+          // 安全默认操作：archive 而非 delete
+          if (todo.memoryId) {
+            forgetMemory(todo.memoryId, DREAM_AUTONOMY.staleDefaultAction);
+          }
+          todo.status = 'auto_resolved_stale';
+          todo.autoExecutedAt = new Date().toISOString();
+          todo.autonomyLevel = 'stale_resolution';
+          resolved++;
+          console.log(`[Dream Autonomy] Stale todo auto-resolved: ${todo.type} - ${todo.description}`);
+        } catch (err) {
+          console.error(`[Dream Autonomy] Stale resolution failed:`, (err as Error).message);
         }
-        todo.status = 'auto_resolved_stale';
-        todo.autoExecutedAt = new Date().toISOString();
-        todo.autonomyLevel = 'stale_resolution';
-        resolved++;
-        console.log(`[Dream Autonomy] Stale todo auto-resolved: ${todo.type} - ${todo.description}`);
-      } catch (err) {
-        console.error(`[Dream Autonomy] Stale resolution failed:`, (err as Error).message);
       }
-    }
 
-    db.prepare(`UPDATE dream_reports SET todo_items = ? WHERE id = ?`).run(JSON.stringify(todos), report.id);
+      db.prepare(`UPDATE dream_reports SET todo_items = ? WHERE id = ?`).run(JSON.stringify(todos), report.id);
+    })();
   }
 
   const remainingCount = reports.reduce((sum, r) => {

@@ -32,6 +32,53 @@ export const EVOLUTION_THRESHOLDS = {
   duplicateSimilarity: 0.9,
 } as const;
 
+/**
+ * 衰减与反向降级配置
+ *
+ * 设计目的：把 forgetting.ts 中原本硬编码的衰减阈值集中到一处，
+ * 便于后续调参与 A/B 测试，避免散落在 SQL 字符串里难以发现。
+ *
+ * - demoteLongDecayFactor：long 层 decay_factor 低于此值且 90 天未命中 → 降级到 short
+ * - demoteLongDays：long 层降级到 short 的未命中天数
+ * - demoteShortDecayFactor：short 层 decay_factor 低于此值且 30 天未命中 → 降级到 flash
+ * - demoteShortDays：short 层降级到 flash 的未命中天数
+ * - demotedResetDecayFactor：long→short 降级时重置 decay_factor 到此值（给 short 一个新起点）
+ * - autoArchiveDecayFactor：decay_factor 低于或等于此值 → 自动标记为 decayed
+ * - decayFloor：衰减下限（低于此值不再继续衰减，避免无限趋近 0）
+ */
+export const DECAY_CONFIG = {
+  demoteLongDecayFactor: 0.3,
+  demoteLongDays: 90,
+  demoteShortDecayFactor: 0.2,
+  demoteShortDays: 30,
+  demotedResetDecayFactor: 0.5,
+  autoArchiveDecayFactor: 0.01,
+  decayFloor: 0.01,
+} as const;
+
+/**
+ * 冲突检测词表（成对对立表述）
+ *
+ * 设计目的：统一 dreaming.ts 和 evolution.ts 的冲突检测逻辑，
+ * 避免两处重复维护词表导致的不一致。
+ *
+ * 检测规则：同一实体下，若一条记忆命中 posSet 中的词，另一条命中 negSet 中的词，
+ * 且两条记忆不同，则判定为潜在冲突。
+ *
+ * 与简单词表的区别：成对词表能识别"是 vs 不是"这种语义对立，
+ * 而简单词表（如 ['不是', '错误']）只要出现就触发，误报率高。
+ */
+export const CONFLICT_PATTERNS: ReadonlyArray<readonly [readonly string[], readonly string[]]> = [
+  [['喜欢', '喜爱', '爱'], ['讨厌', '厌恶', '恨', '不喜欢']],
+  [['支持', '赞成', '同意'], ['反对', '否定', '拒绝']],
+  [['成功', '完成', '达成'], ['失败', '落空', '未达成']],
+  [['是', '属于', '为'], ['不是', '非', '不属于', '不为']],
+  [['有', '拥有', '具备'], ['没有', '无', '缺乏', '不具备']],
+  [['正确', '准确', '无误'], ['错误', '有误', '不正确']],
+  [['开启', '打开', '启用'], ['关闭', '停用', '禁用']],
+  [['增加', '上升', '提升'], ['减少', '下降', '降低']],
+] as const;
+
 export const SEARCH_WEIGHTS = {
   fulltext: 0.5,
   semantic: 0.5,

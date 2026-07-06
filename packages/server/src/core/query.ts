@@ -248,8 +248,13 @@ export async function searchFulltext(query: string, options?: SearchOptions): Pr
     }
 
     if (results.length > 0) return results;
+    // FTS 命中 0 条 → 仍回退到 LIKE，但记录原因便于排查
+    console.warn(`[Query] FTS 命中 0 条，回退 LIKE。query=${query.slice(0, 80)}, matchQuery=${matchQuery.slice(0, 80)}`);
     return searchLikeFallback(query, conditions, params);
-  } catch {
+  } catch (err) {
+    // FTS 查询失败（如特殊字符触发语法错误）→ 记录日志后回退 LIKE，避免阻断搜索
+    // 之前静默吞错，难以排查 FTS 索引损坏或查询语法问题
+    console.error(`[Query] FTS 查询失败，回退 LIKE。query=${query.slice(0, 80)}, error=${(err as Error).message}`);
     return searchLikeFallback(query, conditions, params);
   }
 }

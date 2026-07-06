@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { EvolutionTask, EvolutionTaskType } from '@keymemory/shared';
-import { EVOLUTION_THRESHOLDS } from '@keymemory/shared';
+import { EVOLUTION_THRESHOLDS, CONFLICT_PATTERNS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, embed, bufferToEmbedding } from '../embed/onnx.js';
 
@@ -125,8 +125,8 @@ async function detectConflicts(): Promise<EvolutionTask[]> {
   `).all() as { id: string; name: string; mem_count: number }[];
 
   const tasks: EvolutionTask[] = [];
-  const contradictionPatterns = ['不是', '错误', '相反', '否定', 'not', 'wrong', 'opposite', 'contradict'];
-
+  // 冲突词表统一从 shared 导入（与 dreaming.ts 共用同一份），避免重复维护
+  // 之前用简单词表 ['不是', '错误', '相反'...] 误报率高，升级为成对检测
   for (const entity of entities) {
     const mems = db.prepare(`
       SELECT m.id, m.title, m.content FROM memories m
@@ -134,17 +134,19 @@ async function detectConflicts(): Promise<EvolutionTask[]> {
       WHERE me.entity_id = ? AND m.status = 'active'
     `).all(entity.id) as { id: string; title: string; content: string }[];
 
-    for (let i = 0; i < mems.length; i++) {
-      const hasContradiction = contradictionPatterns.some(p => mems[i].content.toLowerCase().includes(p));
-      if (hasContradiction) {
-        for (let j = i + 1; j < mems.length; j++) {
-          const task = createTask(
-            'conflict',
-            [mems[i].id, mems[j].id],
-            `实体「${entity.name}」可能存在矛盾断言：「${mems[i].title}」vs「${mems[j].title}」`
-          );
-          tasks.push(task);
-        }
+    if (mems.length < 2) continue;
+
+    for (const [posSet, negSet] of CONFLICT_PATTERNS) {
+      const posMem = mems.find(m => posSet.some(p => m.content.includes(p)));
+      const negMem = mems.find(m => negSet.some(n => m.content.includes(n)));
+      if (posMem && negMem && posMem.id !== negMem.id) {
+        const task = createTask(
+          'conflict',
+          [posMem.id, negMem.id],
+          `实体「${entity.name}」存在矛盾表述：「${posMem.title}」称「${posSet.find(p => posMem.content.includes(p))}」，而「${negMem.title}」称「${negSet.find(n => negMem.content.includes(n))}」`
+        );
+        tasks.push(task);
+        break; // 每个实体只报一个冲突，避免任务泛滥
       }
     }
   }
@@ -174,26 +176,30 @@ export function resolveTask(taskId: string, action: 'accepted' | 'rejected'): Ev
   const db = getDatabase();
   const now = new Date().toISOString();
 
-  db.prepare(`UPDATE evolution_tasks SET status = ?, resolved_at = ? WHERE id = ?`).run(action, now, taskId);
+  // 事务保护：确保 task 状态更新和 memories 变更原子性
+  // 之前无事务，中途失败会导致 task 标记为 accepted 但 memories 未变更
+  return db.transaction(() => {
+    db.prepare(`UPDATE evolution_tasks SET status = ?, resolved_at = ? WHERE id = ?`).run(action, now, taskId);
 
-  const task = db.prepare(`SELECT * FROM evolution_tasks WHERE id = ?`).get(taskId) as Record<string, unknown> | undefined;
-  if (!task) return null;
+    const task = db.prepare(`SELECT * FROM evolution_tasks WHERE id = ?`).get(taskId) as Record<string, unknown> | undefined;
+    if (!task) return null;
 
-  if (action === 'accepted') {
-    const sourceIds = JSON.parse(task.source_ids as string) as string[];
-    switch (task.task_type) {
-      case 'solidify':
-        for (const id of sourceIds) {
-          db.prepare(`UPDATE memories SET layer = 'long', updated_at = ? WHERE id = ?`).run(now, id);
-        }
-        break;
-      case 'archive':
-        for (const id of sourceIds) {
-          db.prepare(`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
-        }
-        break;
+    if (action === 'accepted') {
+      const sourceIds = JSON.parse(task.source_ids as string) as string[];
+      switch (task.task_type) {
+        case 'solidify':
+          for (const id of sourceIds) {
+            db.prepare(`UPDATE memories SET layer = 'long', updated_at = ? WHERE id = ?`).run(now, id);
+          }
+          break;
+        case 'archive':
+          for (const id of sourceIds) {
+            db.prepare(`UPDATE memories SET status = 'archived', updated_at = ? WHERE id = ?`).run(now, id);
+          }
+          break;
+      }
     }
-  }
 
-  return task as unknown as EvolutionTask;
+    return task as unknown as EvolutionTask;
+  })();
 }
