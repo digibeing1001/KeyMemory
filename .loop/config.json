@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "keymemory.loop-config.v1",
+  "defaultProject": "KeyMemory/Product",
+  "branchPrefix": "codex/",
+  "checkpointEveryPhase": true,
+  "maxIterations": 10,
+  "leaseTtlSeconds": 120,
+  "verificationCommand": "node scripts/verify.mjs",
+  "releaseCommand": "pnpm release:check",
+  "requiredTools": [
+    "memory_context_pack",
+    "memory_loop_start",
+    "memory_loop_context",
+    "memory_loop_checkpoint",
+    "memory_loop_finish"
+  ],
+  "stopOn": [
+    "version-conflict-without-context-refresh",
+    "lease-conflict-before-expiry",
+    "circuit-breaker-triggered",
+    "secret-detected-in-normal-memory"
+  ]
+}
+

@@ -439,6 +439,7 @@ async function observe(
     maxChars: input.maxChars,
     // loop run 的 context pack 只暴露该 agent 可见空间的记忆，防止跨 agent 泄露
     agentSpaces: visibleSpacesFor(run.agentId),
+    recordActivity: false,
   });
   // 每次观测都附带 circuit breaker 快照，便于调用方在任意时刻判断是否应升级/中止。
   // 触发顺序：stagnation → no-progress → token-budget → max-iterations。

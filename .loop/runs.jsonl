@@ -1,0 +1,1 @@
+{"timestamp":"2026-07-09T00:00:00.000Z","run":"global-review-2026-07-08","status":"verified","verification":"node scripts/verify.mjs; pnpm smoke; pnpm release:check"}

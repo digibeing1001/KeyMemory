@@ -260,7 +260,7 @@ hasRealActivity = `loopActivity.present`。
 | 21 | constraintsSkill | 2 |
 | 22 | loopActivity | 6 |
 
-总分上限 = 139。运行 `pnpm loop:audit` 可得到当前仓库的逐项得分与最终等级。
+总分上限 = 136（`skillsOne` 与 `skillsTwoPlus` 互斥）。运行 `pnpm loop:audit` 可得到当前仓库的逐项得分与最终等级。
 
 > KeyMemory 自身不强制要求达到某个等级才能使用 loop 工具。等级用于自检：低于 L1（38 分）的仓库不应把 autonomous loop 投入生产；低于 L2（58 分）不应启用 action 类 pattern；低于 L3（78 分）不应启用多 worker 并发 loop。
 
@@ -288,4 +288,3 @@ hasRealActivity = `loopActivity.present`。
 3. `tokenUsed` 超过 `tokenBudget` 的 90% 且剩余工作量大。
 4. `checkpointVersion` 达到 8（距 maxIterations=10 仅剩 2 次余量）。
 5. lease 连续被其他 worker 抢占超过 3 次（并发冲突不可调和）。
-

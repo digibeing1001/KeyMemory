@@ -26,7 +26,7 @@ function parse(result) {
 
 async function call(name, args, expectError = false) {
   const result = await executeMcpTool(name, args, adapter, { responseStyle: 'json' });
-  assert.equal(Boolean(result.isError), expectError, `${name} error status`);
+  assert.equal(Boolean(result.isError), expectError, `${name} error status: ${result.content?.[0]?.text ?? JSON.stringify(result)}`);
   return parse(result);
 }
 
@@ -43,6 +43,17 @@ const durableMemory = createMemory({
   tags: ['kind:constraint'],
   source: 'loop-smoke',
 });
+const isolatedAdapter = createHermesAdapter({ agentId: 'isolated-loop-agent', isolationMode: 'isolated' });
+assert.equal(await isolatedAdapter.read(durableMemory.id), null, 'isolated Hermes adapter must not read global memories');
+const isolatedMemory = await isolatedAdapter.write({
+  title: 'Isolated loop private note',
+  content: 'Private checkpoint note for isolated-loop-agent.',
+  layer: 'short',
+  projectPath: 'LoopEval/Private',
+  tags: ['kind:task'],
+  source: 'loop-smoke',
+});
+assert.equal((await isolatedAdapter.read(isolatedMemory.id))?.id, isolatedMemory.id, 'isolated Hermes adapter must read its own private memories');
 const otherProjectMemory = createMemory({
   title: 'Other project private review',
   content: 'This review item belongs only to an unrelated project.',

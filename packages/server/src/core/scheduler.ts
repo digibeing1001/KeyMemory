@@ -140,7 +140,7 @@ function scheduleNextDream(): void {
   if (!config.dreamingEnabled) return;
 
   const delay = msUntilNextRun(config.dreamingCron);
-  console.log(`[Scheduler] Next dream cycle in ${Math.round(delay / 60000)} minutes`);
+  console.error(`[Scheduler] Next dream cycle in ${Math.round(delay / 60000)} minutes`);
 
   dreamTimer = setTimeout(async () => {
     // 互斥锁：上次 dream 仍在运行（耗时较长），跳过本次执行
@@ -151,16 +151,16 @@ function scheduleNextDream(): void {
     }
     dreamRunning = true;
     try {
-      console.log('[Scheduler] Running scheduled dream cycle...');
+      console.error('[Scheduler] Running scheduled dream cycle...');
       const report = await runDreamCycleAsync();
       updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
-      console.log(`[Scheduler] Dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged, ${report.relationsReasoned ?? 0} relations reasoned`);
+      console.error(`[Scheduler] Dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged, ${report.relationsReasoned ?? 0} relations reasoned`);
       // dream 完成后紧接执行 consolidation：让跨记忆的去重/归档/固化也有机会被定时跑，
       // 修复真实数据中 consolidation_plans 永远为 0 的问题。
       try {
         const plan = runAutoConsolidation();
         if (plan.actions.length > 0) {
-          console.log(`[Scheduler] Consolidation plan ${plan.id.slice(0, 8)}: ${plan.actions.length} actions, status=${plan.status}`);
+          console.error(`[Scheduler] Consolidation plan ${plan.id.slice(0, 8)}: ${plan.actions.length} actions, status=${plan.status}`);
         }
       } catch (err) {
         console.error('[Scheduler] Consolidation failed:', (err as Error).message);
@@ -202,14 +202,14 @@ function scheduleNextQuickDream(): void {
     delay = elapsed >= intervalMs ? 0 : intervalMs - elapsed;
   }
 
-  console.log(`[Scheduler] Next quick dream in ${Math.round(delay / 60000)} minutes`);
+  console.error(`[Scheduler] Next quick dream in ${Math.round(delay / 60000)} minutes`);
 
   quickDreamTimer = setTimeout(() => {
     try {
-      console.log('[Scheduler] Running quick dream cycle...');
+      console.error('[Scheduler] Running quick dream cycle...');
       const report = runDreamCycle(true);
       lastQuickDreamAt = Date.now();
-      console.log(`[Scheduler] Quick dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
+      console.error(`[Scheduler] Quick dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
     } catch (err) {
       console.error('[Scheduler] Quick dream cycle failed:', (err as Error).message);
     }
@@ -229,14 +229,14 @@ function startStaleTodoResolution(): void {
     try {
       const result = autoResolveStaleTodos();
       if (result.resolved > 0) {
-        console.log(`[Scheduler] Auto-resolved ${result.resolved} stale todo items (${result.remaining} remaining)`);
+        console.error(`[Scheduler] Auto-resolved ${result.resolved} stale todo items (${result.remaining} remaining)`);
       }
     } catch (err) {
       console.error('[Scheduler] Stale todo resolution failed:', (err as Error).message);
     }
   }, intervalMs);
 
-  console.log(`[Scheduler] Stale todo auto-resolution enabled (interval: ${Math.round(intervalMs / 60000)} minutes)`);
+  console.error(`[Scheduler] Stale todo auto-resolution enabled (interval: ${Math.round(intervalMs / 60000)} minutes)`);
 }
 
 let signalHandlersRegistered = false;
@@ -244,13 +244,13 @@ let signalHandlersRegistered = false;
 export async function startScheduler(): Promise<void> {
   // 重入保护：避免热重载或多次启动导致多套定时器并行
   if (schedulerStarted) {
-    console.log('[Scheduler] Already started, skipping duplicate startScheduler call');
+    console.error('[Scheduler] Already started, skipping duplicate startScheduler call');
     return;
   }
   schedulerStarted = true;
 
   const config = getSchedulerConfig();
-  console.log(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, cron: ${config.dreamingCron})`);
+  console.error(`[Scheduler] Starting scheduler (dreaming: ${config.dreamingEnabled}, cron: ${config.dreamingCron})`);
 
   // 漏跑检测：如果今天还没运行过且已经过了运行时间，立即补跑一次
   if (config.dreamingEnabled && config.lastDreamRun) {
@@ -269,12 +269,12 @@ export async function startScheduler(): Promise<void> {
     // 如果今天已经过了运行时间，但上次运行不是今天，立即补跑
     // 互斥锁保护：补跑也是 full dream
     if (now.getTime() > todayRunTime.getTime() && lastRunDay.getTime() < todayDay.getTime()) {
-      console.log('[Scheduler] Detected missed dream cycle today, running now...');
+      console.error('[Scheduler] Detected missed dream cycle today, running now...');
       dreamRunning = true;
       try {
         const report = await runDreamCycleAsync();
         updateSchedulerConfig({ lastDreamRun: report.completedAt || report.createdAt });
-        console.log(`[Scheduler] Missed dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged, ${report.relationsReasoned ?? 0} relations reasoned`);
+        console.error(`[Scheduler] Missed dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged, ${report.relationsReasoned ?? 0} relations reasoned`);
       } catch (err) {
         console.error('[Scheduler] Missed dream cycle failed:', (err as Error).message);
       } finally {
@@ -295,7 +295,7 @@ export async function startScheduler(): Promise<void> {
 }
 
 export function restartScheduler(): void {
-  console.log('[Scheduler] Restarting scheduler with updated config');
+  console.error('[Scheduler] Restarting scheduler with updated config');
   scheduleNextDream();
   scheduleNextQuickDream();
 }
@@ -310,5 +310,5 @@ export function stopScheduler(): void {
   // 重置标志，允许 stopScheduler 后重新 startScheduler（测试场景）
   schedulerStarted = false;
   dreamRunning = false;
-  console.log('[Scheduler] Stopped');
+  console.error('[Scheduler] Stopped');
 }

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "keymemory.constraints.v1",
+  "constraints": [
+    {
+      "id": "adapter-boundary",
+      "severity": "high",
+      "rule": "Agent-facing read, write, relation, and delete operations must enforce adapter visibility before touching lower-level memory APIs."
+    },
+    {
+      "id": "mcp-result-shape",
+      "severity": "high",
+      "rule": "MCP tool results must remain parseable by legacy text clients and expose structuredContent for schema-aware agents."
+    },
+    {
+      "id": "fts-free-text",
+      "severity": "high",
+      "rule": "User search text must not be interpolated as raw FTS query syntax."
+    },
+    {
+      "id": "loop-recovery",
+      "severity": "high",
+      "rule": "Loop errors must include retryability, next actions, and version or lease details when available."
+    }
+  ]
+}
+

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import type { Memory, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus, EntityType } from '@keymemory/shared';
-import { getDatabase } from '../db/sqlite.js';
+import { getDatabase, isDatabaseInitialized } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
 import { extractEntities, ensureEntity, linkMemoryEntity, processContent, autoAssociate } from '../graph/entity.js';
 import { ensureProjectPath } from './project.js';
@@ -9,6 +9,11 @@ import { extractProjectPathFromContent, normalizeMemoryInput, normalizeMemoryUpd
 import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
 import { removeFromFts, insertIntoFts, refreshFts } from './fts-helpers.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
+
+function isClosedDatabaseError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('Database not initialized') || message.includes('database is not open');
+}
 
 export function createMemory(input: CreateMemoryInput): Memory {
   const db = getDatabase();
@@ -113,12 +118,14 @@ export function createMemory(input: CreateMemoryInput): Memory {
     // 历史问题：后处理散落在各调用点手动维护，新增入口必然遗漏（三个 adapter 全缺、
     // batchCreate/importMemories 全缺、CLI create 缺 autoAssociate）。内聚到此处一劳永逸。
     setImmediate(async () => {
+      if (!isDatabaseInitialized()) return;
       try {
         const { ensureEmbedding } = await import('./query.js');
         await ensureEmbedding(mem.id, mem.title, mem.content, mem.tags, mem.metadata as Record<string, unknown> | undefined);
         // embedding 就绪后建立自动关联（实体共现 + 语义相似度）
         await autoAssociate(mem.id);
       } catch (err) {
+        if (isClosedDatabaseError(err)) return;
         console.error(`[CreateMemory] Post-process failed for ${mem.id}:`, (err as Error).message);
       }
     });
@@ -127,13 +134,15 @@ export function createMemory(input: CreateMemoryInput): Memory {
     // 设计目的：agent 接到接龙指令后写入日志，系统自动闭环注入状态，避免重复注入
     if (mem.projectId && mem.tags?.some(t => t === 'kind:project_journal')) {
       setImmediate(async () => {
+        if (!isDatabaseInitialized()) return;
         try {
           const { markJournalLogged } = await import('./project-journal.js');
           const ok = markJournalLogged(mem.projectId!, mem.id);
           if (ok) {
-            console.log(`[CreateMemory] Project journal handoff completed for project ${mem.projectId} (memory ${mem.id})`);
+            console.error(`[CreateMemory] Project journal handoff completed for project ${mem.projectId} (memory ${mem.id})`);
           }
         } catch (err) {
+          if (isClosedDatabaseError(err)) return;
           console.error(`[CreateMemory] markJournalLogged failed for project ${mem.projectId}:`, (err as Error).message);
         }
       });
@@ -381,6 +390,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
       // 历史问题：updateMemory 从不刷新实体链接和关联，用户改了 content 后旧实体仍挂着、
       // 新实体不会被提取、关联不会重建。此处统一修复所有 updateMemory 调用路径。
       setImmediate(async () => {
+        if (!isDatabaseInitialized()) return;
         try {
           // content 变化时刷新实体链接（INSERT OR IGNORE 幂等，保留旧实体链接避免失去关联）
           if (input.content !== undefined) {
@@ -392,6 +402,7 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
           // 重建关联（基于新实体共现 + 新 embedding 语义相似度）
           await autoAssociate(id);
         } catch (err) {
+          if (isClosedDatabaseError(err)) return;
           console.error(`[UpdateMemory] Post-process failed for ${id}:`, (err as Error).message);
         }
       });

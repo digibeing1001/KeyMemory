@@ -212,6 +212,12 @@ export interface AgentContextPackRequest {
    * 未传时不做 agent_space 过滤（向后兼容）。
    */
   agentSpaces?: string[];
+  /**
+   * Whether context-pack generation should record lightweight access telemetry.
+   * Loop harness calls set this to false because durable loop runs already
+   * maintain their own checkpoints and events.
+   */
+  recordActivity?: boolean;
 }
 
 export interface AgentContextRelation {

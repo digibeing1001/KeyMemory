@@ -756,6 +756,10 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
+export function isDatabaseInitialized(): boolean {
+  return db !== null;
+}
+
 export function closeDatabase(): void {
   if (db) {
     db.close();

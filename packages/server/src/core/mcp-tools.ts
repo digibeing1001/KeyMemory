@@ -654,7 +654,6 @@ export function canonicalToolName(name: unknown): string {
 
 const READ_ONLY_TOOL_NAMES = new Set([
   'memory_search',
-  'memory_context_pack',
   'memory_read',
   'memory_list',
   'memory_related',

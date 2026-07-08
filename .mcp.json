@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "keymemory": {
+      "command": "node",
+      "args": ["bin/keymemory-mcp.js"],
+      "env": {
+        "KEYMEMORY_STDIO": "1"
+      }
+    }
+  }
+}
+

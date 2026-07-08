@@ -190,6 +190,7 @@ const TAG_PROCESS_STATE = /^(step-\d|cli-stage|final-result|pull-after-build|smo
 export function isMeaningfulTag(tag: string): boolean {
   const trimmed = tag.trim();
   if (trimmed.length < 2 || trimmed.length > 30) return false;
+  if (/^sensitivity:redacted$/i.test(trimmed)) return true;
   if (TAG_NAMESPACE_PREFIXES.test(trimmed)) return false;
   if (TAG_DATE_VERSION.test(trimmed)) return false;
   if (TAG_PROCESS_STATE.test(trimmed)) return false;
@@ -280,10 +281,10 @@ export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInpu
   const kind = inferMemoryKind(contentResult.text, titleResult.text);
   // 未显式指定 layer 时按内容/元数据推断，避免上游一律传 long
   const layer = input.layer ?? inferMemoryLayer(titleResult.text, contentResult.text, redactedMetadata ?? input.metadata);
-  // 标签策略：不再自动添加 kind:/project:/scope:/sensitivity: 命名空间标签。
-  // 这些信息已存在于 metadata.memoryKind、project_id 等字段中，用标签重复表达只会污染标签云。
-  // 标签的意义是让 agent 用简短的自然词快速命中记忆，不是元数据的副本。
-  const tags = normalizeTags(input.tags);
+  // Keep ordinary schema fields out of tags, but add the redaction tag when
+  // sensitive material was actually detected so search, health checks, and UI
+  // review can find privacy-relevant memories without parsing metadata.
+  const tags = normalizeTags([...(input.tags ?? []), ...(privacy ? ['sensitivity:redacted'] : [])]);
 
   const metadata = {
     schemaVersion: 2,

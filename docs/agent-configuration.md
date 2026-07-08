@@ -37,7 +37,7 @@ KeyMemory is a native durable memory backend. Read and write tools should be tre
 - OpenClaw: keep `memory.provider = "keymemory"` and allow `"mcp__keymemory__*"` through `permissions.allow` or `allowedTools`.
 - Hermes: keep the `mcp_servers.keymemory` entry enabled and include the `keymemory_*` tools; when the host supports MCP permissions, allow `"mcp__keymemory__*"`.
 
-The MCP tools also advertise annotations: read-only memory tools are marked read-only, ordinary memory writes are local and non-open-world, and destructive deletes are marked separately.
+The MCP tools also advertise annotations: lookup-only memory tools are marked read-only, stateful context and loop tools are not marked as pure read-only when they renew leases or update handoff/activity state, ordinary memory writes are local and non-open-world, and destructive deletes are marked separately.
 
 ## Why Launcher
 

@@ -115,6 +115,10 @@ try {
   if (!secretGetTool?.annotations?.readOnlyHint || secretGetTool.annotations.openWorldHint !== false) {
     throw new Error(`expected keymemory_secret_get to be annotated as local read-only credential access, got ${JSON.stringify(secretGetTool?.annotations)}`);
   }
+  const contextTool = listed.tools.find(tool => tool.name === 'keymemory_context_pack');
+  if (contextTool?.annotations?.readOnlyHint !== false || contextTool.annotations.openWorldHint !== false) {
+    throw new Error(`expected keymemory_context_pack to be annotated as stateful local context access, got ${JSON.stringify(contextTool?.annotations)}`);
+  }
 
   const secretValue = 'hmcp_test_secret_1234567890';
   const secretSet = JSON.parse(toolText(await call('tools/call', {
@@ -174,6 +178,9 @@ try {
   if (!searchText.includes('production release checks') && !searchText.includes('MCP migration smoke')) {
     throw new Error(`expected MCP search result, got ${searchText}`);
   }
+  if (!Array.isArray(searched.structuredContent?.results)) {
+    throw new Error(`expected MCP search to include structuredContent.results, got ${JSON.stringify(searched.structuredContent)}`);
+  }
 
   const packed = await call('tools/call', {
     name: 'keymemory_context_pack',
@@ -182,6 +189,9 @@ try {
   const packText = toolText(packed);
   if (!packText.includes('# KeyMemory Context') || !packText.includes('User Preferences')) {
     throw new Error(`expected MCP context pack, got ${packText}`);
+  }
+  if (!packed.structuredContent?.contextPack?.markdown?.includes('# KeyMemory Context')) {
+    throw new Error(`expected MCP context pack structuredContent, got ${JSON.stringify(packed.structuredContent)}`);
   }
 
   const sourceId = createdMemoryId(await call('tools/call', {

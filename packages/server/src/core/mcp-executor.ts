@@ -16,6 +16,7 @@ import type { MemoryAdapter } from '../adapters/base.js';
 
 export interface McpToolExecutionResult {
   content: Array<{ type: 'text'; text: string }>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
 
@@ -34,11 +35,18 @@ const VALID_LAYERS = new Set<Layer>(LAYERS);
 const VALID_MEMORY_STATUSES = new Set<MemoryStatus>(['active', 'archived', 'decayed', 'deleted']);
 
 function ok(value: unknown): McpToolExecutionResult {
-  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    structuredContent: isRecord(value) ? value : { result: value },
+  };
 }
 
 function fail(message: string): McpToolExecutionResult {
-  return { content: [{ type: 'text', text: message }], isError: true };
+  return {
+    content: [{ type: 'text', text: message }],
+    structuredContent: { error: { message } },
+    isError: true,
+  };
 }
 
 function memorySavedText(memory: Awaited<ReturnType<MemoryAdapter['write']>>): string {
@@ -251,7 +259,9 @@ export async function executeMcpTool(
     switch (toolName) {
       case 'memory_create': {
         const memory = await writeMemory(adapter, buildCreateInput(args));
-        return agentText ? { content: [{ type: 'text', text: memorySavedText(memory) }] } : ok(memory);
+        return agentText
+          ? { content: [{ type: 'text', text: memorySavedText(memory) }], structuredContent: { memory } }
+          : ok(memory);
       }
 
       case 'memory_search': {
@@ -277,7 +287,9 @@ export async function executeMcpTool(
           lastHitAfter: optionalString(args, 'lastHitAfter'),
           lastHitBefore: optionalString(args, 'lastHitBefore'),
         });
-        return agentText ? { content: [{ type: 'text', text: searchResultsText(query, results) }] } : ok(results);
+        return agentText
+          ? { content: [{ type: 'text', text: searchResultsText(query, results) }], structuredContent: { results } }
+          : ok(results);
       }
 
       case 'memory_context_pack': {
@@ -292,7 +304,7 @@ export async function executeMcpTool(
           // 从 adapter 提取当前 agent 可见空间，确保 context pack 不会跨 agent 私有空间泄露
           agentSpaces: adapter.getAgentSpaces?.(),
         });
-        return { content: [{ type: 'text', text: pack.markdown }] };
+        return { content: [{ type: 'text', text: pack.markdown }], structuredContent: { contextPack: pack } };
       }
 
       case 'memory_loop_start':
@@ -655,7 +667,12 @@ export async function executeMcpTool(
     }
   } catch (err) {
     if (err instanceof LoopProtocolError) {
-      return { content: [{ type: 'text', text: JSON.stringify(loopErrorObservation(err), null, 2) }], isError: true };
+      const observation = loopErrorObservation(err);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(observation, null, 2) }],
+        structuredContent: { observation },
+        isError: true,
+      };
     }
     const message = err instanceof Error ? err.message : String(err);
     return fail(message);

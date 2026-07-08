@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "keymemory.loop-state.v1",
+  "updatedAt": "2026-07-09T00:00:00.000Z",
+  "status": "active",
+  "objective": "Keep KeyMemory usable as an agent memory plugin with durable storage, processing, retrieval, harness, and loop contracts.",
+  "currentPhase": "verified-release-ready",
+  "authoritativeState": [
+    "Memory writes must preserve provenance, isolation, and rollback paths.",
+    "Agent tools must expose narrow schemas, accurate annotations, structured results, and actionable error recovery.",
+    "Autonomous loops must use leases, idempotency keys, version cursors, budgets, and circuit breakers."
+  ],
+  "nextActions": [
+    "Push after node scripts/verify.mjs and pnpm release:check pass.",
+    "Escalate if loop readiness drops below L2.",
+    "Update this file after major loop policy changes."
+  ]
+}

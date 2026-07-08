@@ -365,7 +365,7 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
   };
 
   // 记录 agent 活动到 loop_runs 表，让使用动态页能看到智能体何时访问了记忆库。
-  recordAgentActivity(input, result);
+  if (input.recordActivity !== false) recordAgentActivity(input, result);
 
   return result;
 }
@@ -402,10 +402,15 @@ function recordAgentActivity(input: AgentContextPackRequest, pack: AgentContextP
     const now = new Date().toISOString();
     const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
 
-    // 检查 60 秒内是否有同一 agent 的记录，有则更新，无则新建
+    // Activity telemetry shares loop_runs for UI visibility, but it must never
+    // mutate durable loop-harness rows. Only coalesce rows created by this
+    // telemetry path.
     const recent = db.prepare(`
       SELECT id FROM loop_runs
-      WHERE agent_id = ? AND updated_at > ?
+      WHERE agent_id = ?
+        AND lease_owner = 'keymemory-auto'
+        AND idempotency_key LIKE 'auto:%'
+        AND updated_at > ?
       ORDER BY updated_at DESC LIMIT 1
     `).get(agentId, oneMinuteAgo) as { id: string } | undefined;
 

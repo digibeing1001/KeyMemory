@@ -105,7 +105,7 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
             projectName: d.projectName,
             lastActivityAt: d.lastActivityAt,
           }));
-          console.log(`[Dream] Project handoff: marked ${journalReport.marked} projects for journal injection`);
+          console.error(`[Dream] Project handoff: marked ${journalReport.marked} projects for journal injection`);
         }
       } catch (err) {
         console.error('[Dream] Project handoff scan failed (non-fatal):', (err as Error).message);
@@ -221,9 +221,9 @@ export async function runDreamCycleAsync(quickMode: boolean = false): Promise<Dr
       WHERE id = ?
     `).run(JSON.stringify(report.details), JSON.stringify(report.sessions), report.id);
 
-    console.log(`[Dream] Relation reasoning: scanned ${relationReport.scanned} memories, created ${relationReport.relationsCreated} relations`);
+    console.error(`[Dream] Relation reasoning: scanned ${relationReport.scanned} memories, created ${relationReport.relationsCreated} relations`);
     if (relationReport.skipped.length > 0) {
-      console.log(`[Dream] Relation reasoning skipped: ${relationReport.skipped.join('; ')}`);
+      console.error(`[Dream] Relation reasoning skipped: ${relationReport.skipped.join('; ')}`);
     }
   } catch (err) {
     console.error('[Dream] Relation reasoning failed (non-fatal):', (err as Error).message);
@@ -1772,7 +1772,7 @@ function applyAutonomyPolicy(todoItems: DreamTodoItem[], details: DreamReportDet
           todo.requiresNotification = true;
         }
 
-        console.log(`[Dream Autonomy] Auto-executed (${level}): ${todo.type} - ${todo.description}`);
+        console.error(`[Dream Autonomy] Auto-executed (${level}): ${todo.type} - ${todo.description}`);
       } catch (err) {
         console.error(`[Dream Autonomy] Auto-execute failed for ${todo.type}:`, (err as Error).message);
         todo.status = 'auto_execute_failed';
@@ -1858,7 +1858,7 @@ export function autoResolveStaleTodos(): { resolved: number; remaining: number }
           todo.autoExecutedAt = new Date().toISOString();
           todo.autonomyLevel = 'stale_resolution';
           resolved++;
-          console.log(`[Dream Autonomy] Stale todo auto-resolved: ${todo.type} - ${todo.description}`);
+          console.error(`[Dream Autonomy] Stale todo auto-resolved: ${todo.type} - ${todo.description}`);
         } catch (err) {
           console.error(`[Dream Autonomy] Stale resolution failed:`, (err as Error).message);
         }

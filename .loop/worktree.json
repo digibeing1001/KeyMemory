@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "keymemory.worktree-policy.v1",
+  "branchPrefix": "codex/",
+  "defaultStrategy": "single-worktree",
+  "parallelWorkAllowed": false,
+  "mergePolicy": "verify-before-push",
+  "protectedBranches": ["main", "master"],
+  "notes": [
+    "Use isolated worktrees only for independent units with low file overlap.",
+    "Never land parallel changes without rerunning node scripts/verify.mjs on the final tree."
+  ]
+}
+

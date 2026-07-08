@@ -203,6 +203,44 @@ export async function ensureEmbedding(memoryId: string, title: string, content: 
   scheduleChunkAndEmbed(memoryId, title, content, tags, metadata);
 }
 
+function quoteFtsPhrase(value: string): string {
+  const phrase = value
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/"/g, '""');
+  return `"${phrase}"`;
+}
+
+function buildSimpleWildcardQuery(query: string): string | undefined {
+  const terms = query
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (terms.length === 0) return undefined;
+
+  const safeTerms: string[] = [];
+  for (const term of terms.slice(0, 12)) {
+    const match = term.match(/^([\p{L}\p{N}_-]+)(\*)?$/u);
+    if (!match) return undefined;
+    safeTerms.push(match[2] ? `${match[1]}*` : quoteFtsPhrase(match[1]));
+  }
+  return safeTerms.join(' OR ');
+}
+
+function buildSafeFtsQuery(query: string): string {
+  const normalized = query.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '""';
+
+  if (normalized.includes('*')) {
+    const wildcard = buildSimpleWildcardQuery(normalized);
+    if (wildcard) return wildcard;
+  }
+
+  const terms = normalized.match(/[\p{L}\p{N}_-]{2,}/gu)?.slice(0, 12) ?? [];
+  const clauses = [quoteFtsPhrase(normalized), ...terms.map(quoteFtsPhrase)];
+  return Array.from(new Set(clauses)).join(' OR ');
+}
+
 export async function searchFulltext(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   const db = getDatabase();
   const conditions = [options?.status ? 'm.status = @status' : "m.status = 'active'"];
@@ -211,18 +249,7 @@ export async function searchFulltext(query: string, options?: SearchOptions): Pr
 
   addSearchFilters(conditions, params, options);
 
-  let matchQuery = query;
-  const hasWildcard = query.includes('*') || query.includes('?');
-  
-  if (hasWildcard) {
-    matchQuery = query
-      .replace(/([^\\])\*/g, '$1*')
-      .replace(/([^\\])\?/g, '$1?')
-      .replace(/\\\*/g, '*')
-      .replace(/\\\?/g, '?');
-  } else {
-    matchQuery = `"${query}" OR ${query}*`;
-  }
+  const matchQuery = buildSafeFtsQuery(query);
   
   params.q = matchQuery;
 

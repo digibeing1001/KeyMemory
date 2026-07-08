@@ -1,0 +1,2 @@
+{"timestamp":"2026-07-08T00:00:00.000Z","type":"review","summary":"Global KeyMemory agent-memory review started; readiness contracts added for memory storage, processing, MCP tools, harness, and loop operation.","artifacts":["AGENTS.md","SAFETY.md","SAFETY-LOOP.md",".loop/config.json",".loop/state.json"]}
+{"timestamp":"2026-07-09T00:00:00.000Z","type":"verification","summary":"Global review fixes verified before GitHub upload.","artifacts":["scripts/verify.mjs","docs/run-log.md"]}

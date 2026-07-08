@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "keymemory.loop-budget.v1",
+  "tokenBudgetDefault": 120000,
+  "costUsdBudgetDefault": 10,
+  "maxIterations": 10,
+  "verificationBudget": {
+    "required": ["typecheck", "build", "memory-eval", "mcp-smoke", "loop-smoke", "loop-readiness"],
+    "release": "pnpm release:check"
+  },
+  "escalateWhen": [
+    "same error signature repeats 3 times",
+    "5 consecutive failures occur",
+    "tokenUsed reaches tokenBudget",
+    "verification cannot run locally"
+  ]
+}
+

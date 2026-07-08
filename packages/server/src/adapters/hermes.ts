@@ -2,7 +2,7 @@ import type { MemoryAdapter } from './base.js';
 import type { Memory, SearchResult, IsolationMode, CreateMemoryInput } from '@keymemory/shared';
 import { createMemory, getMemory, listMemories, deleteMemory } from '../core/atom.js';
 import { searchHybrid } from '../core/query.js';
-import { routeMemory, createAgentContext } from './base.js';
+import { routeMemory, createAgentContext, visibleSpacesFor } from './base.js';
 import type { MemorySearchOptions } from './base.js';
 
 interface HermesAdapterOptions {
@@ -13,9 +13,7 @@ interface HermesAdapterOptions {
 export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapter {
   const ctx = createAgentContext(options.agentId, options.isolationMode ?? 'hybrid');
   // 预计算可见空间集合，供 search/context-pack 等读取路径做 pre-filter
-  const accessibleSpaces = ctx.isolationMode === 'isolated'
-    ? [ctx.privateSpace]
-    : ['global', ctx.privateSpace];
+  const accessibleSpaces = visibleSpacesFor(options.agentId, ctx.isolationMode);
 
   return {
     name: 'hermes',
@@ -24,8 +22,8 @@ export function createHermesAdapter(options: HermesAdapterOptions): MemoryAdapte
       const mem = getMemory(id);
       if (!mem) return null;
 
-      const canRead = mem.agentSpace === 'global' || mem.agentSpace === ctx.privateSpace;
-      if (!canRead) return null;
+      const accessibleSet = new Set(accessibleSpaces);
+      if (!accessibleSet.has(mem.agentSpace)) return null;
 
       return mem;
     },

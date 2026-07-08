@@ -12,7 +12,7 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import { getDatabase } from '../db/sqlite.js';
+import { getDatabase, isDatabaseInitialized } from '../db/sqlite.js';
 import { embed, embeddingToBuffer, getCurrentModelInfo, isEmbeddingAvailable } from '../embed/onnx.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
 
@@ -27,6 +27,11 @@ const CHUNK_CONFIG = {
   /** 单个记忆最多分多少块，防止异常膨胀 */
   maxChunksPerMemory: 20,
 } as const;
+
+function isClosedDatabaseError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('Database not initialized') || message.includes('database is not open');
+}
 
 /**
  * 异步触发分块嵌入
@@ -44,7 +49,9 @@ export function scheduleChunkAndEmbed(
   metadata?: Record<string, unknown>,
 ): void {
   setImmediate(() => {
+    if (!isDatabaseInitialized()) return;
     chunkAndEmbed(memoryId, title, content, tags, metadata).catch(err => {
+      if (isClosedDatabaseError(err)) return;
       console.error(`[Chunking] Failed for memory ${memoryId}:`, (err as Error).message);
     });
   });
