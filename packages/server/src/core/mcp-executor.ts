@@ -13,6 +13,7 @@ import type { IsolationRuleType } from './isolation-rules.js';
 import { canonicalToolName, ENTITY_TYPES } from './mcp-tools.js';
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, LoopProtocolError, startLoopRun } from './loop-harness.js';
 import type { MemoryAdapter } from '../adapters/base.js';
+import { supersedeMemory } from './supersession.js';
 
 export interface McpToolExecutionResult {
   content: Array<{ type: 'text'; text: string }>;
@@ -62,6 +63,12 @@ function searchResultsText(query: string, results: Awaited<ReturnType<MemoryAdap
         let line = `${index + 1}. [${memory.layer}] ${memory.title}`;
         if (memory.tags && memory.tags.length > 0) line += ` | 标签: ${memory.tags.join(', ')}`;
         if (memory.source) line += ` | 来源: ${memory.source}`;
+        if (memory.validTo) line += ` | 有效期: ${memory.validFrom}..${memory.validTo}`;
+        if (result.scoreBreakdown) {
+          const fulltext = result.scoreBreakdown.fulltextRank ? `全文#${result.scoreBreakdown.fulltextRank}` : '全文未命中';
+          const semantic = result.scoreBreakdown.semanticRank ? `语义#${result.scoreBreakdown.semanticRank}` : '语义未命中';
+          line += ` | 排名: ${fulltext}, ${semantic}, score=${result.scoreBreakdown.finalScore}`;
+        }
         if (memory.metadata) {
           const meta = memory.metadata as Record<string, unknown>;
           const parts: string[] = [];
@@ -102,6 +109,14 @@ function optionalNumber(args: Record<string, unknown>, key: string): number | un
   if (value == null) return undefined;
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new ToolInputError(`${key} must be a finite number`);
+  }
+  return value;
+}
+
+function optionalConfidence(args: Record<string, unknown>, key = 'confidence'): number | undefined {
+  const value = optionalNumber(args, key);
+  if (value !== undefined && (value < 0 || value > 1)) {
+    throw new ToolInputError(`${key} must be between 0 and 1`);
   }
   return value;
 }
@@ -181,6 +196,9 @@ function buildCreateInput(args: Record<string, unknown>): CreateMemoryInput {
     layer,
     projectId: optionalString(args, 'projectId'),
     projectPath: optionalString(args, 'projectPath'),
+    confidence: optionalConfidence(args),
+    validFrom: optionalString(args, 'validFrom'),
+    validTo: optionalString(args, 'validTo'),
     tags,
     metadata: optionalRecord(args, 'metadata'),
     source: optionalString(args, 'source'),
@@ -198,7 +216,10 @@ function buildUpdateInput(args: Record<string, unknown>): UpdateMemoryInput {
   const tags = optionalStringArray(args, 'tags');
   const metadata = optionalRecord(args, 'metadata');
   const source = optionalString(args, 'source');
-  const confidence = optionalNumber(args, 'confidence');
+  const confidence = optionalConfidence(args);
+  const validFrom = optionalString(args, 'validFrom');
+  const validToValue = args.validTo;
+  const validTo = validToValue === null ? null : optionalString(args, 'validTo');
 
   if (title !== undefined) input.title = title;
   if (content !== undefined) input.content = content;
@@ -208,7 +229,9 @@ function buildUpdateInput(args: Record<string, unknown>): UpdateMemoryInput {
   if (tags !== undefined) input.tags = tags;
   if (metadata !== undefined) input.metadata = metadata;
   if (source !== undefined) input.source = source;
-  if (confidence !== undefined) input.confidence = Math.max(0, Math.min(1, confidence));
+  if (confidence !== undefined) input.confidence = confidence;
+  if (validFrom !== undefined) input.validFrom = validFrom;
+  if (validTo !== undefined) input.validTo = validTo;
 
   if (Object.keys(input).length === 0) throw new ToolInputError('at least one update field is required');
   return input;
@@ -272,6 +295,9 @@ export async function executeMcpTool(
           projectId: optionalString(args, 'projectId'),
           includeDescendants: args.includeDescendants !== false,
           includeSuperseded: Boolean(args.includeSuperseded),
+          asOf: optionalString(args, 'asOf'),
+          includeExpired: Boolean(args.includeExpired),
+          explain: Boolean(args.explain),
           memoryKind: optionalString(args, 'memoryKind') as MemoryKind | undefined,
           tags: optionalStringArray(args, 'tags'),
           tagsMatch: optionalTagsMatch(args),
@@ -298,6 +324,9 @@ export async function executeMcpTool(
           project: optionalString(args, 'project'),
           projectId: optionalString(args, 'projectId'),
           includeDescendants: args.includeDescendants !== false,
+          includeSuperseded: Boolean(args.includeSuperseded),
+          asOf: optionalString(args, 'asOf'),
+          includeExpired: Boolean(args.includeExpired),
           memoryKinds: optionalStringArray(args, 'memoryKinds') as MemoryKind[] | undefined,
           maxItems: optionalNumber(args, 'maxItems'),
           maxChars: optionalNumber(args, 'maxChars'),
@@ -389,7 +418,7 @@ export async function executeMcpTool(
         return ok(listMemories({
           layer: optionalLayer(args),
           projectId: optionalString(args, 'projectId'),
-          status: status as MemoryStatus | undefined,
+          status: (status as MemoryStatus | undefined) ?? 'active',
           limit: optionalLimit(args, 20),
           // 隔离过滤：memory_list 也必须遵守 agent_space 可见性，防止跨 agent 看到私有记忆
           agentSpaces: adapter.getAgentSpaces?.(),
@@ -406,6 +435,8 @@ export async function executeMcpTool(
           updatedBefore: optionalString(args, 'updatedBefore'),
           lastHitAfter: optionalString(args, 'lastHitAfter'),
           lastHitBefore: optionalString(args, 'lastHitBefore'),
+          asOf: optionalString(args, 'asOf'),
+          includeExpired: Boolean(args.includeExpired),
         }));
       }
 
@@ -460,6 +491,19 @@ export async function executeMcpTool(
         ));
       }
 
+      case 'memory_supersede': {
+        const sourceId = requiredString(args, 'sourceId');
+        const targetId = requiredString(args, 'targetId');
+        const sourceVisible = await adapter.read(sourceId);
+        if (!sourceVisible) return fail(`Memory not found or not accessible: ${sourceId}`);
+        const targetVisible = await adapter.read(targetId);
+        if (!targetVisible) return fail(`Memory not found or not accessible: ${targetId}`);
+        return ok(supersedeMemory(sourceId, targetId, {
+          effectiveAt: optionalString(args, 'effectiveAt'),
+          reason: requiredString(args, 'reason'),
+        }));
+      }
+
       case 'memory_related': {
         const id = requiredString(args, 'id');
         const visible = await adapter.read(id);
@@ -502,6 +546,9 @@ export async function executeMcpTool(
             layer,
             projectId: typeof raw.projectId === 'string' ? raw.projectId : undefined,
             projectPath: typeof raw.projectPath === 'string' ? raw.projectPath : undefined,
+            confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
+            validFrom: typeof raw.validFrom === 'string' ? raw.validFrom : undefined,
+            validTo: typeof raw.validTo === 'string' ? raw.validTo : undefined,
             tags: Array.isArray(raw.tags) && raw.tags.every(item => typeof item === 'string') ? raw.tags : extractTags(content),
             metadata,
             source: typeof raw.source === 'string' ? raw.source : undefined,

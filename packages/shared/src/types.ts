@@ -43,6 +43,10 @@ export interface Memory {
   lastHitAt?: string;
   status: MemoryStatus;
   decayFactor: number;
+  /** When this memory became true/effective. ISO 8601. Legacy rows fall back to createdAt. */
+  validFrom: string;
+  /** Exclusive end of the memory's validity window. Undefined means still valid. */
+  validTo?: string;
   createdAt: string;
   updatedAt: string;
   entities?: Entity[];
@@ -131,6 +135,19 @@ export interface SearchResult {
   memory: Memory;
   score: number;
   matchType: 'fulltext' | 'semantic' | 'hybrid';
+  /** Optional, caller-requested explanation of hybrid ranking contributions. */
+  scoreBreakdown?: SearchScoreBreakdown;
+}
+
+export interface SearchScoreBreakdown {
+  fulltextRank?: number;
+  semanticRank?: number;
+  fulltextContribution: number;
+  semanticContribution: number;
+  hitBoost: number;
+  confidenceBoost: number;
+  durableLayerBoost: number;
+  finalScore: number;
 }
 
 export interface HealthReport {
@@ -168,6 +185,12 @@ export interface CreateMemoryInput {
   projectPath?: string;
   agentSpace?: string;
   ownerAgentId?: string;
+  /** Evidence-calibrated confidence from 0 to 1. Explicit user writes default to 1. */
+  confidence?: number;
+  /** ISO 8601 start of the fact's validity window. Defaults to creation time. */
+  validFrom?: string;
+  /** ISO 8601 exclusive end of the fact's validity window. */
+  validTo?: string;
   tags?: string[];
   source?: string;
   sourceId?: string;
@@ -181,6 +204,10 @@ export interface UpdateMemoryInput {
   projectId?: string;
   projectPath?: string;
   confidence?: number;
+  /** ISO 8601 start of the fact's validity window. */
+  validFrom?: string;
+  /** ISO 8601 exclusive end; null explicitly reopens the validity window. */
+  validTo?: string | null;
   tags?: string[];
   source?: string;
   metadata?: Record<string, unknown>;
@@ -192,6 +219,12 @@ export interface SearchQuery {
   projectId?: string;
   includeDescendants?: boolean;
   includeSuperseded?: boolean;
+  /** Retrieve the facts that were valid at this ISO 8601 instant. Defaults to now. */
+  asOf?: string;
+  /** Include facts outside their validity windows for audit/history views. */
+  includeExpired?: boolean;
+  /** Include an RRF and quality-boost score breakdown in each result. */
+  explain?: boolean;
   memoryKind?: MemoryKind;
   status?: MemoryStatus;
   limit?: number;
@@ -203,6 +236,11 @@ export interface AgentContextPackRequest {
   project?: string;
   projectId?: string;
   includeDescendants?: boolean;
+  includeSuperseded?: boolean;
+  /** Build context from facts valid at this ISO 8601 instant. Defaults to now. */
+  asOf?: string;
+  /** Include facts outside their validity windows. Default false. */
+  includeExpired?: boolean;
   memoryKinds?: MemoryKind[];
   maxItems?: number;
   maxChars?: number;
@@ -239,6 +277,8 @@ export interface AgentContextItem {
   projectPath?: string;
   tags?: string[];
   source?: string;
+  validFrom: string;
+  validTo?: string;
   updatedAt: string;
   score: number;
   relations?: AgentContextRelation[];
@@ -254,6 +294,9 @@ export interface AgentContextPack {
   query?: string;
   project?: string;
   projectId?: string;
+  /** Effective instant used to select temporally valid facts. */
+  asOf: string;
+  includeExpired: boolean;
   generatedAt: string;
   totalItems: number;
   usedChars: number;

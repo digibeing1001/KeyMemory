@@ -26,6 +26,13 @@ The eval creates a fresh temporary database, writes a synthetic multi-session pr
 - kind filter: `--kinds preference` returns only preference sections
 - budget cap: `maxItems` and `maxChars` are respected
 - abstain missing project: unknown project returns no context instead of hallucinating
+- temporal knowledge update: current search returns the replacement and closes the old validity window
+- temporal historical recall: `asOf` before the update returns the older fact, not the future replacement
+- temporal audit escape hatch: `includeExpired + includeSuperseded` exposes both versions for audit
+- time-aware context pack: current and historical packs select the correct validity window
+- selective forgetting: expired facts stay out of normal retrieval but remain auditable
+- retrieval explanation: requested RRF/quality score components sum back to the final score
+- evidence confidence: explicit imported confidence persists and auto-memory confidence remains below user-confirmed certainty
 
 ## Release Gate
 
@@ -33,4 +40,6 @@ The eval creates a fresh temporary database, writes a synthetic multi-session pr
 
 ## Limits
 
-This is a deterministic local eval, not a replacement for a larger benchmark suite. A production benchmark should add real imported user memory corpora, human-rated relevance, temporal contradiction cases, and regression tracking across model/search changes.
+This is a deterministic local eval, not a replacement for a larger benchmark suite. A production benchmark should add real imported user memory corpora, human-rated relevance, automatically detected contradiction precision/recall, adversarial memory-poisoning cases, and regression tracking across model/search changes.
+
+See [Temporal Memory](./temporal-memory.md) for the validity and supersession contract.

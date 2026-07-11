@@ -73,6 +73,8 @@ KeyMemory 就是为了系统性地解决这些问题而设计的。
 
 另外，当一条新记忆明确取代了旧记忆时（比如新决策覆盖旧决策），旧记忆会从搜索结果里**自动隐去**，新记忆顶上来，避免 Agent 读到过时指令。
 
+事实变化不会破坏历史：每条记忆都有 `validFrom / validTo` 有效期。`memory_supersede` 会在同一时刻启用新事实、关闭旧事实并保留取代原因；普通查询只看当前事实，`asOf` 可回看任意历史时点，`includeExpired + includeSuperseded` 可做完整审计。需要排查排序时，`memory_search(explain=true)` 会返回全文/语义 RRF 与质量加权明细。
+
 ### 6. Context Pack：给 Agent 的紧凑上下文包
 
 Agent 做长期任务前最需要的不只是"搜索结果"，而是**按用途分组、有篇幅限制、带来源说明**的上下文包。
@@ -206,8 +208,8 @@ keymemory agent-config openclaw --format json
 | 工具 | 用途 |
 | --- | --- |
 | `memory_create` | 创建记忆 |
-| `memory_search` | 按项目、子项目、类型、是否包含被替代记忆搜索 |
-| `memory_context_pack` | 生成分组上下文包 |
+| `memory_search` | 按项目、类型、有效时间搜索；可选返回排序解释 |
+| `memory_context_pack` | 生成当前或 `asOf` 历史时点的分组上下文包 |
 | `memory_auto_remember` | 自检评估并保存重要对话内容 |
 | `memory_loop_start` | 启动一个长期任务（重复调用同一任务会返回原任务，不会重复创建） |
 | `memory_loop_context` | 读取当前断点、新增事件和预算化的记忆上下文 |
@@ -220,6 +222,7 @@ keymemory agent-config openclaw --format json
 | `memory_backup_restore_dry_run` | 验证备份是否可恢复 |
 | `memory_relate` | 创建记忆之间的关系（相关、取代、衍生、引用等） |
 | `memory_related` | 查看相关记忆 |
+| `memory_supersede` | 可信地取代旧事实：关闭旧有效期、保留历史与原因 |
 | `memory_project_suggestions` | 查看自动整理生成的项目整理建议 |
 | `memory_project_suggestion_accept` | 接受项目整理建议 |
 | `memory_project_suggestion_reject` | 拒绝项目整理建议 |
@@ -342,6 +345,7 @@ Windows、Linux、macOS、Windows WSL。
 - [Loop Patterns 配方](docs/loop-patterns.md)
 - [备份与恢复](docs/backup-and-recovery.md)
 - [记忆关系](docs/memory-relations.md)
+- [时间记忆、可信更新与可解释检索](docs/temporal-memory.md)
 - [隐私与安全](docs/privacy-and-safety.md)
 - [性能预算](docs/performance.md)
 - [项目命名规范](docs/project-naming-convention.md)

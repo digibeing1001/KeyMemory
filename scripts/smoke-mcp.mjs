@@ -96,7 +96,7 @@ try {
   await call('initialize');
   const listed = await call('tools/list');
   const toolNames = listed.tools.map(tool => tool.name);
-  for (const required of ['keymemory', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'keymemory_auto_remember', 'keymemory_secret_set', 'keymemory_secret_get', 'keymemory_secret_list', 'keymemory_secret_delete', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
+  for (const required of ['keymemory', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'keymemory_auto_remember', 'keymemory_secret_set', 'keymemory_secret_get', 'keymemory_secret_list', 'keymemory_secret_delete', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_supersede', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
     if (!toolNames.includes(required)) throw new Error(`missing MCP tool: ${required}`);
   }
   const searchTool = listed.tools.find(tool => tool.name === 'keymemory_search');
@@ -118,6 +118,10 @@ try {
   const contextTool = listed.tools.find(tool => tool.name === 'keymemory_context_pack');
   if (contextTool?.annotations?.readOnlyHint !== false || contextTool.annotations.openWorldHint !== false) {
     throw new Error(`expected keymemory_context_pack to be annotated as stateful local context access, got ${JSON.stringify(contextTool?.annotations)}`);
+  }
+  const temporalSearchTool = listed.tools.find(tool => tool.name === 'memory_search');
+  if (!temporalSearchTool?.inputSchema?.properties?.asOf || !temporalSearchTool.inputSchema.properties.explain) {
+    throw new Error(`expected memory_search temporal/explain schema, got ${JSON.stringify(temporalSearchTool?.inputSchema)}`);
   }
 
   const secretValue = 'hmcp_test_secret_1234567890';
@@ -237,6 +241,71 @@ try {
   }));
   if (!inclusiveRelationSearch.includes('MCP relation target')) {
     throw new Error(`expected MCP includeSuperseded search to return target, got ${inclusiveRelationSearch}`);
+  }
+
+  const temporalTargetId = createdMemoryId(await call('tools/call', {
+    name: 'memory_create',
+    arguments: {
+      title: 'MCP monthly billing policy',
+      content: '[[MCP/Smoke/Temporal]] Billing policy uses monthly invoices.',
+      layer: 'long',
+      validFrom: '2026-01-01T00:00:00.000Z',
+      confidence: 0.8,
+    },
+  }));
+  const temporalSourceId = createdMemoryId(await call('tools/call', {
+    name: 'memory_create',
+    arguments: {
+      title: 'MCP annual billing policy',
+      content: '[[MCP/Smoke/Temporal]] Billing policy uses annual invoices.',
+      layer: 'long',
+      validFrom: '2026-02-01T00:00:00.000Z',
+    },
+  }));
+  const temporalUpdate = JSON.parse(toolText(await call('tools/call', {
+    name: 'memory_supersede',
+    arguments: {
+      sourceId: temporalSourceId,
+      targetId: temporalTargetId,
+      effectiveAt: '2026-02-01T00:00:00.000Z',
+      reason: 'user corrected billing cadence',
+    },
+  })));
+  if (temporalUpdate.target.validTo !== '2026-02-01T00:00:00.000Z') {
+    throw new Error(`expected supersession to close target validity, got ${JSON.stringify(temporalUpdate)}`);
+  }
+  const currentTemporal = await call('tools/call', {
+    name: 'memory_search',
+    arguments: { query: 'billing policy invoices', limit: 5, explain: true },
+  });
+  const currentTemporalResults = currentTemporal.structuredContent?.results;
+  if (!Array.isArray(currentTemporalResults)
+      || !currentTemporalResults.some(item => item.memory.id === temporalSourceId)
+      || currentTemporalResults.some(item => item.memory.id === temporalTargetId)
+      || currentTemporalResults.some(item => !item.scoreBreakdown)) {
+    throw new Error(`expected current explainable temporal results, got ${JSON.stringify(currentTemporal.structuredContent)}`);
+  }
+  const historicalTemporal = await call('tools/call', {
+    name: 'memory_search',
+    arguments: { query: 'billing policy invoices', limit: 5, asOf: '2026-01-15T00:00:00.000Z' },
+  });
+  const historicalTemporalResults = historicalTemporal.structuredContent?.results;
+  if (!Array.isArray(historicalTemporalResults)
+      || !historicalTemporalResults.some(item => item.memory.id === temporalTargetId)
+      || historicalTemporalResults.some(item => item.memory.id === temporalSourceId)) {
+    throw new Error(`expected historical memory view, got ${JSON.stringify(historicalTemporal.structuredContent)}`);
+  }
+  const historicalPack = await call('tools/call', {
+    name: 'memory_context_pack',
+    arguments: {
+      query: 'billing policy invoices',
+      project: 'MCP/Smoke/Temporal',
+      asOf: '2026-01-15T00:00:00.000Z',
+      maxItems: 4,
+    },
+  });
+  if (!toolText(historicalPack).includes('monthly invoices') || toolText(historicalPack).includes('annual invoices')) {
+    throw new Error(`expected time-aware MCP context pack, got ${toolText(historicalPack)}`);
   }
 
   const backup = JSON.parse(toolText(await call('tools/call', {

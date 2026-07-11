@@ -9,6 +9,7 @@ import { extractProjectPathFromContent, normalizeMemoryInput, normalizeMemoryUpd
 import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
 import { removeFromFts, insertIntoFts, refreshFts } from './fts-helpers.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
+import { resolveAsOf } from './temporal.js';
 
 function isClosedDatabaseError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
@@ -40,10 +41,12 @@ export function createMemory(input: CreateMemoryInput): Memory {
     projectId,
     agentSpace: input.agentSpace ?? 'global',
     ownerAgentId: input.ownerAgentId,
-    confidence: 1.0,
+    confidence: input.confidence ?? 1.0,
     hitCount: 0,
     status: 'active',
     decayFactor: 1.0,
+    validFrom: input.validFrom!,
+    validTo: input.validTo,
     createdAt: now,
     updatedAt: now,
     tags: input.tags,
@@ -180,6 +183,8 @@ export interface ListMemoriesOptions {
   updatedBefore?: string;
   lastHitAfter?: string;
   lastHitBefore?: string;
+  asOf?: string;
+  includeExpired?: boolean;
 }
 
 export function listMemories(options?: ListMemoriesOptions): Memory[] {
@@ -289,6 +294,16 @@ export function listMemories(options?: ListMemoriesOptions): Memory[] {
     params.lastHitBefore = options.lastHitBefore;
   }
 
+  // listMemories also serves the owner-facing dashboard, which needs to audit
+  // expired facts. Temporal filtering is therefore explicit here; agent-facing
+  // MCP/context callers pass includeExpired=false by default.
+  if (options?.asOf || options?.includeExpired === false) {
+    params.asOf = resolveAsOf(options.asOf);
+    const validFrom = "COALESCE(CASE WHEN metadata IS NOT NULL AND json_valid(metadata) THEN json_extract(metadata, '$.validFrom') END, created_at)";
+    const validTo = "CASE WHEN metadata IS NOT NULL AND json_valid(metadata) THEN json_extract(metadata, '$.validTo') END";
+    conditions.push(`${validFrom} <= @asOf AND (${validTo} IS NULL OR ${validTo} > @asOf)`);
+  }
+
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
@@ -340,6 +355,10 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
   if (input.metadata !== undefined) {
     updates.push('metadata = @metadata');
     params.metadata = JSON.stringify(input.metadata);
+  }
+  if (input.source !== undefined) {
+    updates.push('source = @source');
+    params.source = input.source;
   }
 
   if (updates.length === 0) return existing;

@@ -8,6 +8,7 @@ import { rowToMemory } from '../db/mapper.js';
 import { getCachedEmbedding, getCachedChunkEmbedding, warmupEmbeddingCache, warmupChunkEmbeddingCache, invalidateEmbeddingCache } from './embedding-cache.js';
 import { scheduleChunkAndEmbed } from './chunking.js';
 import { redactSensitiveText } from './privacy.js';
+import { resolveAsOf } from './temporal.js';
 
 type SearchOptions = {
   layer?: Layer;
@@ -16,6 +17,9 @@ type SearchOptions = {
   projectId?: string;
   includeDescendants?: boolean;
   includeSuperseded?: boolean;
+  asOf?: string;
+  includeExpired?: boolean;
+  explain?: boolean;
   memoryKind?: string;
   limit?: number;
   tags?: string[];
@@ -48,6 +52,7 @@ function logQuery(query: string, memoryId: string, matchType: string): void {
 }
 
 function addSearchFilters(conditions: string[], params: Record<string, unknown>, options?: SearchOptions): void {
+  const asOf = resolveAsOf(options?.asOf);
   if (options?.layer) {
     conditions.push('m.layer = @layer');
     params.layer = options.layer;
@@ -74,7 +79,14 @@ function addSearchFilters(conditions: string[], params: Record<string, unknown>,
   }
 
   const activeSearch = (options?.status ?? 'active') === 'active';
+  if (options?.includeExpired !== true) {
+    params.asOf = asOf;
+    const validFrom = "COALESCE(CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validFrom') END, m.created_at)";
+    const validTo = "CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validTo') END";
+    conditions.push(`${validFrom} <= @asOf AND (${validTo} IS NULL OR ${validTo} > @asOf)`);
+  }
   if (activeSearch && options?.includeSuperseded !== true) {
+    params.asOf = asOf;
     conditions.push(`NOT EXISTS (
       SELECT 1
       FROM memory_relations r
@@ -82,6 +94,17 @@ function addSearchFilters(conditions: string[], params: Record<string, unknown>,
       WHERE r.target_memory_id = m.id
         AND r.relation_type = 'supersedes'
         AND source.status = 'active'
+        AND COALESCE(
+          CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
+            THEN json_extract(source.metadata, '$.validFrom') END,
+          source.created_at
+        ) <= @asOf
+        AND (
+          CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
+            THEN json_extract(source.metadata, '$.validTo') END IS NULL
+          OR CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
+            THEN json_extract(source.metadata, '$.validTo') END > @asOf
+        )
     )`);
   }
 
@@ -461,19 +484,32 @@ export async function findDuplicateMemories(threshold: number = 0.9, limit: numb
   return duplicates;
 }
 
-function productionRankBoost(memory: SearchResult['memory']): number {
+function productionRankBoost(memory: SearchResult['memory']): {
+  hitBoost: number;
+  confidenceBoost: number;
+  durableLayerBoost: number;
+  total: number;
+} {
   const hitBoost = Math.min(0.006, Math.log1p(memory.hitCount) * 0.0015);
   const confidenceBoost = Math.max(0, Math.min(memory.confidence, 1)) * 0.003;
-  const longBoost = memory.layer === 'long' || memory.layer === 'entity' ? 0.002 : 0;
-  return hitBoost + confidenceBoost + longBoost;
+  const durableLayerBoost = memory.layer === 'long' || memory.layer === 'entity' ? 0.002 : 0;
+  return {
+    hitBoost,
+    confidenceBoost,
+    durableLayerBoost,
+    total: hitBoost + confidenceBoost + durableLayerBoost,
+  };
 }
 
 export async function searchHybrid(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   const limit = options?.limit ?? 20;
+  // Full-text and semantic branches must evaluate the same instant. Resolving
+  // "now" once avoids millisecond boundary disagreements around validFrom/To.
+  const effectiveOptions = { ...options, asOf: resolveAsOf(options?.asOf) };
 
   const [fulltextResults, semanticResults] = await Promise.all([
-    searchFulltext(query, { ...options, limit: limit * 2 }),
-    searchSemantic(query, { ...options, limit: limit * 2 }),
+    searchFulltext(query, { ...effectiveOptions, limit: limit * 2 }),
+    searchSemantic(query, { ...effectiveOptions, limit: limit * 2 }),
   ]);
 
   const rrfMap = new Map<string, { memory: SearchResult['memory']; fulltextRank?: number; semanticRank?: number }>();
@@ -493,14 +529,26 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
 
   const k = SEARCH_CONFIG.rrfK;
   const fused = Array.from(rrfMap.entries()).map(([id, data]) => {
-    let score = 0;
-    if (data.fulltextRank) score += SEARCH_WEIGHTS.fulltext / (k + data.fulltextRank);
-    if (data.semanticRank) score += SEARCH_WEIGHTS.semantic / (k + data.semanticRank);
-    score += productionRankBoost(data.memory);
+    const fulltextContribution = data.fulltextRank ? SEARCH_WEIGHTS.fulltext / (k + data.fulltextRank) : 0;
+    const semanticContribution = data.semanticRank ? SEARCH_WEIGHTS.semantic / (k + data.semanticRank) : 0;
+    const boosts = productionRankBoost(data.memory);
+    const score = fulltextContribution + semanticContribution + boosts.total;
     return {
       memory: data.memory,
       score,
       matchType: 'hybrid' as const,
+      ...(options?.explain ? {
+        scoreBreakdown: {
+          fulltextRank: data.fulltextRank,
+          semanticRank: data.semanticRank,
+          fulltextContribution: Number(fulltextContribution.toFixed(8)),
+          semanticContribution: Number(semanticContribution.toFixed(8)),
+          hitBoost: Number(boosts.hitBoost.toFixed(8)),
+          confidenceBoost: Number(boosts.confidenceBoost.toFixed(8)),
+          durableLayerBoost: Number(boosts.durableLayerBoost.toFixed(8)),
+          finalScore: Number(score.toFixed(8)),
+        },
+      } : {}),
     };
   });
 

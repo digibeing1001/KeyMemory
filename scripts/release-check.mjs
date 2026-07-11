@@ -61,9 +61,10 @@ function auditReleaseArtifacts() {
   assertFile('scripts/smoke-keymemory.mjs', /agent-config[\s\S]*claude-code[\s\S]*mcp__keymemory__\*[\s\S]*openClawAgentConfig[\s\S]*agentConfigTargets/, 'agent config generator smoke coverage');
   assertFile('packages/server/src/cli.ts', /command\('onboard'\)[\s\S]*--yes[\s\S]*createBackupFile[\s\S]*buildAgentConfigSnippets/, 'onboarding command safety and agent config flow');
   assertFile('bin/keymemory-doctor.js', /migration dry-run[\s\S]*memory relation[\s\S]*dream scheduler[\s\S]*agent config generator/, 'doctor production capability smoke coverage');
-  assertFile('scripts/eval-memory.mjs', /relation-aware context[\s\S]*search suppresses superseded[\s\S]*relation expansion context[\s\S]*natural project routing[\s\S]*abstain missing project/, 'long-term memory eval coverage');
+  assertFile('scripts/eval-memory.mjs', /relation-aware context[\s\S]*search suppresses superseded[\s\S]*relation expansion context[\s\S]*natural project routing[\s\S]*temporal knowledge update current view[\s\S]*temporal historical recall[\s\S]*selective forgetting validity filter[\s\S]*retrieval score explanation[\s\S]*abstain missing project/, 'long-term memory eval coverage');
   assertFile('scripts/perf-memory.mjs', /KEYMEMORY_PERF_COUNT[\s\S]*searchP95Ms[\s\S]*runDreamCycle[\s\S]*contextItems/, 'memory performance budget coverage');
-  assertFile('scripts/smoke-mcp.mjs', /keymemory_secret_set[\s\S]*keymemory_secret_get[\s\S]*memory_context_pack[\s\S]*memory_relate[\s\S]*memory_related[\s\S]*memory_migration_import[\s\S]*memory_backup_create[\s\S]*memory_backup_restore_dry_run[\s\S]*memory_project_suggestions[\s\S]*includeSuperseded[\s\S]*backupDryRun[\s\S]*projectSuggestionsListed/, 'MCP context, relation, search, migration, backup, secret, and project suggestion smoke coverage');
+  assertFile('scripts/smoke-mcp.mjs', /keymemory_secret_set[\s\S]*keymemory_secret_get[\s\S]*memory_context_pack[\s\S]*memory_relate[\s\S]*memory_related[\s\S]*memory_supersede[\s\S]*memory_migration_import[\s\S]*memory_backup_create[\s\S]*memory_backup_restore_dry_run[\s\S]*memory_project_suggestions[\s\S]*includeSuperseded[\s\S]*backupDryRun[\s\S]*projectSuggestionsListed/, 'MCP context, temporal supersession, migration, backup, secret, and project suggestion smoke coverage');
+  assertFile('scripts/smoke-mcp.mjs', /memory_supersede[\s\S]*scoreBreakdown[\s\S]*asOf/, 'MCP explainable current and historical retrieval coverage');
   assertFile('scripts/smoke-loop-harness.mjs', /memory_loop_start[\s\S]*IDEMPOTENCY_CONFLICT[\s\S]*VERSION_CONFLICT[\s\S]*LEASE_CONFLICT[\s\S]*memory_loop_finish[\s\S]*RUN_TERMINAL/, 'durable Loop harness contract coverage');
   assertFile('packages/server/src/core/loop-harness.ts', /keymemory\.loop-observation\.v1[\s\S]*loop_checkpoints[\s\S]*VERSION_CONFLICT[\s\S]*redactSensitiveValue/, 'Loop observation, checkpoint, concurrency, and privacy implementation');
   assertFile('packages/server/src/db/sqlite.ts', /journal_mode = WAL[\s\S]*busy_timeout = 5000[\s\S]*loop_runs[\s\S]*loop_checkpoints[\s\S]*loop_events/, 'SQLite Loop concurrency and persistence schema');
@@ -72,11 +73,10 @@ function auditReleaseArtifacts() {
   assertFile('packages/web/src/components/ProjectSuggestionsView.tsx', /listProjectSuggestions[\s\S]*acceptProjectSuggestion[\s\S]*rejectProjectSuggestion/, 'Web project suggestion review actions');
   assertFile('packages/web/src/App.tsx', /ProjectSuggestionsView[\s\S]*organize/, 'Web project organization route');
   assertFile('packages/web/src/components/Sidebar.tsx', /organize[\s\S]*GitMerge/, 'Web project organization sidebar entry');
-  assertFile('docs/research-and-product-upgrade.md', /MemGPT[\s\S]*LongMemEval[\s\S]*Hermes[\s\S]*OpenClaw/, 'research-backed memory references and target-agent migration coverage');
   assertFile('docs/agent-context-pack.md', /context\/inject[\s\S]*memory_context_pack[\s\S]*superseded[\s\S]*relates_to[\s\S]*memoryKind/, 'agent context pack docs');
   assertFile('docs/loop-harness.md', /memory_loop_start[\s\S]*memory_loop_context[\s\S]*VERSION_CONFLICT[\s\S]*memory_loop_finish/, 'Loop harness integration docs');
-  assertFile('docs/loop-harness-research.md', /MemGPT[\s\S]*SWE-agent[\s\S]*LongMemEval[\s\S]*LangGraph[\s\S]*Hermes Agent/, 'research-backed Loop harness design');
   assertFile('docs/memory-relations.md', /memory_relations[\s\S]*supersedes[\s\S]*memory_relate/, 'memory relation docs');
+  assertFile('docs/temporal-memory.md', /LongMemEval[\s\S]*MemoryAgentBench[\s\S]*validFrom[\s\S]*memory_supersede[\s\S]*asOf[\s\S]*scoreBreakdown/, 'research-backed temporal memory and explainable retrieval docs');
   assertFile('docs/project-organization.md', /project-suggestions[\s\S]*project-suggestion-accept[\s\S]*Web UI[\s\S]*memory_project_suggestions/, 'project organization suggestion docs');
   assertFile('docs/memory-eval.md', /LongMemEval[\s\S]*pnpm eval:memory/, 'memory eval docs');
   assertFile('docs/performance.md', /pnpm perf:memory[\s\S]*search p95[\s\S]*dream cycle/, 'performance budget docs');
@@ -90,7 +90,7 @@ function auditReleaseArtifacts() {
   assertFile('MIGRATION_GUIDE.md', /Source-path project routing[\s\S]*Agent Writer Dashboard\/Frontend/, 'source-path project routing docs');
   assertFile('MIGRATION_GUIDE.md', /jsonl[\s\S]*ndjson/, 'JSONL migration docs');
   assertFile('MIGRATION_GUIDE.md', /--dry-run[\s\S]*without writing memories/, 'migration dry-run docs');
-  assertFile('README.md', /memory_migration_discover[\s\S]*memory_backup_create[\s\S]*memory_relate/, 'MCP migration, backup, and relation tool docs');
+  assertFile('README.md', /memory_migration_discover[\s\S]*memory_backup_create[\s\S]*memory_relate[\s\S]*memory_supersede/, 'MCP migration, backup, relation, and temporal supersession tool docs');
   assertFile('README.md', /keymemory onboard[\s\S]*--yes[\s\S]*--run-dream/, 'first-run onboarding docs');
   assertFile('docs/product-release-audit.md', /Agent memory substrate[\s\S]*One-click migration[\s\S]*Production safety[\s\S]*pnpm release:check/, 'product release audit coverage');
   assertFile('.github/workflows/ci.yml', /windows-latest[\s\S]*ubuntu-latest[\s\S]*macos-latest/, 'cross-platform CI matrix');

@@ -21,6 +21,7 @@ import { initEmbedding } from './embed/onnx.js';
 import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security.js';
 import type { Layer, MemoryKind, MemoryStatus, ForgetMethod } from '@keymemory/shared';
 import { DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
+import { supersedeMemory } from './core/supersession.js';
 
 type OutputFormat = 'json' | 'table' | 'compact';
 
@@ -185,6 +186,9 @@ program
   .requiredOption('-l, --layer <layer>', 'memory layer: flash|short|long|entity')
   .option('-p, --projectId <projectId>', 'associated project ID')
   .option('--project-path <projectPath>', 'project path, auto-created if missing')
+  .option('--confidence <number>', 'evidence confidence from 0 to 1')
+  .option('--valid-from <timestamp>', 'ISO 8601 validity start')
+  .option('--valid-to <timestamp>', 'ISO 8601 exclusive validity end')
   .option('--tags <tags>', 'comma-separated tags')
   .option('--metadata <json>', 'JSON metadata or key:val pairs')
   .option('--source <source>', 'memory source identifier')
@@ -204,6 +208,9 @@ program
       layer: opts.layer as Layer,
       projectId: opts.projectId,
       projectPath: opts.projectPath,
+      confidence: opts.confidence !== undefined ? parseFloat(opts.confidence) : undefined,
+      validFrom: opts.validFrom,
+      validTo: opts.validTo,
       tags,
       metadata,
       source: opts.source,
@@ -233,6 +240,10 @@ program
   .option('-c, --content <content>', 'new content')
   .option('-l, --layer <layer>', 'new layer')
   .option('-p, --projectId <projectId>', 'new project ID')
+  .option('--confidence <number>', 'new evidence confidence from 0 to 1')
+  .option('--valid-from <timestamp>', 'new ISO 8601 validity start')
+  .option('--valid-to <timestamp>', 'new ISO 8601 exclusive validity end')
+  .option('--clear-valid-to', 'reopen the validity window')
   .option('--tags <tags>', 'new comma-separated tags')
   .option('--metadata <json>', 'new JSON metadata')
   .option('--reason <reason>', 'change reason')
@@ -242,6 +253,10 @@ program
     if (opts.content !== undefined) updateData.content = opts.content;
     if (opts.layer !== undefined) updateData.layer = opts.layer;
     if (opts.projectId !== undefined) updateData.projectId = opts.projectId;
+    if (opts.confidence !== undefined) updateData.confidence = parseFloat(opts.confidence);
+    if (opts.validFrom !== undefined) updateData.validFrom = opts.validFrom;
+    if (opts.validTo !== undefined) updateData.validTo = opts.validTo;
+    if (opts.clearValidTo) updateData.validTo = null;
     if (opts.tags !== undefined) updateData.tags = parseTags(opts.tags);
     if (opts.metadata !== undefined) updateData.metadata = parseMetadata(opts.metadata);
 
@@ -322,6 +337,9 @@ program
   .option('--no-descendants', 'exclude child projects when --projectId is used')
   .option('--kind <memoryKind>', 'filter by memory kind')
   .option('--include-superseded', 'include memories superseded by active newer memories')
+  .option('--as-of <timestamp>', 'retrieve facts valid at this ISO 8601 instant')
+  .option('--include-expired', 'include facts outside their validity windows')
+  .option('--explain', 'include hybrid ranking score breakdowns')
   .action(async (query, opts) => {
     const results = await searchHybrid(query, {
       limit: parseInt(opts.limit, 10),
@@ -329,6 +347,9 @@ program
       projectId: opts.projectId,
       includeDescendants: opts.descendants,
       includeSuperseded: Boolean(opts.includeSuperseded),
+      asOf: opts.asOf,
+      includeExpired: Boolean(opts.includeExpired),
+      explain: Boolean(opts.explain),
       memoryKind: opts.kind,
     });
 
@@ -353,6 +374,9 @@ program
   .option('--project <project>', 'project path/name/id; descendants included by default')
   .option('--project-id <projectId>', 'project ID')
   .option('--no-descendants', 'exclude child projects')
+  .option('--include-superseded', 'include superseded facts')
+  .option('--as-of <timestamp>', 'build context from facts valid at this ISO 8601 instant')
+  .option('--include-expired', 'include facts outside their validity windows')
   .option('--kinds <memoryKinds>', 'comma-separated memory kinds')
   .option('--max-items <number>', 'max memories to include', '12')
   .option('--max-chars <number>', 'approximate character budget', '6000')
@@ -363,6 +387,9 @@ program
       project: opts.project,
       projectId: opts.projectId,
       includeDescendants: opts.descendants,
+      includeSuperseded: Boolean(opts.includeSuperseded),
+      asOf: opts.asOf,
+      includeExpired: Boolean(opts.includeExpired),
       memoryKinds: parseMemoryKinds(opts.kinds),
       maxItems: parseInt(opts.maxItems, 10),
       maxChars: parseInt(opts.maxChars, 10),
@@ -382,12 +409,16 @@ program
   .option('-l, --layer <layer>', 'filter by layer')
   .option('-p, --projectId <projectId>', 'filter by project ID')
   .option('-s, --status <status>', 'filter by status', 'active')
+  .option('--as-of <timestamp>', 'list facts valid at this ISO 8601 instant')
+  .option('--include-expired', 'include facts outside their validity windows')
   .option('-n, --limit <number>', 'max results', '20')
   .action((opts) => {
     const mems = listMemories({
       layer: opts.layer as Layer | undefined,
       projectId: opts.projectId,
       status: opts.status as MemoryStatus | undefined,
+      asOf: opts.asOf,
+      includeExpired: Boolean(opts.includeExpired),
       limit: parseInt(opts.limit, 10),
     });
 
@@ -812,6 +843,20 @@ program
     const related = findRelatedMemories(id, opts.type);
     const format: OutputFormat = program.opts().format || 'json';
     printAndExit(related, format);
+  });
+
+program
+  .command('supersede <sourceId> <targetId>')
+  .description('Close an older fact validity window and link its replacement')
+  .requiredOption('--reason <reason>', 'provenance for the knowledge update')
+  .option('--effective-at <timestamp>', 'ISO 8601 effective time; defaults to source validFrom')
+  .action((sourceId, targetId, opts) => {
+    const result = supersedeMemory(sourceId, targetId, {
+      effectiveAt: opts.effectiveAt,
+      reason: opts.reason,
+    });
+    const format: OutputFormat = program.opts().format || 'json';
+    printAndExit(result, format);
   });
 
 program

@@ -8,6 +8,12 @@ export interface MemorySearchOptions {
   projectId?: string;
   includeDescendants?: boolean;
   includeSuperseded?: boolean;
+  /** Retrieve facts valid at this ISO 8601 instant. Defaults to now. */
+  asOf?: string;
+  /** Include facts outside their validity windows for audits. */
+  includeExpired?: boolean;
+  /** Return a hybrid ranking score breakdown. */
+  explain?: boolean;
   memoryKind?: MemoryKind;
   /**
    * 按标签过滤。tags 列以 JSON 数组存储，过滤使用 json_each 精确匹配。

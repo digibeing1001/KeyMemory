@@ -23,6 +23,11 @@ interface AutoRememberResult {
   entities?: import('@keymemory/shared').Entity[];
 }
 
+export function confidenceFromSelfCheck(total: number): number {
+  if (!Number.isFinite(total)) return 0.55;
+  return Number(Math.max(0.55, Math.min(0.95, 0.55 + total * 0.4)).toFixed(3));
+}
+
 // detectContentType / suggestLayer 已合并到 memory-schema.ts 的 inferMemoryLayer
 // 历史问题：两条路径规则不一致——REST 路径只用关键词，autoRemember 路径只用评分，
 // 导致相同内容因入口不同被分到不同层。现统一为单一函数，evaluation 可选。
@@ -160,11 +165,20 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   }
 
   const tags = extractTags(content);
+  // Agent-derived memories should not be indistinguishable from explicit user
+  // assertions. Calibrate confidence from the admission score and cap it below
+  // 1.0 so a later user correction can deterministically outrank it.
+  const confidence = confidenceFromSelfCheck(evaluation.total);
 
   const entities = extractEntities(content);
   const metadata: Record<string, unknown> = {
     context: `auto-remember via ${agentId || 'unknown'}`,
     importance: layer === 'long' ? 'high' : layer === 'short' ? 'medium' : 'low',
+    admission: {
+      method: 'selfcheck',
+      score: evaluation.total,
+      action: evaluation.action,
+    },
   };
   if (entities.length > 0) metadata.entities = entities;
   if (currentProjectId) metadata.projectId = currentProjectId;
@@ -178,6 +192,7 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     projectPath,
     agentSpace: isolationMode === 'isolated' && agentId ? `agent:${agentId}` : 'global',
     ownerAgentId: agentId,
+    confidence,
     tags,
     metadata,
     source: source || 'auto-remember',

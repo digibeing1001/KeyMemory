@@ -1,6 +1,16 @@
 import type { Memory, Layer, MemoryStatus, LoopRun, LoopRunStatus } from '@keymemory/shared';
 
 export function rowToMemory(row: Record<string, unknown>): Memory {
+  let metadata: Record<string, unknown> | undefined;
+  try {
+    metadata = row.metadata ? JSON.parse(row.metadata as string) as Record<string, unknown> : undefined;
+  } catch {
+    metadata = undefined;
+  }
+  const createdAt = row.created_at as string;
+  const validFrom = typeof metadata?.validFrom === 'string' ? metadata.validFrom : createdAt;
+  const validTo = typeof metadata?.validTo === 'string' ? metadata.validTo : undefined;
+
   return {
     id: row.id as string,
     title: row.title as string,
@@ -14,10 +24,12 @@ export function rowToMemory(row: Record<string, unknown>): Memory {
     lastHitAt: (row.last_hit_at as string) || undefined,
     status: row.status as MemoryStatus,
     decayFactor: row.decay_factor as number,
-    createdAt: row.created_at as string,
+    validFrom,
+    validTo,
+    createdAt,
     updatedAt: row.updated_at as string,
     tags: row.tags ? JSON.parse(row.tags as string) : undefined,
-    metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
+    metadata,
     source: (row.source as string) || undefined,
     sourceId: (row.source_id as string) || undefined,
   };

@@ -2,6 +2,7 @@ import type { CreateMemoryInput, Layer, Memory, MemoryKind, SelfCheckResult, Upd
 import { isSpecificProjectName } from '@keymemory/shared';
 import type { PrivacyFinding } from './privacy.js';
 import { privacyMetadata, redactSensitiveText, redactSensitiveValue } from './privacy.js';
+import { validateValidityWindow } from './temporal.js';
 
 const LONG_KEYWORDS = /preference|rule|principle|decision|project|architecture|repo|framework|偏好|习惯|风格|原则|规则|决定|结论|取舍|架构|方法论|框架|理论|约束|边界|必须|禁止/i;
 const SHORT_KEYWORDS = /todo|today|tomorrow|temporary|pending|待办|任务|计划|截止|临时|本周|本周内|今天|明天|近期/i;
@@ -285,26 +286,55 @@ export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInpu
   // sensitive material was actually detected so search, health checks, and UI
   // review can find privacy-relevant memories without parsing metadata.
   const tags = normalizeTags([...(input.tags ?? []), ...(privacy ? ['sensitivity:redacted'] : [])]);
+  if (input.confidence !== undefined && (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1)) {
+    throw new Error('confidence must be a number between 0 and 1');
+  }
+
+  const metadataValidFrom = typeof redactedMetadata?.validFrom === 'string' ? redactedMetadata.validFrom : undefined;
+  const metadataValidTo = typeof redactedMetadata?.validTo === 'string' ? redactedMetadata.validTo : undefined;
+  const validity = validateValidityWindow(
+    input.validFrom ?? metadataValidFrom ?? new Date().toISOString(),
+    input.validTo ?? metadataValidTo,
+  );
+  const suppliedEvidence = redactedMetadata?.evidence && typeof redactedMetadata.evidence === 'object' && !Array.isArray(redactedMetadata.evidence)
+    ? redactedMetadata.evidence as Record<string, unknown>
+    : {};
 
   const metadata = {
-    schemaVersion: 2,
+    ...(redactedMetadata ?? {}),
+    schemaVersion: 3,
     memoryKind: kind,
-    validFrom: new Date().toISOString(),
+    validFrom: validity.validFrom,
+    ...(validity.validTo ? { validTo: validity.validTo } : {}),
     evidence: {
-      source: input.source ?? 'manual',
-      sourceId: input.sourceId,
+      ...suppliedEvidence,
+      source: input.source ?? suppliedEvidence.source ?? 'manual',
+      sourceId: input.sourceId ?? suppliedEvidence.sourceId,
     },
     ...(inferredProjectPath && !input.projectPath ? { projectRouting: { inferredPath: inferredProjectPath, method: 'content-pattern' } } : {}),
-    ...(redactedMetadata ?? {}),
     ...(privacy ? { privacy } : {}),
   };
 
-  return { ...input, layer, projectPath: input.projectPath ?? inferredProjectPath, title: titleResult.text, content: contentResult.text, tags, metadata };
+  return {
+    ...input,
+    layer,
+    confidence: input.confidence,
+    validFrom: validity.validFrom,
+    validTo: validity.validTo,
+    projectPath: input.projectPath ?? inferredProjectPath,
+    title: titleResult.text,
+    content: contentResult.text,
+    tags,
+    metadata,
+  };
 }
 
 export function normalizeMemoryUpdate(input: UpdateMemoryInput, existing: Memory): UpdateMemoryInput {
   const findings: PrivacyFinding[] = [];
   const output: UpdateMemoryInput = { ...input };
+  if (input.confidence !== undefined && (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1)) {
+    throw new Error('confidence must be a number between 0 and 1');
+  }
 
   if (input.title !== undefined) {
     const result = redactSensitiveText(stripTitlePrefix(input.title));
@@ -316,9 +346,9 @@ export function normalizeMemoryUpdate(input: UpdateMemoryInput, existing: Memory
     output.content = result.text;
     findings.push(...result.findings);
   }
-  if (input.metadata !== undefined) {
-    output.metadata = redactSensitiveValue(input.metadata, findings) as Record<string, unknown>;
-  }
+  const redactedMetadata = input.metadata !== undefined
+    ? redactSensitiveValue(input.metadata, findings) as Record<string, unknown>
+    : undefined;
 
   // 标签清洗：对传入的 tags 做规范化（过滤命名空间/路径/超长/日期版本等无意义标签）
   if (input.tags !== undefined) {
@@ -326,12 +356,32 @@ export function normalizeMemoryUpdate(input: UpdateMemoryInput, existing: Memory
   }
 
   const privacy = privacyMetadata(findings);
-  if (privacy) {
-    output.metadata = {
+  const metadataValidFrom = typeof redactedMetadata?.validFrom === 'string' ? redactedMetadata.validFrom : undefined;
+  const metadataValidTo = typeof redactedMetadata?.validTo === 'string' ? redactedMetadata.validTo : undefined;
+  const validityTouched = input.validFrom !== undefined || input.validTo !== undefined || metadataValidFrom !== undefined || metadataValidTo !== undefined;
+  const metadataTouched = redactedMetadata !== undefined || validityTouched || privacy !== undefined || input.title !== undefined || input.content !== undefined;
+
+  if (metadataTouched) {
+    const validToCandidate = input.validTo === null
+      ? undefined
+      : input.validTo ?? metadataValidTo ?? existing.validTo;
+    const validity = validateValidityWindow(
+      input.validFrom ?? metadataValidFrom ?? existing.validFrom ?? existing.createdAt,
+      validToCandidate,
+    );
+    const mergedMetadata: Record<string, unknown> = {
       ...(existing.metadata ?? {}),
-      ...(output.metadata ?? {}),
-      privacy,
+      ...(redactedMetadata ?? {}),
+      schemaVersion: 3,
+      memoryKind: inferMemoryKind(output.content ?? existing.content, output.title ?? existing.title),
+      validFrom: validity.validFrom,
+      ...(privacy ? { privacy } : {}),
     };
+    if (validity.validTo) mergedMetadata.validTo = validity.validTo;
+    else delete mergedMetadata.validTo;
+    output.validFrom = validity.validFrom;
+    output.validTo = validity.validTo ?? null;
+    output.metadata = mergedMetadata;
   }
 
   return output;
