@@ -1,6 +1,7 @@
 {
   "name": "keymemory",
   "version": "0.1.0",
+  "packageManager": "pnpm@9.15.9",
   "private": true,
   "description": "KeyMemory - local-first agent memory layer and MCP server",
   "homepage": "https://github.com/digibeing1001/KeyMemory",
@@ -40,5 +41,10 @@
   },
   "dependencies": {
     "keymemory-mcp": "link:packages/server"
+  },
+  "pnpm": {
+    "overrides": {
+      "keymemory-mcp": "link:packages/server"
+    }
   }
 }

@@ -6,5 +6,3 @@ allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   sharp: true
-overrides:
-  keymemory-mcp: link:packages/server
