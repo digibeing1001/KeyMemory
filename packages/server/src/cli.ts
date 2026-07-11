@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { writeFileSync } from 'node:fs';
 import { initDatabase, closeDatabase, getDataDir, getDbPath } from './db/sqlite.js';
 import { createMemory, getMemory, listMemories, updateMemory, deleteMemory, exportMemoriesAsJson, importMemories, listVersions, getVersion, revertToVersion, recordHit } from './core/atom.js';
 import { searchHybrid, ensureEmbedding, findDuplicateMemories } from './core/query.js';
@@ -151,13 +152,13 @@ function ensureInit(): void {
 }
 
 function printAndExit(data: unknown, format: OutputFormat, exitCode = 0): never {
-  process.stdout.write(formatOutput(data, format) + '\n');
+  writeFileSync(process.stdout.fd, formatOutput(data, format) + '\n');
   closeDatabase();
   process.exit(exitCode);
 }
 
 function printError(message: string, exitCode = 1): never {
-  process.stderr.write(`Error: ${message}\n`);
+  writeFileSync(process.stderr.fd, `Error: ${message}\n`);
   closeDatabase();
   process.exit(exitCode);
 }
