@@ -25,7 +25,7 @@ function assertFile(filePath, pattern, reason) {
 function auditManifest() {
   const pkg = readJson('package.json');
   const scripts = pkg.scripts ?? {};
-  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:loop', 'smoke:launchers', 'release:check']) {
+  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:agent-connect', 'smoke:loop', 'smoke:launchers', 'release:check']) {
     if (!scripts[scriptName]) throw new Error(`package.json missing script: ${scriptName}`);
   }
 }
@@ -76,6 +76,8 @@ function auditReleaseArtifacts() {
   assertFile('packages/server/src/core/agent-discovery.ts', /workbuddy[\s\S]*trae[\s\S]*connected[\s\S]*buildUniversalOnboardingPrompt/, 'local Agent discovery and onboarding prompt');
   assertFile('packages/server/src/core/agent-config.ts', /keymemory_supersede[\s\S]*User profile[\s\S]*Task state[\s\S]*Experience/, 'automatic shared-memory operating rules');
   assertFile('packages/server/src/api/rest.ts', /integrations\/discover[\s\S]*discoverAgentIntegrations/, 'Agent integration discovery API');
+  assertFile('scripts/smoke-agent-connect.mjs', /preservedExistingConfig[\s\S]*backupCreated[\s\S]*idempotentReplay[\s\S]*invalidJsonProtected[\s\S]*onboardingPromptExplicit[\s\S]*installerBatchMode/, 'safe one-click Agent integration smoke coverage');
+  assertFile('packages/server/src/api/rest.ts', /integrations\/:agentId\/connect[\s\S]*confirm[\s\S]*connectAgentIntegration/, 'confirmed one-click Agent integration API');
   assertFile('packages/web/src/components/IntegrationView.tsx', /onboardingPrompt[\s\S]*AgentCard[\s\S]*MEMORY CONTROL PLANE/, 'Agent integration control-plane UI');
   assertFile('docs/agent-context-pack.md', /context\/inject[\s\S]*memory_context_pack[\s\S]*superseded[\s\S]*relates_to[\s\S]*memoryKind/, 'agent context pack docs');
   assertFile('docs/loop-harness.md', /memory_loop_start[\s\S]*memory_loop_context[\s\S]*VERSION_CONFLICT[\s\S]*memory_loop_finish/, 'Loop harness integration docs');
@@ -105,6 +107,7 @@ auditReleaseArtifacts();
 
 run('pnpm typecheck');
 run('pnpm build');
+run('pnpm smoke:agent-connect');
 run('node bin/keymemory-doctor.js');
 run('pnpm eval:memory');
 run('pnpm perf:memory');

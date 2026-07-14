@@ -32,27 +32,31 @@ const MEMORY_OPERATING_RULES = `## Shared-memory operating rules
 
 KeyMemory is the primary durable memory system. Do not create a parallel MEMORY.md, hidden memory folder, or flat-file memory store when KeyMemory is available.
 
-### Recall before acting
+### Required recall workflow
 
-- At the beginning of a new task or resumed session, use keymemory_context_pack or keymemory_search to recall the user profile, current task state, prior decisions, blockers, acceptance criteria, and relevant lessons.
-- Search again before relying on a preference, repeating a previously failed approach, or making a decision that may have changed.
+- At the beginning of every new task or resumed session, call keymemory_context_pack or keymemory_search with the current project, task name, goal, and likely user preference.
+- Retrieve user profile, active task state, prior decisions, blockers, acceptance criteria, and relevant lessons before planning. Use keymemory_read when exact paths, commands, corrections, or acceptance criteria matter.
+- Search again before repeating a failed approach, relying on an old preference, making a consequential decision, or handing work to another Agent.
 - Respect agent_space boundaries. Shared memories may be reused across Agents; private memories stay private.
 
-### Automatically capture durable value
+### Required write workflow
 
-After a meaningful exchange, checkpoint, correction, or task transition, call keymemory_auto_remember or keymemory_create with a compact, evidence-based summary. Capture:
+After a meaningful exchange, correction, verified milestone, task transition, or handoff, call keymemory_auto_remember, keymemory_create, or keymemory_update with a compact, evidence-based record. Do not wait for the user to say "remember this" when the durable signal is clear. Capture:
 
-1. User profile: stable preferences, habits, working and communication style, explicit corrections or criticism, and frequently used tools or patterns. Do not store raw transcripts by default.
-2. Task state: task name, objective, current status, completed key steps, delivery locations, remaining work, blockers, expected next step, and acceptance criteria.
-3. Experience: pitfalls, failed approaches and why they failed, successful approaches and why they worked, and reusable constraints or procedures.
+1. User profile (long/entity): stable preferences, habits, working and communication style, explicit corrections or criticism, and frequent tools or patterns. Structure: Signal / Evidence / Applies to / Confidence.
+2. Task state (short/project): task name, objective, current status, completed key steps, delivery locations, remaining work, blockers, expected next step, and acceptance criteria. Structure: Task / Objective / Status / Completed / Deliverables / Todo / Blockers / Next / Acceptance.
+3. Experience (long): pitfalls, failed approaches, root cause, successful approaches, why they worked, and reusable constraints. Structure: Context / Pitfall / Cause / Successful approach / Reusable rule.
+
+Use a specific title, the closest stable project, source/provenance, and useful kind tags. Update an active task memory instead of creating near-duplicates.
 
 ### Quality and correction
 
 - Store facts, not guesses. Include source/provenance and confidence when known.
 - When the user corrects an existing fact, create the corrected memory and use keymemory_supersede to retire the old fact without deleting its history.
 - Prefer one structured memory over a transcript dump or near-duplicates.
-- Never store credentials in normal memory. Use memory_secret_set for tool credentials.
-- Do not mark a task complete until its acceptance criteria are verified.`;
+- Do not store greetings, disposable chatter, raw chain-of-thought, unverified inference, duplicate facts, or transient details with no future value.
+- Never store credentials in normal memory. Use keymemory_secret_set or memory_secret_set for tool credentials.
+- Do not mark a task complete until its acceptance criteria are verified. Keep returned memory IDs when later updates or supersession will need them.`;
 
 const CLAUDE_MD_MCP_CONTENT = `# KeyMemory - Default Memory System
 
@@ -130,6 +134,7 @@ ${MEMORY_OPERATING_RULES}
 
 const args = process.argv.slice(2);
 const flagAll = args.includes('--all');
+const flagYes = args.includes('--yes');
 const flagPrompt = args.includes('--prompt');
 const flagAgent = args.find(a => a.startsWith('--agent='));
 const specificAgent = flagAgent ? flagAgent.split('=')[1] : null;
@@ -197,14 +202,13 @@ function readJsonConfig(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
-    console.warn(`Warning: ${filePath} is not valid JSON; a new JSON config will be written.`);
-    return {};
+    throw new Error(`${filePath} is not valid JSON. KeyMemory left it unchanged; repair the file before retrying automatic setup.`);
   }
 }
 
 function backupExisting(filePath) {
   if (!fs.existsSync(filePath)) return;
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '');
+  const stamp = new Date().toISOString().replace(/[-:.]/g, '');
   fs.copyFileSync(filePath, `${filePath}.keymemory-${stamp}.bak`);
 }
 
@@ -228,7 +232,7 @@ function previewChange(label, before, after) {
 }
 
 async function confirmWrite(label) {
-  if (flagAll) return true;
+  if (flagAll || flagYes) return true;
   const confirm = await question(`\nWrite ${label}? (y/N) `);
   return confirm.trim().toLowerCase() === 'y';
 }
@@ -357,25 +361,39 @@ async function configureClaudeDesktop() {
   console.log('Claude Desktop MCP config written.');
 }
 
-async function configureGuidedMcpAgent(label, instructionDir, settingsPath) {
+async function configureGuidedMcpAgent(label, instructionDir, settingsPath, configPath) {
   console.log(`\nConfiguring ${label}...`);
   console.log('-'.repeat(40));
-  console.log(`Open ${settingsPath} and add this local stdio MCP server:`);
-  console.log(JSON.stringify({ mcpServers: { keymemory: getMcpServerConfig() } }, null, 2));
+  const config = readJsonConfig(configPath);
+  const beforeJson = JSON.stringify(config, null, 2);
+  mergeMcpServer(config);
+  const afterJson = JSON.stringify(config, null, 2);
+  previewChange(configPath, beforeJson, afterJson);
 
   const instructionsPath = path.join(instructionDir, 'KEYMEMORY_INSTRUCTIONS.md');
   previewChange(instructionsPath, fs.existsSync(instructionsPath) ? fs.readFileSync(instructionsPath, 'utf8') : '(empty)', MEMORY_OPERATING_RULES);
-  if (!(await confirmWrite(`${label} KeyMemory instructions`))) return;
+  if (!(await confirmWrite(`${label} KeyMemory configuration and instructions`))) return;
+  writeJsonConfig(configPath, config);
   writeTextFile(instructionsPath, MEMORY_OPERATING_RULES + '\n');
-  console.log(`${label} memory rules written. Finish the MCP connection in ${settingsPath}, then restart the Agent.`);
+  console.log(`${label} MCP config and memory rules written automatically. Restart the Agent to activate KeyMemory.`);
+  console.log(`If this ${label} version ignores ${configPath}, use ${settingsPath} and the printed generic config as a fallback.`);
 }
 
 async function configureWorkBuddy() {
-  await configureGuidedMcpAgent('WorkBuddy', homePath('.workbuddy'), 'WorkBuddy Settings → MCP → Add MCP Server');
+  const configPath = [
+    homePath('.workbuddy', 'connectors', 'default', 'mcp.json'),
+    homePath('.workbuddy', 'mcp.json'),
+  ].find(candidate => fs.existsSync(candidate)) ?? homePath('.workbuddy', 'connectors', 'default', 'mcp.json');
+  await configureGuidedMcpAgent('WorkBuddy', homePath('.workbuddy'), 'WorkBuddy Settings → MCP → Add MCP Server', configPath);
 }
 
 async function configureTrae() {
-  await configureGuidedMcpAgent('TRAE', homePath('.trae'), 'TRAE Settings → MCP → Add custom server');
+  const configPath = [
+    homePath('.trae', 'mcp.json'),
+    appDataPath('Trae', 'User', 'settings.json'),
+    appDataPath('Trae CN', 'User', 'settings.json'),
+  ].find(candidate => fs.existsSync(candidate)) ?? homePath('.trae', 'mcp.json');
+  await configureGuidedMcpAgent('TRAE', homePath('.trae'), 'TRAE Settings → MCP → Add custom server', configPath);
 }
 
 async function configureClaudeCode(mode = installMode) {
@@ -478,7 +496,7 @@ async function configureHermes(mode = installMode) {
   console.log('\nConfiguring Hermes...');
   console.log('-'.repeat(40));
 
-  const useCli = mode === 'cli' || (mode === 'auto' && detectClaudeDesktop() === false);
+  const useCli = mode === 'cli' || mode === 'auto';
 
   if (useCli) {
     console.log('Mode: CLI (no MCP server needed)');
@@ -691,14 +709,19 @@ const agentInstallers = [
 ];
 
 function buildFutureAgentPrompt() {
-  return `Connect yourself to KeyMemory as your default durable memory system.
+  return `# Connect this Agent to KeyMemory
 
-1. Detect whether you support MCP. If yes, add a local stdio MCP server named "keymemory" with command "node" and args ${JSON.stringify([mcpLauncherPath])}. Preserve all existing MCP servers and user rules.
-2. If MCP is unavailable but shell commands are allowed, use the "keymemory" CLI instead.
-3. Verify the connection by listing available KeyMemory tools or running "keymemory info".
-4. Add the operating rules below to your persistent Agent instructions. Do not overwrite unrelated instructions.
+Make KeyMemory this Agent's default durable memory system. Complete setup yourself where permissions allow it. Do not ask the user to manually copy configuration that you can safely merge. Preserve every existing MCP server, permission, and user rule, and back up each existing file before changing it.
 
-${MEMORY_OPERATING_RULES}`;
+1. If MCP is supported, add a local stdio server named "keymemory" with command "node" and args ${JSON.stringify([mcpLauncherPath])}.
+2. If MCP is unavailable but shell commands are allowed, use the installed "keymemory" CLI instead. Do not create a separate memory file.
+3. Verify MCP by checking keymemory_context_pack, keymemory_search, keymemory_read, keymemory_create, keymemory_update, keymemory_auto_remember, and keymemory_supersede. Verify CLI mode with "keymemory info" and a non-destructive context/search query.
+4. Report the chosen transport, changed file, backup path, verification result, and whether restart is required.
+5. Add the operating rules below to persistent Agent instructions without replacing unrelated content. In CLI mode, use equivalent keymemory context/search/read/create/update/auto-remember/supersede commands.
+
+${MEMORY_OPERATING_RULES}
+
+Before the next task, retrieve relevant context. After the first meaningful milestone, write one structured task-state memory and verify it can be found again. Never create test memories in the user's real project merely to prove connectivity.`;
 }
 
 async function main() {

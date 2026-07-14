@@ -218,6 +218,7 @@ export interface AgentIntegrationStatus {
   label: string;
   detected: boolean;
   connected: boolean;
+  automatic: boolean;
   recommendedMode: 'cli' | 'mcp';
   evidence: string[];
   configPathHints: string[];
@@ -237,6 +238,24 @@ export interface AgentDiscoveryReport {
 
 export async function discoverAgentIntegrations(): Promise<AgentDiscoveryReport> {
   return request('/integrations/discover');
+}
+
+export interface AgentConnectResult {
+  success: boolean;
+  agentId: string;
+  mode: 'cli' | 'mcp';
+  changed: boolean;
+  files: string[];
+  backups: string[];
+  restartRequired: boolean;
+  message: string;
+}
+
+export async function connectAgentIntegration(agentId: string): Promise<{ result: AgentConnectResult; report: AgentDiscoveryReport }> {
+  return request(`/integrations/${encodeURIComponent(agentId)}/connect`, {
+    method: 'POST',
+    body: JSON.stringify({ confirm: true }),
+  });
 }
 
 export interface DreamSession {

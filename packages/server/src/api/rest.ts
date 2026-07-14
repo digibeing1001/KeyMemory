@@ -31,7 +31,7 @@ import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation,
 import path from 'path';
 import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
 import { supersedeMemory } from '../core/supersession.js';
-import { discoverAgentIntegrations } from '../core/agent-discovery.js';
+import { connectAgentIntegration, discoverAgentIntegrations } from '../core/agent-discovery.js';
 
 /**
  * 校验导入路径安全性，防止 null byte 注入和明显的路径攻击
@@ -652,6 +652,34 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.get('/api/integrations/discover', async () => {
     return discoverAgentIntegrations();
+  });
+
+  app.post('/api/integrations/:agentId/connect', async (request, reply) => {
+    const { agentId } = request.params as { agentId: string };
+    const { confirm } = (request.body ?? {}) as { confirm?: boolean };
+    if (confirm !== true) {
+      reply.code(400);
+      return { error: 'confirm=true is required before changing an Agent configuration.' };
+    }
+
+    const before = discoverAgentIntegrations();
+    const agent = before.agents.find(item => item.id === agentId);
+    if (!agent) {
+      reply.code(404);
+      return { error: `Unsupported Agent integration: ${agentId}` };
+    }
+    if (!agent.detected) {
+      reply.code(409);
+      return { error: `${agent.label} was not detected on this device.` };
+    }
+
+    try {
+      const result = connectAgentIntegration(agent.id, { projectRoot: before.projectRoot });
+      return { result, report: discoverAgentIntegrations() };
+    } catch (error) {
+      reply.code(400);
+      return { error: (error as Error).message };
+    }
   });
 
   app.post('/api/backup', async (request, reply) => {

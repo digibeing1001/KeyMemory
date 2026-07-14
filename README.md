@@ -158,7 +158,7 @@ pnpm setup
 keymemory doctor
 ```
 
-安装器会在构建完成后扫描本机已有的 Claude Code、Claude Desktop、WorkBuddy、TRAE / TRAE Work、Hermes、OpenClaw、Codex 和 OpenCode，并逐个引导接入。它只合并 KeyMemory 配置，写入前会预览并备份，不覆盖其他 MCP 服务或个人规则。
+安装器会在构建完成后扫描本机已有的 Claude Code、Claude Desktop、WorkBuddy、TRAE / TRAE Work、Hermes、OpenClaw、Codex 和 OpenCode。Web UI 的 **Agent 接入**页面可以直接“一键接入”：Claude Code、Hermes、Codex 默认使用无需 MCP 的 CLI 模式，其余兼容工具自动合并本地 stdio MCP 配置。修改已有文件前会生成时间戳备份，不覆盖其他 MCP 服务或个人规则；无效 JSON 会拒绝写入。
 
 ### 首次使用：迁移旧记忆
 
@@ -196,6 +196,7 @@ keymemory agent-config workbuddy                    # WorkBuddy 设置 → MCP
 keymemory agent-config trae                         # TRAE 设置 → MCP
 keymemory agent-config openclaw --format json
 pnpm install-memory                                 # 重新扫描本机 Agent
+node install-default-memory.js --all                # 自动接入所有已检测 Agent
 node install-default-memory.js --prompt             # 生成给未来新 Agent 的接入提示词
 ```
 
@@ -206,6 +207,8 @@ node install-default-memory.js --prompt             # 生成给未来新 Agent �
 - **用户画像**：稳定偏好、习惯、工作与沟通风格、明确的纠正/批评、高频工具和模式。
 - **任务状态**：名称、目标、当前状态、已完成关键步骤、交付位置、待办、阻塞、下一步和验收标准。
 - **经验沉淀**：踩坑原因、失败路径、成功做法和可复用流程。纠正事实时会用 `memory_supersede` 保留历史并让新事实生效。
+
+生成的提示词会明确要求 Agent：任务开始先用 `keymemory_context_pack` / `keymemory_search` 检索，正文被截断或需要精确路径时用 `keymemory_read`；在纠正、关键里程碑、任务切换和交接时写入或更新；用户画像按 `Signal / Evidence / Applies to / Confidence`，任务状态按 `Task / Objective / Status / Completed / Deliverables / Todo / Blockers / Next / Acceptance`，经验按 `Context / Pitfall / Cause / Successful approach / Reusable rule` 组织。寒暄、临时对话、未验证推断、重复事实和凭证不会进入普通记忆。
 
 接入后，建议让 Agent 在长期任务前调用：
 

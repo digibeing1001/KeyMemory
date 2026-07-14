@@ -213,3 +213,11 @@ export const Copy: FC<IconProps> = (p) => (
 export const Terminal: FC<IconProps> = (p) => (
   <I {...p}><rect x="2" y="3" width="16" height="14" rx="2" /><path d="M5 7l3 3-3 3M10 13h4" /></I>
 );
+
+export const Expand: FC<IconProps> = (p) => (
+  <I {...p}><path d="M7 3H3v4M13 3h4v4M17 13v4h-4M7 17H3v-4" /><path d="M3 7l4-4M13 3l4 4M17 13l-4 4M7 17l-4-4" /></I>
+);
+
+export const Contract: FC<IconProps> = (p) => (
+  <I {...p}><path d="M7 3v4H3M13 3v4h4M17 13h-4v4M3 13h4v4" /><path d="M7 7L3 3M13 7l4-4M13 13l4 4M7 13l-4 4" /></I>
+);

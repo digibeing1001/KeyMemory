@@ -177,7 +177,7 @@ const zh: Record<string, string> = {
 
   'detail.title': '记忆条目',
   'detail.content': '记忆正文',
-  'detail.contentHint': '正文默认折叠，避免普通浏览时被大段文本淹没。',
+  'detail.contentHint': '正文已收起，点击上方即可重新展开完整内容。',
   'detail.showContent': '展开正文',
   'detail.hideContent': '收起正文',
   'detail.noSelection': '选择一条记忆查看详情',
@@ -532,7 +532,7 @@ const en: Record<string, string> = {
 
   'detail.title': 'Memory entry',
   'detail.content': 'Memory body',
-  'detail.contentHint': 'The body is collapsed by default so browsing stays lightweight.',
+  'detail.contentHint': 'The body is collapsed. Use the control above to show the full content again.',
   'detail.showContent': 'Show body',
   'detail.hideContent': 'Hide body',
   'detail.noSelection': 'Select a memory',

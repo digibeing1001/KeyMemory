@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, CheckCircle, Copy, Plug, RefreshCw, Terminal, User, Zap } from './Icons';
-import { discoverAgentIntegrations, type AgentDiscoveryReport, type AgentIntegrationStatus } from '../lib/api';
+import {
+  connectAgentIntegration,
+  discoverAgentIntegrations,
+  type AgentConnectResult,
+  type AgentDiscoveryReport,
+  type AgentIntegrationStatus,
+} from '../lib/api';
 import { useI18n } from '../i18n';
 
 const AGENT_MARKS: Record<string, string> = {
@@ -31,6 +37,7 @@ const FALLBACK_REPORT: AgentDiscoveryReport = {
     label,
     detected: false,
     connected: false,
+    automatic: false,
     recommendedMode: mode,
     evidence: [],
     configPathHints: [],
@@ -99,6 +106,9 @@ export default function IntegrationView() {
   const [report, setReport] = useState<AgentDiscoveryReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [connectResult, setConnectResult] = useState<AgentConnectResult | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -124,6 +134,22 @@ export default function IntegrationView() {
     return [...report.agents].sort((a, b) => Number(b.detected) - Number(a.detected) || Number(b.connected) - Number(a.connected));
   }, [report]);
   const selected = report?.agents.find(agent => agent.id === selectedId) ?? null;
+
+  const connectSelected = async () => {
+    if (!selected || !selected.detected || !selected.automatic) return;
+    setConnectingId(selected.id);
+    setConnectResult(null);
+    setConnectError(null);
+    try {
+      const response = await connectAgentIntegration(selected.id);
+      setReport(response.report);
+      setConnectResult(response.result);
+    } catch (error) {
+      setConnectError(error instanceof Error ? error.message : (zh ? '自动接入失败' : 'Automatic connection failed'));
+    } finally {
+      setConnectingId(null);
+    }
+  };
 
   return (
     <div className="integration-view">
@@ -163,7 +189,16 @@ export default function IntegrationView() {
           <div className="section-kicker"><span>01</span>{zh ? '设备上的 Agent' : 'Agents on this device'}</div>
           <div className="agent-grid">
             {orderedAgents.map(agent => (
-              <AgentCard key={agent.id} agent={agent} selected={selected?.id === agent.id} onSelect={() => setSelectedId(agent.id)} />
+              <AgentCard
+                key={agent.id}
+                agent={agent}
+                selected={selected?.id === agent.id}
+                onSelect={() => {
+                  setSelectedId(agent.id);
+                  setConnectResult(null);
+                  setConnectError(null);
+                }}
+              />
             ))}
           </div>
         </section>
@@ -183,13 +218,57 @@ export default function IntegrationView() {
               <p className="config-path">
                 {selected.evidence[0] ?? selected.configPathHints[0] ?? (zh ? '在 Agent 的 MCP 设置中添加' : 'Add in the Agent MCP settings')}
               </p>
-              <div className="config-code-wrap">
-                <div className="config-code-toolbar"><Terminal size={13} /><span>keymemory.mcp.json</span><CopyButton text={selected.snippet} label={zh ? '复制配置' : 'Copy config'} /></div>
-                <pre>{selected.snippet}</pre>
+              <div className="auto-connect-card">
+                <div>
+                  <strong>{zh ? '自动接入并保留现有设置' : 'Connect automatically, preserve existing settings'}</strong>
+                  <span>
+                    {selected.recommendedMode === 'cli'
+                      ? (zh ? '写入持久指令，直接使用 KeyMemory CLI，无需配置 MCP。' : 'Adds persistent instructions and uses the KeyMemory CLI — no MCP setup required.')
+                      : (zh ? '自动合并 MCP 配置；修改前会备份已有文件。' : 'Merges the MCP configuration and backs up existing files first.')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="integration-connect-button"
+                  onClick={() => void connectSelected()}
+                  disabled={!selected.detected || !selected.automatic || connectingId === selected.id}
+                >
+                  {connectingId === selected.id ? <RefreshCw size={14} className="is-spinning" /> : <Zap size={14} />}
+                  {connectingId === selected.id
+                    ? (zh ? '正在接入…' : 'Connecting…')
+                    : selected.connected
+                      ? (zh ? '修复 / 重新应用' : 'Repair / reapply')
+                      : (zh ? '一键接入' : 'Connect in one click')}
+                </button>
               </div>
-              <ol className="integration-notes">
-                {selected.notes.slice(0, 3).map(note => <li key={note}>{note}</li>)}
-              </ol>
+
+              {connectResult && connectResult.agentId === selected.id && (
+                <div className="integration-connect-result is-success" role="status">
+                  <CheckCircle size={15} />
+                  <div>
+                    <strong>{connectResult.changed ? (zh ? '接入完成' : 'Connected') : (zh ? '配置已是最新' : 'Already up to date')}</strong>
+                    <span>{connectResult.files.join(' · ')}</span>
+                    {connectResult.backups.length > 0 && <small>{zh ? '备份：' : 'Backup: '}{connectResult.backups.join(' · ')}</small>}
+                    {connectResult.restartRequired && <small>{zh ? '请重启该 Agent 使 MCP 配置生效。' : 'Restart the Agent to activate the MCP connection.'}</small>}
+                  </div>
+                </div>
+              )}
+              {connectError && (
+                <div className="integration-connect-result is-error" role="alert">
+                  <span>{connectError}</span>
+                </div>
+              )}
+
+              <details className="manual-config-details">
+                <summary>{zh ? '手动配置 / 高级选项' : 'Manual configuration / advanced'}</summary>
+                <div className="config-code-wrap">
+                  <div className="config-code-toolbar"><Terminal size={13} /><span>keymemory.mcp.json</span><CopyButton text={selected.snippet} label={zh ? '复制配置' : 'Copy config'} /></div>
+                  <pre>{selected.snippet}</pre>
+                </div>
+                <ol className="integration-notes">
+                  {selected.notes.slice(0, 3).map(note => <li key={note}>{note}</li>)}
+                </ol>
+              </details>
             </>
           ) : <div className="integration-empty">{zh ? '选择一个 Agent 查看接入方式' : 'Select an agent to view setup'}</div>}
         </aside>

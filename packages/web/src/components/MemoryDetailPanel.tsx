@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Layer, Memory } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Archive, Close, Edit, Link, Tag, Trash } from './Icons';
+import { Archive, Close, Contract, Edit, Expand, Link, Tag, Trash } from './Icons';
 import MarkdownEditor from './MarkdownEditor';
 import MarkdownRenderer from './MarkdownRenderer';
 import MemoryQualityPanel from './MemoryQualityPanel';
@@ -40,12 +40,13 @@ export default function MemoryDetailPanel({
 }: MemoryDetailPanelProps) {
   const { language, t, layerLabel, layerHelp, memoryKindLabel } = useI18n();
   const [editing, setEditing] = useState(false);
-  const [showBody, setShowBody] = useState(false);
+  const [showBody, setShowBody] = useState(true);
+  const [isWide, setIsWide] = useState(true);
   const [related, setRelated] = useState<RelatedMemory[]>([]);
 
   useEffect(() => {
     setEditing(false);
-    setShowBody(false);
+    setShowBody(true);
     setRelated([]);
     if (!memory?.id) return;
     getRelatedMemories(memory.id).then(setRelated).catch(() => setRelated([]));
@@ -82,9 +83,8 @@ export default function MemoryDetailPanel({
   if (editing) {
     return (
       <aside
-        className="memory-detail-panel"
+        className={`memory-detail-panel memory-detail-editor${isWide ? ' is-wide' : ' is-compact'}`}
         style={{
-          width: 520,
           borderLeft: '1px solid var(--border)',
           background: 'var(--bg-primary)',
           display: 'flex',
@@ -116,9 +116,8 @@ export default function MemoryDetailPanel({
 
   return (
     <aside
-      className="memory-detail-panel"
+      className={`memory-detail-panel${isWide ? ' is-wide' : ' is-compact'}`}
       style={{
-        width: 420,
         borderLeft: '1px solid var(--border)',
         background: 'var(--bg-secondary)',
         display: 'flex',
@@ -126,15 +125,26 @@ export default function MemoryDetailPanel({
       }}
     >
       <div className="memory-detail-header flex items-center justify-between" style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 650 }}>{t('detail.title')}</div>
           <h2 className="memory-detail-title" style={{ margin: '3px 0 0', fontSize: 17, color: 'var(--text-primary)', lineHeight: 1.35 }}>
             {title}
           </h2>
         </div>
-        <button type="button" className="btn" onClick={onClose} aria-label={t('common.close')}>
-          <Close size={14} />
-        </button>
+        <div className="memory-detail-header-actions">
+          <button
+            type="button"
+            className="btn memory-detail-size-toggle"
+            onClick={() => setIsWide(value => !value)}
+            aria-label={isWide ? (language === 'zh' ? '收窄详情栏' : 'Use compact details') : (language === 'zh' ? '展开完整详情' : 'Expand full details')}
+            title={isWide ? (language === 'zh' ? '收窄详情栏' : 'Use compact details') : (language === 'zh' ? '展开完整详情' : 'Expand full details')}
+          >
+            {isWide ? <Contract size={14} /> : <Expand size={14} />}
+          </button>
+          <button type="button" className="btn" onClick={onClose} aria-label={t('common.close')}>
+            <Close size={14} />
+          </button>
+        </div>
       </div>
 
       <div className="memory-detail-scroll" style={{ overflowY: 'auto', padding: 18 }}>

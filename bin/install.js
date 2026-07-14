@@ -100,6 +100,7 @@ console.log('    \x1b[36mkeymemory dashboard\x1b[0m  一键启动 Web UI');
 console.log('    \x1b[36mkeymemory update\x1b[0m     更新 KeyMemory');
 console.log('    \x1b[36mkeymemory doctor\x1b[0m     诊断 MCP/Web UI 状态');
 console.log('    \x1b[36mpnpm install-memory\x1b[0m   重新扫描并接入本机 Agent');
+console.log('    \x1b[36mnode install-default-memory.js --all\x1b[0m  自动接入全部已检测 Agent');
 console.log('    \x1b[36mnode install-default-memory.js --prompt\x1b[0m  生成新 Agent 接入提示词');
 console.log('    \x1b[36mpnpm start:ui\x1b[0m        从项目目录启动');
 console.log('');

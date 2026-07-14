@@ -17,7 +17,7 @@ keymemory onboard --yes --run-dream --agent-target all
 
 `onboard` discovers old local memories, previews or applies migration, creates a safety backup before writes, runs dream consolidation when requested, and includes the same Agent config snippets in one response.
 
-The generator prints config snippets without writing files. This keeps setup safe for existing agent configs that may already contain other MCP servers.
+The `agent-config` generator still prints snippets without writing files. For a simpler path, open **Agent integrations** in the Web UI and choose **Connect in one click**. KeyMemory uses an allowlisted path for the selected detected Agent, merges only the KeyMemory fields, preserves existing MCP servers and rules, and creates a timestamped backup before changing an existing file. Invalid JSON is rejected and left unchanged.
 
 ## Targets
 
@@ -31,7 +31,7 @@ The generator prints config snippets without writing files. This keeps setup saf
 - `codex`: TOML snippet for Codex `~/.codex/config.toml`.
 - `opencode`: JSON MCP snippet with persistent KeyMemory permissions.
 
-`pnpm setup` runs the device scan automatically. Re-run `pnpm install-memory` at any time, or open **Agent integrations** in the Web UI to see detected and connected tools. To onboard a future Agent, run `node install-default-memory.js --prompt` and paste the result into that Agent.
+`pnpm setup` runs the device scan automatically. Re-run `node install-default-memory.js --all` to automatically configure every detected Agent, or open **Agent integrations** in the Web UI to connect one Agent at a time. Claude Code, Hermes, and Codex default to CLI mode, so they do not require MCP configuration; MCP-only hosts receive a merged local stdio configuration. To onboard a future Agent, run `node install-default-memory.js --prompt` and paste the result into that Agent.
 
 ## Automatic Memory Policy
 
@@ -42,6 +42,14 @@ Every generated instruction set makes KeyMemory the primary durable memory tool 
 3. Experience: pitfalls, failed approaches and causes, successful approaches, constraints, and reusable procedures.
 
 Corrections create a new fact and use `keymemory_supersede` to close the old fact's validity window without deleting history. Generated rules also forbid normal memory from storing credentials and require `agent_space` boundaries to be respected.
+
+The prompt also gives the Agent an explicit operating sequence:
+
+1. Recall with `keymemory_context_pack` or `keymemory_search` before planning; use `keymemory_read` when exact content matters.
+2. Write or update at meaningful milestones, using a structured body for profile, task-state, or experience memories.
+3. Reuse the active task-state memory instead of creating duplicates, and keep returned IDs for later updates or supersession.
+4. Skip raw transcripts, disposable chatter, unverified guesses, duplicate facts, and secrets.
+5. Verify the configured transport and perform a non-destructive recall check before reporting success.
 
 ## Native Memory Permissions
 
@@ -62,13 +70,13 @@ The launcher checks build output, writes logs to `~/.keymemory/logs/mcp.log`, an
 
 ## Safe Install Flow
 
-1. Run `keymemory onboard` for a dry-run preview.
-2. Run `keymemory onboard --yes --run-dream --agent-target <target>` when the preview looks right.
-3. Or run `keymemory agent-config <target>` if you only need config snippets.
-4. Merge the printed snippet into the host agent config.
-5. Restart the host agent.
-6. Run `keymemory doctor`.
-7. Ask the agent to call `keymemory_context_pack` before project work and `keymemory_auto_remember` after important exchanges.
+1. Open **Agent integrations**, select a detected Agent, and click **Connect in one click**. The button itself authorizes the allowlisted local config change.
+2. Review the changed files and backup paths reported by the UI. Restart MCP-based hosts when requested; CLI-based hosts can use KeyMemory immediately.
+3. Run `keymemory doctor` and ask the Agent for a non-destructive context/search query.
+4. Use **Manual configuration / advanced** or `keymemory agent-config <target>` only when an Agent version stores configuration at a nonstandard path.
+5. For batch setup, run `node install-default-memory.js --all`; for a future unknown Agent, run `node install-default-memory.js --prompt`.
+
+The automatic endpoint requires an explicit `confirm=true`, accepts only detected allowlisted Agent IDs, never accepts an arbitrary destination path, and refuses to replace malformed host JSON.
 
 For host configs that support tool permissions, keep the KeyMemory allow pattern in place. KeyMemory only writes to the local durable memory store, so native memory reads and writes should not ask for approval in every new agent window.
 

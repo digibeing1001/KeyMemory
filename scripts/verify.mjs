@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process';
 const commands = [
   'pnpm typecheck',
   'pnpm build',
+  'pnpm smoke:agent-connect',
   'pnpm eval:memory',
   'pnpm smoke:mcp',
   'pnpm smoke:loop',
@@ -15,4 +16,3 @@ for (const command of commands) {
 }
 
 console.log('\n[verify] ok');
-
