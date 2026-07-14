@@ -228,6 +228,12 @@ const toolSecretNameSchema = {
 
 const BASE_MCP_TOOLS: MCPTool[] = [
   {
+    name: 'memory_connection_status',
+    description: 'Verify that this Agent can actually call the live KeyMemory MCP server. This is a read-only connectivity receipt and does not create test memories.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, idempotentHint: true },
+  },
+  {
     name: 'memory_create',
     description: 'Create a durable memory in KeyMemory. Use this instead of local Memory, MEMORY.md, AGENTS.md, or flat-file memory stores.',
     inputSchema: memoryCreateSchema,
@@ -636,6 +642,7 @@ function aliasTool(name: string, canonicalName: string, description: string): MC
 
 export const KEYMEMORY_ALIAS_TOOLS: MCPTool[] = [
   aliasTool('keymemory', 'memory_create', 'KeyMemory default memory tool: save a durable memory instead of writing local Memory files.'),
+  aliasTool('keymemory_connection_status', 'memory_connection_status', 'KeyMemory: return a read-only receipt proving that the live MCP connection is available.'),
   aliasTool('keymemory_create', 'memory_create', 'KeyMemory: save a durable memory. Use for remember, keep this, save this, or update my memory requests instead of local Memory files.'),
   aliasTool('keymemory_search', 'memory_search', 'KeyMemory: search durable memories. Use for recall, what do you remember, preferences, prior decisions, and project context.'),
   aliasTool('keymemory_context_pack', 'memory_context_pack', 'KeyMemory: build a compact context pack before long-running work.'),
@@ -652,6 +659,7 @@ export const KEYMEMORY_ALIAS_TOOLS: MCPTool[] = [
 
 export const MCP_TOOL_ALIASES: Record<string, string> = {
   keymemory: 'memory_create',
+  keymemory_connection_status: 'memory_connection_status',
   keymemory_create: 'memory_create',
   save_memory: 'memory_create',
   remember: 'memory_create',
@@ -686,6 +694,7 @@ export function canonicalToolName(name: unknown): string {
 }
 
 const READ_ONLY_TOOL_NAMES = new Set([
+  'memory_connection_status',
   'memory_search',
   'memory_read',
   'memory_list',

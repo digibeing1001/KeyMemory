@@ -221,3 +221,7 @@ export const Expand: FC<IconProps> = (p) => (
 export const Contract: FC<IconProps> = (p) => (
   <I {...p}><path d="M7 3v4H3M13 3v4h4M17 13h-4v4M3 13h4v4" /><path d="M7 7L3 3M13 7l4-4M13 13l4 4M7 13l-4 4" /></I>
 );
+
+export const BookOpen: FC<IconProps> = (p) => (
+  <I {...p}><path d="M2.5 4.5A3.5 3.5 0 016 3h4v14H6a3.5 3.5 0 00-3.5 1.5v-14z" /><path d="M17.5 4.5A3.5 3.5 0 0014 3h-4v14h4a3.5 3.5 0 013.5 1.5v-14z" /></I>
+);

@@ -656,7 +656,7 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.post('/api/integrations/:agentId/connect', async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
-    const { confirm } = (request.body ?? {}) as { confirm?: boolean };
+    const { confirm, mode } = (request.body ?? {}) as { confirm?: boolean; mode?: 'auto' | 'mcp' | 'cli' | 'skill' };
     if (confirm !== true) {
       reply.code(400);
       return { error: 'confirm=true is required before changing an Agent configuration.' };
@@ -668,13 +668,8 @@ export function registerRoutes(app: FastifyInstance): void {
       reply.code(404);
       return { error: `Unsupported Agent integration: ${agentId}` };
     }
-    if (!agent.detected) {
-      reply.code(409);
-      return { error: `${agent.label} was not detected on this device.` };
-    }
-
     try {
-      const result = connectAgentIntegration(agent.id, { projectRoot: before.projectRoot });
+      const result = connectAgentIntegration(agent.id, { projectRoot: before.projectRoot, mode });
       return { result, report: discoverAgentIntegrations() };
     } catch (error) {
       reply.code(400);

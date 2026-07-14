@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import {
   buildAgentConfigSnippet,
+  buildKeyMemorySkill,
   buildMemoryOperatingRules,
   buildUniversalOnboardingPrompt,
   resolveProjectRoot,
@@ -15,7 +16,8 @@ export interface AgentIntegrationStatus {
   detected: boolean;
   connected: boolean;
   automatic: boolean;
-  recommendedMode: 'cli' | 'mcp';
+  recommendedMode: AgentConnectMode;
+  availableModes: AgentConnectMode[];
   evidence: string[];
   configPathHints: string[];
   snippet: string;
@@ -25,7 +27,7 @@ export interface AgentIntegrationStatus {
 export interface AgentConnectResult {
   success: boolean;
   agentId: AgentIntegrationStatus['id'];
-  mode: 'cli' | 'mcp';
+  mode: AgentConnectMode;
   changed: boolean;
   files: string[];
   backups: string[];
@@ -38,7 +40,10 @@ export interface AgentConnectOptions {
   homeDir?: string;
   appDataDir?: string;
   localAppDataDir?: string;
+  mode?: AgentConnectMode | 'auto';
 }
+
+export type AgentConnectMode = 'cli' | 'mcp' | 'skill';
 
 export interface AgentDiscoveryReport {
   scannedAt: string;
@@ -53,7 +58,7 @@ export interface AgentDiscoveryReport {
 interface DetectionSpec {
   id: AgentIntegrationStatus['id'];
   label: string;
-  recommendedMode: 'cli' | 'mcp';
+  recommendedMode: AgentConnectMode;
   installMarkers: string[];
   connectionFiles: string[];
 }
@@ -72,6 +77,26 @@ function localAppDataPath(...parts: string[]): string {
   if (process.platform === 'win32') return path.join(process.env.LOCALAPPDATA ?? homePath('AppData', 'Local'), ...parts);
   if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', ...parts);
   return path.join(process.env.XDG_CONFIG_HOME ?? homePath('.local', 'share'), ...parts);
+}
+
+function windowsHostHome(): string | undefined {
+  if (process.platform !== 'linux') return undefined;
+  const candidate = process.env.KEYMEMORY_WINDOWS_HOME ?? path.join('/mnt/c/Users', path.basename(os.homedir()));
+  return exists(candidate) ? candidate : undefined;
+}
+
+function hostHomePaths(...parts: string[]): string[] {
+  const paths = [homePath(...parts)];
+  const windowsHome = windowsHostHome();
+  if (windowsHome) paths.push(path.join(windowsHome, ...parts));
+  return paths;
+}
+
+function hostAppDataPaths(kind: 'roaming' | 'local', ...parts: string[]): string[] {
+  const paths = [kind === 'roaming' ? appDataPath(...parts) : localAppDataPath(...parts)];
+  const windowsHome = windowsHostHome();
+  if (windowsHome) paths.push(path.join(windowsHome, 'AppData', kind === 'roaming' ? 'Roaming' : 'Local', ...parts));
+  return paths;
 }
 
 function exists(candidate: string): boolean {
@@ -95,23 +120,48 @@ function mentionsKeyMemory(filePath: string): boolean {
 function connectPaths(target: AgentIntegrationStatus['id'], options: AgentConnectOptions = {}): {
   configPath?: string;
   instructionsPath?: string;
+  skillPath?: string;
 } {
-  const home = options.homeDir ?? os.homedir();
+  const runtimeHome = options.homeDir ?? os.homedir();
+  const windowsHostHome = !options.homeDir && process.platform === 'linux'
+    ? process.env.KEYMEMORY_WINDOWS_HOME ?? path.join('/mnt/c/Users', path.basename(runtimeHome))
+    : undefined;
+  const windowsCentric = new Set<AgentIntegrationStatus['id']>(['claude-desktop', 'claude-code', 'workbuddy', 'trae', 'codex']);
+  const hasWindowsHost = Boolean(windowsHostHome && exists(windowsHostHome));
+  const installDirectory: Partial<Record<AgentIntegrationStatus['id'], string>> = {
+    'claude-code': '.claude',
+    workbuddy: '.workbuddy',
+    trae: '.trae',
+    codex: '.codex',
+  };
+  const marker = installDirectory[target];
+  const runtimeInstallExists = Boolean(marker && exists(path.join(runtimeHome, marker)));
+  const windowsInstallExists = Boolean(marker && windowsHostHome && exists(path.join(windowsHostHome, marker)));
+  const useWindowsHost = hasWindowsHost && windowsCentric.has(target)
+    && (target === 'claude-desktop' || windowsInstallExists || !runtimeInstallExists);
+  const home = useWindowsHost ? windowsHostHome! : runtimeHome;
   const appData = options.appDataDir ?? (process.platform === 'win32'
     ? process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming')
     : process.platform === 'darwin'
       ? path.join(home, 'Library', 'Application Support')
-      : process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'));
+      : hasWindowsHost && home === windowsHostHome
+        ? path.join(home, 'AppData', 'Roaming')
+        : process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'));
   const localAppData = options.localAppDataDir ?? (process.platform === 'win32'
     ? process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local')
-    : appData);
+    : hasWindowsHost && home === windowsHostHome
+      ? path.join(home, 'AppData', 'Local')
+      : appData);
   const firstExisting = (items: string[], fallback: string): string => items.find(exists) ?? fallback;
 
   switch (target) {
     case 'claude-desktop':
       return { configPath: path.join(appData, 'Claude', 'claude_desktop_config.json') };
     case 'claude-code':
-      return { instructionsPath: path.join(home, '.claude', 'CLAUDE.md') };
+      return {
+        instructionsPath: path.join(home, '.claude', 'CLAUDE.md'),
+        skillPath: path.join(home, '.claude', 'skills', 'keymemory', 'SKILL.md'),
+      };
     case 'workbuddy':
       return {
         configPath: firstExisting([
@@ -119,6 +169,7 @@ function connectPaths(target: AgentIntegrationStatus['id'], options: AgentConnec
           path.join(home, '.workbuddy', 'mcp.json'),
         ], path.join(home, '.workbuddy', 'connectors', 'default', 'mcp.json')),
         instructionsPath: path.join(home, '.workbuddy', 'KEYMEMORY_INSTRUCTIONS.md'),
+        skillPath: path.join(home, '.agents', 'skills', 'keymemory', 'SKILL.md'),
       };
     case 'trae':
       return {
@@ -129,9 +180,13 @@ function connectPaths(target: AgentIntegrationStatus['id'], options: AgentConnec
           path.join(localAppData, 'Trae', 'User', 'settings.json'),
         ], path.join(home, '.trae', 'mcp.json')),
         instructionsPath: path.join(home, '.trae', 'KEYMEMORY_INSTRUCTIONS.md'),
+        skillPath: path.join(home, '.agents', 'skills', 'keymemory', 'SKILL.md'),
       };
     case 'hermes':
-      return { instructionsPath: path.join(home, '.hermes', 'CLAUDE.md') };
+      return {
+        instructionsPath: path.join(home, '.hermes', 'CLAUDE.md'),
+        skillPath: path.join(home, '.hermes', 'skills', 'keymemory', 'SKILL.md'),
+      };
     case 'openclaw':
       return {
         configPath: firstExisting([
@@ -140,9 +195,13 @@ function connectPaths(target: AgentIntegrationStatus['id'], options: AgentConnec
           path.join(home, '.config', 'openclaw', 'config.json'),
         ], path.join(home, '.openclaw', 'openclaw.json')),
         instructionsPath: path.join(home, '.openclaw', 'MEMORY_INSTRUCTIONS.md'),
+        skillPath: path.join(home, '.openclaw', 'skills', 'keymemory', 'SKILL.md'),
       };
     case 'codex':
-      return { instructionsPath: path.join(home, '.codex', 'instructions.md') };
+      return {
+        instructionsPath: path.join(home, '.codex', 'instructions.md'),
+        skillPath: path.join(home, '.codex', 'skills', 'keymemory', 'SKILL.md'),
+      };
     case 'opencode':
       return {
         configPath: firstExisting([
@@ -150,6 +209,7 @@ function connectPaths(target: AgentIntegrationStatus['id'], options: AgentConnec
           path.join(home, '.config', 'opencode', 'config.json'),
         ], path.join(home, '.opencode', 'config.json')),
         instructionsPath: path.join(home, '.opencode', 'KEYMEMORY_INSTRUCTIONS.md'),
+        skillPath: path.join(home, '.config', 'opencode', 'skills', 'keymemory', 'SKILL.md'),
       };
   }
 }
@@ -192,6 +252,34 @@ function upsertManagedInstructions(before: string, rules: string): string {
   return `${before.trimEnd()}${before.trim() ? '\n\n' : ''}${block}\n`;
 }
 
+function quoteBash(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function bridgeWindowsMcpConfig(addition: unknown, configPath: string, projectRoot: string): unknown {
+  if (process.platform !== 'linux' || !configPath.startsWith('/mnt/')) return addition;
+  if (!addition || typeof addition !== 'object' || Array.isArray(addition)) return addition;
+  const output = structuredClone(addition) as Record<string, any>;
+  const server = output.mcpServers?.keymemory;
+  if (server && typeof server === 'object') {
+    server.command = 'wsl.exe';
+    server.args = ['-e', 'bash', '-lc', `node ${quoteBash(path.join(projectRoot, 'bin', 'keymemory-mcp.js'))}`];
+  }
+  return output;
+}
+
+function availableModes(target: AgentIntegrationStatus['id']): AgentConnectMode[] {
+  return target === 'claude-desktop' ? ['mcp'] : ['mcp', 'cli', 'skill'];
+}
+
+function resolveConnectMode(target: AgentIntegrationStatus['id'], requested?: AgentConnectMode | 'auto'): AgentConnectMode {
+  const modes = availableModes(target);
+  const fallback: AgentConnectMode = target === 'claude-code' || target === 'hermes' || target === 'codex' ? 'cli' : 'mcp';
+  const mode = !requested || requested === 'auto' ? fallback : requested;
+  if (!modes.includes(mode)) throw new Error(`${target} does not support the ${mode} integration mode.`);
+  return mode;
+}
+
 export function connectAgentIntegration(
   target: AgentIntegrationStatus['id'],
   options: AgentConnectOptions = {},
@@ -199,14 +287,14 @@ export function connectAgentIntegration(
   if (!specs().some(spec => spec.id === target)) throw new Error(`Unsupported Agent integration: ${target}`);
 
   const projectRoot = resolveProjectRoot(options.projectRoot);
-  const mode = target === 'claude-code' || target === 'hermes' || target === 'codex' ? 'cli' : 'mcp';
-  const snippet = buildAgentConfigSnippet(target, mode, projectRoot);
+  const mode = resolveConnectMode(target, options.mode);
+  const snippet = buildAgentConfigSnippet(target, mode === 'skill' ? 'cli' : mode, projectRoot);
   const paths = connectPaths(target, options);
   const files: string[] = [];
   const backups: string[] = [];
   let changed = false;
 
-  if (paths.configPath) {
+  if (mode === 'mcp' && paths.configPath) {
     let current: unknown = {};
     if (exists(paths.configPath)) {
       try {
@@ -217,7 +305,7 @@ export function connectAgentIntegration(
     }
     let addition: unknown;
     try {
-      addition = JSON.parse(snippet.snippet);
+      addition = bridgeWindowsMcpConfig(JSON.parse(snippet.snippet), paths.configPath, projectRoot);
     } catch {
       throw new Error(`The generated ${target} configuration is not valid JSON.`);
     }
@@ -230,9 +318,21 @@ export function connectAgentIntegration(
 
   if (paths.instructionsPath) {
     const before = exists(paths.instructionsPath) ? fs.readFileSync(paths.instructionsPath, 'utf8') : '';
-    const rules = mode === 'cli' ? snippet.snippet : buildMemoryOperatingRules('mcp');
+    const rules = mode === 'skill'
+      ? `# KeyMemory 规则包\n\n每次开始任务前读取并遵守 \`${paths.skillPath}\`。如果当前 Agent 支持规则包自动发现，则加载 \`keymemory\`；即使自动发现不可用，也必须遵守下方完整规则。\n\n${buildMemoryOperatingRules('mcp')}`
+      : mode === 'cli'
+        ? snippet.snippet
+        : buildMemoryOperatingRules('mcp');
     const written = backupAndWrite(paths.instructionsPath, upsertManagedInstructions(before, rules));
     files.push(paths.instructionsPath);
+    if (written.backup) backups.push(written.backup);
+    changed ||= written.changed;
+  }
+
+  if (mode === 'skill') {
+    if (!paths.skillPath) throw new Error(`${target} does not have a supported Skill installation path.`);
+    const written = backupAndWrite(paths.skillPath, buildKeyMemorySkill());
+    files.push(paths.skillPath);
     if (written.backup) backups.push(written.backup);
     changed ||= written.changed;
   }
@@ -244,7 +344,7 @@ export function connectAgentIntegration(
     changed,
     files,
     backups,
-    restartRequired: mode === 'mcp',
+    restartRequired: mode === 'mcp' || mode === 'skill',
     message: changed
       ? `KeyMemory was connected to ${snippet.label}. Existing settings were preserved.`
       : `${snippet.label} already has the current KeyMemory configuration.`,
@@ -257,37 +357,46 @@ function specs(): DetectionSpec[] {
       id: 'claude-desktop',
       label: 'Claude Desktop',
       recommendedMode: 'mcp',
-      installMarkers: [appDataPath('Claude'), appDataPath('Claude', 'claude_desktop_config.json')],
-      connectionFiles: [appDataPath('Claude', 'claude_desktop_config.json')],
+      installMarkers: [...hostAppDataPaths('roaming', 'Claude'), ...hostAppDataPaths('roaming', 'Claude', 'claude_desktop_config.json')],
+      connectionFiles: hostAppDataPaths('roaming', 'Claude', 'claude_desktop_config.json'),
     },
     {
       id: 'claude-code',
       label: 'Claude Code',
       recommendedMode: 'cli',
-      installMarkers: [homePath('.claude')],
-      connectionFiles: [homePath('.claude', 'settings.json'), homePath('.claude', 'CLAUDE.md'), homePath('CLAUDE.md')],
+      installMarkers: hostHomePaths('.claude'),
+      connectionFiles: [
+        ...hostHomePaths('.claude', 'settings.json'),
+        ...hostHomePaths('.claude', 'CLAUDE.md'),
+        ...hostHomePaths('.claude', 'skills', 'keymemory', 'SKILL.md'),
+        ...hostHomePaths('CLAUDE.md'),
+      ],
     },
     {
       id: 'workbuddy',
       label: 'WorkBuddy',
       recommendedMode: 'mcp',
-      installMarkers: [homePath('.workbuddy'), localAppDataPath('WorkBuddy'), appDataPath('WorkBuddy')],
+      installMarkers: [...hostHomePaths('.workbuddy'), ...hostAppDataPaths('local', 'WorkBuddy'), ...hostAppDataPaths('roaming', 'WorkBuddy')],
       connectionFiles: [
-        homePath('.workbuddy', 'connectors', 'default', 'mcp.json'),
-        homePath('.workbuddy', 'mcp.json'),
-        homePath('.workbuddy', 'settings.json'),
+        ...hostHomePaths('.workbuddy', 'connectors', 'default', 'mcp.json'),
+        ...hostHomePaths('.workbuddy', 'mcp.json'),
+        ...hostHomePaths('.workbuddy', 'settings.json'),
+        ...hostHomePaths('.workbuddy', 'KEYMEMORY_INSTRUCTIONS.md'),
+        ...hostHomePaths('.agents', 'skills', 'keymemory', 'SKILL.md'),
       ],
     },
     {
       id: 'trae',
       label: 'TRAE / TRAE Work',
       recommendedMode: 'mcp',
-      installMarkers: [homePath('.trae'), appDataPath('Trae'), appDataPath('Trae CN'), localAppDataPath('Trae')],
+      installMarkers: [...hostHomePaths('.trae'), ...hostAppDataPaths('roaming', 'Trae'), ...hostAppDataPaths('roaming', 'Trae CN'), ...hostAppDataPaths('local', 'Trae')],
       connectionFiles: [
-        homePath('.trae', 'mcp.json'),
-        homePath('.trae', 'agent.json'),
-        appDataPath('Trae', 'User', 'settings.json'),
-        appDataPath('Trae CN', 'User', 'settings.json'),
+        ...hostHomePaths('.trae', 'mcp.json'),
+        ...hostHomePaths('.trae', 'agent.json'),
+        ...hostHomePaths('.trae', 'KEYMEMORY_INSTRUCTIONS.md'),
+        ...hostHomePaths('.agents', 'skills', 'keymemory', 'SKILL.md'),
+        ...hostAppDataPaths('roaming', 'Trae', 'User', 'settings.json'),
+        ...hostAppDataPaths('roaming', 'Trae CN', 'User', 'settings.json'),
       ],
     },
     {
@@ -298,6 +407,7 @@ function specs(): DetectionSpec[] {
       connectionFiles: [
         homePath('.hermes', 'config.yaml'),
         homePath('.hermes', 'CLAUDE.md'),
+        homePath('.hermes', 'skills', 'keymemory', 'SKILL.md'),
         localAppDataPath('hermes', 'config.yaml'),
         appDataPath('hermes', 'config.yaml'),
       ],
@@ -311,6 +421,7 @@ function specs(): DetectionSpec[] {
         homePath('.openclaw', 'openclaw.json'),
         homePath('.openclaw', 'config.json'),
         homePath('.openclaw', 'MEMORY_INSTRUCTIONS.md'),
+        homePath('.openclaw', 'skills', 'keymemory', 'SKILL.md'),
         homePath('.config', 'openclaw', 'config.json'),
       ],
     },
@@ -318,15 +429,23 @@ function specs(): DetectionSpec[] {
       id: 'codex',
       label: 'Codex',
       recommendedMode: 'cli',
-      installMarkers: [homePath('.codex')],
-      connectionFiles: [homePath('.codex', 'config.toml'), homePath('.codex', 'instructions.md')],
+      installMarkers: hostHomePaths('.codex'),
+      connectionFiles: [
+        ...hostHomePaths('.codex', 'config.toml'),
+        ...hostHomePaths('.codex', 'instructions.md'),
+        ...hostHomePaths('.codex', 'skills', 'keymemory', 'SKILL.md'),
+      ],
     },
     {
       id: 'opencode',
       label: 'OpenCode',
       recommendedMode: 'mcp',
       installMarkers: [homePath('.opencode'), homePath('.config', 'opencode')],
-      connectionFiles: [homePath('.opencode', 'config.json'), homePath('.config', 'opencode', 'config.json')],
+      connectionFiles: [
+        homePath('.opencode', 'config.json'),
+        homePath('.config', 'opencode', 'config.json'),
+        homePath('.config', 'opencode', 'skills', 'keymemory', 'SKILL.md'),
+      ],
     },
   ];
 }
@@ -336,7 +455,7 @@ export function discoverAgentIntegrations(root?: string): AgentDiscoveryReport {
   const agents = specs().map((spec): AgentIntegrationStatus => {
     const evidence = [...spec.installMarkers, ...spec.connectionFiles]
       .filter((candidate, index, items) => items.indexOf(candidate) === index && exists(candidate));
-    const snippet = buildAgentConfigSnippet(spec.id, spec.recommendedMode, projectRoot);
+    const snippet = buildAgentConfigSnippet(spec.id, spec.recommendedMode === 'skill' ? 'cli' : spec.recommendedMode, projectRoot);
     return {
       id: spec.id,
       label: spec.label,
@@ -344,6 +463,7 @@ export function discoverAgentIntegrations(root?: string): AgentDiscoveryReport {
       connected: spec.connectionFiles.some(mentionsKeyMemory),
       automatic: true,
       recommendedMode: spec.recommendedMode,
+      availableModes: availableModes(spec.id),
       evidence,
       configPathHints: snippet.configPathHints,
       snippet: snippet.snippet,

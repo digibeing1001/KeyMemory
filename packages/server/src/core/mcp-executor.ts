@@ -280,6 +280,26 @@ export async function executeMcpTool(
 
   try {
     switch (toolName) {
+      case 'memory_connection_status': {
+        const receipt = {
+          status: 'connected',
+          service: 'KeyMemory',
+          transport: 'mcp',
+          checkedAt: new Date().toISOString(),
+          agentSpaces: adapter.getAgentSpaces?.() ?? [],
+          capabilities: {
+            read: true,
+            write: true,
+            context: true,
+            supersession: true,
+            secrets: true,
+          },
+        };
+        return agentText
+          ? { content: [{ type: 'text', text: JSON.stringify(receipt, null, 2) }], structuredContent: { receipt } }
+          : ok(receipt);
+      }
+
       case 'memory_create': {
         const memory = await writeMemory(adapter, buildCreateInput(args));
         return agentText

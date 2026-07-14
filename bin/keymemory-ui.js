@@ -112,6 +112,26 @@ if (!fs.existsSync(WEB_DIST)) {
 }
 
 const PORT = 3210;
+const SHOULD_OPEN = process.argv.includes('--open');
+const SHOW_ONBOARDING = process.argv.includes('--onboarding');
+
+function openBrowser(url) {
+  try {
+    let child;
+    if (IS_WINDOWS_NODE) {
+      child = spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true });
+    } else if (WSL && fs.existsSync('/mnt/c/Windows/System32/cmd.exe')) {
+      child = spawn('/mnt/c/Windows/System32/cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' });
+    } else if (process.platform === 'darwin') {
+      child = spawn('open', [url], { detached: true, stdio: 'ignore' });
+    } else {
+      child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+    }
+    child.unref();
+  } catch {
+    console.log('  \x1b[33m⚠ 无法自动打开浏览器，请手动访问: ' + url + '\x1b[0m');
+  }
+}
 
 function getWSLIP() {
   try {
@@ -178,6 +198,7 @@ const serverProc = spawn(NODE_BIN, [SERVER_ENTRY], {
 console.log('  \x1b[2m⏳ 启动服务...\x1b[0m');
 
 let started = false;
+let browserOpened = false;
 const checkInterval = setInterval(() => {
   const req = http.get(`http://127.0.0.1:${PORT}/api/health/report`, (res) => {
     if (res.statusCode === 200 && !started) {
@@ -190,6 +211,10 @@ const checkInterval = setInterval(() => {
         console.log('  \x1b[1mWeb UI:\x1b[0m    http://127.0.0.1:' + PORT);
         if (WSL && wslIp) {
           console.log('            http://' + wslIp + ':' + PORT + ' \x1b[2m(WSL2 直连)\x1b[0m');
+        }
+        if (SHOULD_OPEN && !browserOpened) {
+          browserOpened = true;
+          openBrowser(`http://127.0.0.1:${PORT}${SHOW_ONBOARDING ? '/?onboarding=1' : ''}`);
         }
       }
       console.log('  \x1b[1mAPI:\x1b[0m       http://127.0.0.1:' + PORT + '/api/health/report');

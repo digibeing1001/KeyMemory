@@ -4,6 +4,7 @@ import {
   connectAgentIntegration,
   discoverAgentIntegrations,
   type AgentConnectResult,
+  type AgentConnectMode,
   type AgentDiscoveryReport,
   type AgentIntegrationStatus,
 } from '../lib/api';
@@ -27,6 +28,31 @@ const FALLBACK_AGENTS = [
   ['codex', 'Codex', 'cli'], ['opencode', 'OpenCode', 'mcp'],
 ] as const;
 
+const FALLBACK_ONBOARDING_PROMPT = `# 请把当前 Agent 接入 KeyMemory
+
+请把 KeyMemory 设置为默认、唯一的长期记忆。先自行检查能否使用 KeyMemory 工具、keymemory 命令或本机 KeyMemory 服务；选择可用方式完成连接，不要另建 MEMORY.md 或其他平行记忆文件。
+
+## 必须写入的数据
+
+1. 工作过程与经验：目标、方案、关键步骤、决策、工具、交付位置、验证结果；遇到的错误、失败办法、踩坑现象、根因和避免方式；已经验证成功的做法、成功条件和可复用流程。
+2. 用户画像：用户关注、喜欢、重视、不喜欢和禁止的内容；沟通风格、输出偏好、常用工具、工作习惯、生活习惯、反复出现的选择，以及用户的纠正、批评和认可。
+3. 最近事项：用户近期正在工作、学习、研究、计划、等待或尚未完成的所有事情；记录目标、状态、已完成、交付位置、待办、阻塞、下一步和验收标准，并在状态变化时更新原记录。
+
+## 数据处理规则
+
+- 新任务开始前先搜索用户偏好、最近事项、历史决策、踩坑和成功经验；被截断时读取完整正文。
+- 写入前先搜索是否已有同一条记录；已有内容用更新，不制造重复项。
+- 用户纠正旧内容时，保存正确版本并让旧版本失效，但保留历史来源。
+- 工作过程压缩为结构化事实，不保存寒暄、无意义闲聊、原始逐字对话、内部思维过程、未经证实的猜测或重复内容。
+- 密码、令牌、私钥和密钥不得写入普通记忆。
+- 每次发现偏好、任务状态变化、踩坑结论、成功经验、交付物或会话交接时立即写入。
+
+## 接入验收
+
+配置完成后，必须调用 keymemory_connection_status；返回 status: connected 才表示实际连通。再执行一次只读搜索，确认返回 KeyMemory 的结构化结果。不要创建垃圾测试记忆。等出现第一个真实工作节点时，写入任务状态并重新搜索到它，才算写入验证通过。
+
+最后报告：连接方式、修改文件、备份位置、是否要重启，以及“配置检测、读取验证、写入验证”三项结果。任何一项未通过都不能说已经接入成功。`;
+
 const FALLBACK_REPORT: AgentDiscoveryReport = {
   scannedAt: '',
   projectRoot: '',
@@ -37,15 +63,16 @@ const FALLBACK_REPORT: AgentDiscoveryReport = {
     label,
     detected: false,
     connected: false,
-    automatic: false,
+    automatic: true,
     recommendedMode: mode,
+    availableModes: id === 'claude-desktop' ? ['mcp'] : ['mcp', 'cli', 'skill'],
     evidence: [],
     configPathHints: [],
     snippet: JSON.stringify({ mcpServers: { keymemory: { command: 'node', args: ['<KEYMEMORY_ROOT>/bin/keymemory-mcp.js'] } } }, null, 2),
-    notes: ['Start the current KeyMemory server and rescan to get an installation-specific path.', 'Merge this server into the Agent MCP settings without replacing existing entries.'],
+    notes: ['当前后台服务需要重启后才能执行自动接入。', '重启后页面会自动获取本机安装路径并保留现有设置。'],
   })),
   operatingRules: '',
-  onboardingPrompt: 'Ask this Agent to connect a local stdio MCP server named keymemory, verify the tools, and make KeyMemory its default durable memory system. Run `node install-default-memory.js --prompt` for the installation-specific version.',
+  onboardingPrompt: FALLBACK_ONBOARDING_PROMPT,
 };
 
 function CopyButton({ text, label }: { text: string; label: string }) {
@@ -87,13 +114,13 @@ function AgentCard({ agent, selected, onSelect }: { agent: AgentIntegrationStatu
   return (
     <button
       type="button"
-      className={`agent-integration-card${selected ? ' is-selected' : ''}${!agent.detected ? ' is-dormant' : ''}`}
+      className={`agent-integration-card${selected ? ' is-selected' : ''}${!agent.detected ? ' is-undetected' : ''}`}
       onClick={onSelect}
     >
       <span className="agent-mark" aria-hidden="true">{AGENT_MARKS[agent.id] ?? 'AI'}</span>
       <span className="agent-card-copy">
         <strong>{agent.label}</strong>
-        <span>{agent.connected ? 'KeyMemory online' : agent.detected ? 'Ready to connect' : 'Not detected'}</span>
+        <span>{agent.connected ? 'KeyMemory online' : agent.detected ? 'Ready to connect' : 'Can connect manually'}</span>
       </span>
       <span className={`agent-status-dot ${agent.connected ? 'is-online' : agent.detected ? 'is-ready' : ''}`} />
     </button>
@@ -109,18 +136,22 @@ export default function IntegrationView() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectResult, setConnectResult] = useState<AgentConnectResult | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = useState<AgentConnectMode | 'auto'>('auto');
+  const [serviceNeedsRestart, setServiceNeedsRestart] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       const next = await discoverAgentIntegrations();
       setReport(next);
+      setServiceNeedsRestart(false);
       const preferred = next.agents.find(agent => agent.detected && !agent.connected)
         ?? next.agents.find(agent => agent.detected)
         ?? next.agents[0];
       setSelectedId(current => current ?? preferred?.id ?? null);
     } catch {
       setReport(FALLBACK_REPORT);
+      setServiceNeedsRestart(true);
       setSelectedId(current => current ?? FALLBACK_REPORT.agents[0]?.id ?? null);
     } finally {
       setLoading(false);
@@ -136,12 +167,19 @@ export default function IntegrationView() {
   const selected = report?.agents.find(agent => agent.id === selectedId) ?? null;
 
   const connectSelected = async () => {
-    if (!selected || !selected.detected || !selected.automatic) return;
+    if (!selected || !selected.automatic) return;
     setConnectingId(selected.id);
     setConnectResult(null);
     setConnectError(null);
+    if (serviceNeedsRestart) {
+      setConnectError(zh
+        ? '当前后台服务仍是旧版本。请重启 KeyMemory，然后点击“检测接入状态”；重启后本按钮会直接完成配置。'
+        : 'The running KeyMemory service is outdated. Restart it, then check the connection again.');
+      setConnectingId(null);
+      return;
+    }
     try {
-      const response = await connectAgentIntegration(selected.id);
+      const response = await connectAgentIntegration(selected.id, selectedMode);
       setReport(response.report);
       setConnectResult(response.result);
     } catch (error) {
@@ -180,9 +218,16 @@ export default function IntegrationView() {
         <div><span>{zh ? '记忆策略' : 'Memory policy'}</span><strong>3</strong><small>CAPTURE GROUPS</small></div>
         <button type="button" className="integration-rescan" onClick={() => void load()} disabled={loading}>
           <RefreshCw size={14} className={loading ? 'is-spinning' : ''} />
-          {zh ? '重新扫描' : 'Rescan'}
+          {zh ? '检测接入状态' : 'Check connection'}
         </button>
       </section>
+
+      {serviceNeedsRestart && (
+        <div className="integration-service-warning" role="alert">
+          <strong>{zh ? '页面和后台版本不一致' : 'The page and service versions do not match'}</strong>
+          <span>{zh ? '请先重启 KeyMemory 服务。中文提示词仍可直接复制；重启后，一键接入和状态检测会恢复。' : 'Restart KeyMemory. The prompt remains available, and one-click setup will work after restart.'}</span>
+        </div>
+      )}
 
       <div className="integration-workbench">
         <section className="integration-agent-panel">
@@ -195,6 +240,7 @@ export default function IntegrationView() {
                 selected={selected?.id === agent.id}
                 onSelect={() => {
                   setSelectedId(agent.id);
+                  setSelectedMode('auto');
                   setConnectResult(null);
                   setConnectError(null);
                 }}
@@ -212,7 +258,7 @@ export default function IntegrationView() {
                   <h3>{selected.label}</h3>
                 </div>
                 <span className={`connection-chip ${selected.connected ? 'is-online' : ''}`}>
-                  {selected.connected ? (zh ? '已接入' : 'Connected') : selected.detected ? (zh ? '待接入' : 'Ready') : (zh ? '未发现' : 'Missing')}
+                  {selected.connected ? (zh ? '已检测到配置' : 'Configuration found') : selected.detected ? (zh ? '待接入' : 'Ready') : (zh ? '可主动接入' : 'Manual target')}
                 </span>
               </div>
               <p className="config-path">
@@ -222,16 +268,28 @@ export default function IntegrationView() {
                 <div>
                   <strong>{zh ? '自动接入并保留现有设置' : 'Connect automatically, preserve existing settings'}</strong>
                   <span>
-                    {selected.recommendedMode === 'cli'
+                    {(selectedMode === 'auto' ? selected.recommendedMode : selectedMode) === 'cli'
                       ? (zh ? '写入持久指令，直接使用 KeyMemory CLI，无需配置 MCP。' : 'Adds persistent instructions and uses the KeyMemory CLI — no MCP setup required.')
-                      : (zh ? '自动合并 MCP 配置；修改前会备份已有文件。' : 'Merges the MCP configuration and backs up existing files first.')}
+                      : (selectedMode === 'auto' ? selected.recommendedMode : selectedMode) === 'skill'
+                        ? (zh ? '安装 KeyMemory 规则包，并告诉 Agent 何时读取、写入和检查连接。' : 'Installs the KeyMemory Skill and its persistent usage rules.')
+                        : (zh ? '自动合并 MCP 配置；修改前会备份已有文件。' : 'Merges the MCP configuration and backs up existing files first.')}
                   </span>
+                </div>
+                <div className="integration-mode-picker" aria-label={zh ? '选择接入方式' : 'Choose setup mode'}>
+                  <button type="button" className={selectedMode === 'auto' ? 'is-active' : ''} onClick={() => setSelectedMode('auto')}>
+                    {zh ? '自动推荐' : 'Auto'}
+                  </button>
+                  {(selected.availableModes ?? (selected.id === 'claude-desktop' ? ['mcp'] : ['mcp', 'cli', 'skill'])).map(mode => (
+                    <button key={mode} type="button" className={selectedMode === mode ? 'is-active' : ''} onClick={() => setSelectedMode(mode)}>
+                      {mode === 'mcp' ? (zh ? '自动连接' : 'MCP') : mode === 'cli' ? (zh ? '命令连接' : 'CLI') : (zh ? '规则包连接' : 'Skill')}
+                    </button>
+                  ))}
                 </div>
                 <button
                   type="button"
                   className="integration-connect-button"
                   onClick={() => void connectSelected()}
-                  disabled={!selected.detected || !selected.automatic || connectingId === selected.id}
+                  disabled={!selected.automatic || connectingId === selected.id}
                 >
                   {connectingId === selected.id ? <RefreshCw size={14} className="is-spinning" /> : <Zap size={14} />}
                   {connectingId === selected.id
@@ -247,6 +305,7 @@ export default function IntegrationView() {
                   <CheckCircle size={15} />
                   <div>
                     <strong>{connectResult.changed ? (zh ? '接入完成' : 'Connected') : (zh ? '配置已是最新' : 'Already up to date')}</strong>
+                    <small>{zh ? '接入方式：' : 'Mode: '}{connectResult.mode === 'mcp' ? (zh ? '自动连接' : 'MCP') : connectResult.mode === 'cli' ? (zh ? '命令连接' : 'CLI') : (zh ? '规则包连接' : 'Skill')}</small>
                     <span>{connectResult.files.join(' · ')}</span>
                     {connectResult.backups.length > 0 && <small>{zh ? '备份：' : 'Backup: '}{connectResult.backups.join(' · ')}</small>}
                     {connectResult.restartRequired && <small>{zh ? '请重启该 Agent 使 MCP 配置生效。' : 'Restart the Agent to activate the MCP connection.'}</small>}
@@ -258,6 +317,19 @@ export default function IntegrationView() {
                   <span>{connectError}</span>
                 </div>
               )}
+
+              <div className="integration-verification-card">
+                <strong>{zh ? '怎样判断真的接入成功？' : 'How to confirm the connection'}</strong>
+                <ol>
+                  <li className={selected.connected ? 'is-passed' : ''}>{zh ? '配置检测：页面发现 KeyMemory 配置或规则文件。' : 'Configuration: KeyMemory settings are present.'}</li>
+                  <li>{zh ? '读取验证：让 Agent 调用 keymemory_connection_status，再做一次只读搜索。' : 'Read test: call keymemory_connection_status, then run a read-only search.'}</li>
+                  <li>{zh ? '写入验证：在第一个真实工作节点写入任务状态，并确认能重新搜到。' : 'Write test: save the first real task milestone and retrieve it again.'}</li>
+                </ol>
+                <button type="button" onClick={() => void load()} disabled={loading}>
+                  <RefreshCw size={13} className={loading ? 'is-spinning' : ''} />
+                  {zh ? '重新检测配置' : 'Check configuration again'}
+                </button>
+              </div>
 
               <details className="manual-config-details">
                 <summary>{zh ? '手动配置 / 高级选项' : 'Manual configuration / advanced'}</summary>

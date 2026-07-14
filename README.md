@@ -186,29 +186,36 @@ keymemory dashboard
 
 ### 接入 Agent
 
+普通用户可先阅读 [KeyMemory 中文使用说明](docs/中文使用说明.md)。安装完成后，Web UI 会自动打开首次使用引导；以后可从页面右上角的“使用说明”随时重新查看。
+
 生成配置片段：
 
 ```bash
 keymemory agent-config all
-keymemory agent-config claude-code --mode cli      # Claude Code/Codex 推荐 CLI 模式
-keymemory agent-config claude-desktop               # Claude Desktop 用 MCP 模式
-keymemory agent-config workbuddy                    # WorkBuddy 设置 → MCP
-keymemory agent-config trae                         # TRAE 设置 → MCP
+keymemory agent-config claude-code --mode cli
+keymemory agent-config claude-desktop
+keymemory agent-config workbuddy
+keymemory agent-config trae
 keymemory agent-config openclaw --format json
 pnpm install-memory                                 # 重新扫描本机 Agent
 node install-default-memory.js --all                # 自动接入所有已检测 Agent
+node install-default-memory.js --agent=codex --mode=skill --yes
 node install-default-memory.js --prompt             # 生成给未来新 Agent 的接入提示词
 ```
 
 支持目标：`generic` / `claude-desktop` / `claude-code` / `workbuddy` / `trae` / `hermes` / `openclaw` / `codex` / `opencode`。
 
-接入规则会要求所有 Agent 自动维护三类内容：
+Web UI 的每张 Agent 卡片都可选择 **自动推荐 / 自动连接 / 命令连接 / 规则包连接**。一键接入会合并到固定、受支持的位置，保留已有配置并在改动前创建备份；即使尚未扫描到某个 Agent，也可主动接入。Windows Agent 调用 WSL 内的 KeyMemory 时会自动写入跨系统启动桥，不再要求用户复制路径。
 
-- **用户画像**：稳定偏好、习惯、工作与沟通风格、明确的纠正/批评、高频工具和模式。
-- **任务状态**：名称、目标、当前状态、已完成关键步骤、交付位置、待办、阻塞、下一步和验收标准。
-- **经验沉淀**：踩坑原因、失败路径、成功做法和可复用流程。纠正事实时会用 `memory_supersede` 保留历史并让新事实生效。
+接入规则和中文提示词会要求所有 Agent 自动维护三类内容：
 
-生成的提示词会明确要求 Agent：任务开始先用 `keymemory_context_pack` / `keymemory_search` 检索，正文被截断或需要精确路径时用 `keymemory_read`；在纠正、关键里程碑、任务切换和交接时写入或更新；用户画像按 `Signal / Evidence / Applies to / Confidence`，任务状态按 `Task / Objective / Status / Completed / Deliverables / Todo / Blockers / Next / Acceptance`，经验按 `Context / Pitfall / Cause / Successful approach / Reusable rule` 组织。寒暄、临时对话、未验证推断、重复事实和凭证不会进入普通记忆。
+- **工作过程与经验**：目标、关键步骤、工具、交付位置、验证结果、踩坑原因、失败路径、成功做法和可复用流程。
+- **用户画像**：用户关注、喜欢、重视和不喜欢什么，以及稳定偏好、习惯、沟通风格、纠正、批评、高频工具和模式。
+- **最近正在做的所有事情**：工作、学习、研究、生活安排和个人项目的状态、已完成、交付位置、待办、阻塞、下一步和验收标准。
+
+生成的提示词会明确要求 Agent：任务开始先检索；发现偏好、纠正、关键里程碑、阻塞、任务变化和交接时立即写入或更新；先查重，同一事项更新原记录，纠正时保留新版本并让旧版本失效；写入内容要带类别、来源、时间和置信度。寒暄、原始逐字对话、内部思维链、未验证推断、重复事实和凭证不会进入普通记忆。
+
+“文件中已有配置”不等于真正连通。接入后应依次完成三层验收：页面检测到配置；Agent 调用 `keymemory_connection_status` 得到 `status: connected` 并完成一次只读检索；在第一个真实工作节点写入进度并重新找回。中文提示词要求 Agent 分别报告“配置检测 / 读取验证 / 写入验证”，未全部通过时不得宣称接入成功。
 
 接入后，建议让 Agent 在长期任务前调用：
 

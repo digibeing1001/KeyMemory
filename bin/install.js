@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { execFileSync, execSync } = require('child_process');
+const { execFileSync, execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -93,6 +93,20 @@ try {
 
 console.log('');
 console.log('  \x1b[32m✓ 安装完成！\x1b[0m');
+console.log('');
+console.log('  \x1b[1m正在启动 KeyMemory，并打开首次使用引导...\x1b[0m');
+try {
+  const uiProcess = spawn(process.execPath, [path.join(BIN_DIR, 'keymemory-ui.js'), '--open', '--onboarding'], {
+    cwd: PROJECT_DIR,
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  uiProcess.unref();
+  console.log('  \x1b[32m✓ Web UI 将在浏览器中自动打开\x1b[0m');
+} catch {
+  console.log('  \x1b[33m⚠ 自动启动失败，请运行 keymemory dashboard\x1b[0m');
+}
 console.log('');
 console.log('  \x1b[1m启动方式:\x1b[0m');
 console.log('');

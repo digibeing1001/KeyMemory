@@ -35,8 +35,8 @@ assert.equal(merged.mcpServers.keymemory.command, 'node');
 assert.match(merged.mcpServers.keymemory.args[0], /keymemory-mcp\.js$/);
 const workBuddyRules = fs.readFileSync(path.join(homeDir, '.workbuddy', 'KEYMEMORY_INSTRUCTIONS.md'), 'utf8');
 assert.match(workBuddyRules, /KEYMEMORY:START/);
-assert.match(workBuddyRules, /Required recall workflow/);
-assert.match(workBuddyRules, /Task \/ Objective \/ Status \/ Completed/);
+assert.match(workBuddyRules, /每次工作前必须先读取/);
+assert.match(workBuddyRules, /用户最近正在做的所有事情/);
 
 const replay = connectAgentIntegration('workbuddy', options);
 assert.equal(replay.changed, false, 'reapplying the same integration must be idempotent');
@@ -57,18 +57,29 @@ assert.equal(codex.mode, 'cli');
 assert.equal(codex.restartRequired, false);
 const codexRules = fs.readFileSync(path.join(homeDir, '.codex', 'instructions.md'), 'utf8');
 assert.match(codexRules, /keymemory context/);
-assert.match(codexRules, /User profile/);
-assert.match(codexRules, /Experience/);
+assert.match(codexRules, /用户画像/);
+assert.match(codexRules, /踩坑与成功经验/);
+
+const skill = connectAgentIntegration('opencode', { ...options, mode: 'skill' });
+assert.equal(skill.mode, 'skill');
+assert.equal(skill.restartRequired, true);
+const skillPath = path.join(homeDir, '.config', 'opencode', 'skills', 'keymemory', 'SKILL.md');
+assert.ok(fs.existsSync(skillPath), 'Skill mode must install SKILL.md even when the Agent was not detected');
+assert.match(fs.readFileSync(skillPath, 'utf8'), /最近正在做的所有事情/);
+assert.match(fs.readFileSync(skillPath, 'utf8'), /keymemory_connection_status/);
 
 const prompt = buildUniversalOnboardingPrompt(root);
 for (const required of [
+  '# 请把当前 Agent 接入 KeyMemory',
+  '工作过程、踩坑与成功经验',
+  '用户画像、偏好与使用习惯',
+  '用户最近正在做的所有事情',
+  '配置检测 / 读取验证 / 写入验证',
+  'keymemory_connection_status',
   'keymemory_context_pack',
   'keymemory_create',
   'keymemory_update',
   'keymemory_supersede',
-  'Preserve every existing MCP server',
-  'Task / Objective / Status / Completed / Deliverables / Todo / Blockers / Next / Acceptance',
-  'First-use acceptance check',
 ]) {
   assert.ok(prompt.includes(required), `onboarding prompt must include: ${required}`);
 }
@@ -99,6 +110,29 @@ assert.equal(installerMerged.mcpServers.existing.command, 'keep-me');
 assert.equal(installerMerged.mcpServers.keymemory.command, 'node');
 assert.ok(fs.existsSync(path.join(installerHome, '.workbuddy', 'KEYMEMORY_INSTRUCTIONS.md')));
 
+const installerSkillHome = path.join(sandbox, 'installer-skill-home');
+const skillInstaller = spawnSync(process.execPath, [
+  path.join(root, 'install-default-memory.js'),
+  '--agent=opencode',
+  '--mode=skill',
+  '--yes',
+], {
+  cwd: root,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    HOME: installerSkillHome,
+    USERPROFILE: installerSkillHome,
+    APPDATA: path.join(installerSkillHome, 'AppData', 'Roaming'),
+    LOCALAPPDATA: path.join(installerSkillHome, 'AppData', 'Local'),
+  },
+});
+assert.equal(skillInstaller.status, 0, `Skill installer failed: ${skillInstaller.stderr || skillInstaller.stdout}`);
+assert.ok(fs.existsSync(path.join(installerSkillHome, '.config', 'opencode', 'skills', 'keymemory', 'SKILL.md')));
+const installerSkillInstructions = fs.readFileSync(path.join(installerSkillHome, '.opencode', 'KEYMEMORY_INSTRUCTIONS.md'), 'utf8');
+assert.match(installerSkillInstructions, /KEYMEMORY:START/);
+assert.match(installerSkillInstructions, /每次开始任务前读取并遵守/);
+
 console.log(JSON.stringify({
   ok: true,
   sandbox,
@@ -109,4 +143,6 @@ console.log(JSON.stringify({
   cliInstructionsWritten: true,
   onboardingPromptExplicit: true,
   installerBatchMode: true,
+  skillModeInstalled: true,
+  undetectedTargetSupported: true,
 }, null, 2));

@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import type { Layer, SearchResult, HealthReport, Memory } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
-import { Search, Close, Key, Menu } from './components/Icons';
+import { Search, Close, Key, Menu, BookOpen } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
@@ -17,6 +17,7 @@ import MigrationView from './components/MigrationView';
 import ProjectSuggestionsView from './components/ProjectSuggestionsView';
 import WorkingSetView from './components/WorkingSetView';
 import IntegrationView from './components/IntegrationView';
+import UserGuide from './components/UserGuide';
 import Editor from './views/Editor';
 import { I18nProvider, useI18n } from './i18n';
 import {
@@ -80,6 +81,11 @@ function AppInner() {
   const [authLocked, setAuthLocked] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [guideFirstRun, setGuideFirstRun] = useState(() => localStorage.getItem('keymemory_onboarding_completed_v1') !== 'true');
+  const [guideOpen, setGuideOpen] = useState(() => {
+    const forced = new URLSearchParams(window.location.search).get('onboarding') === '1';
+    return forced || localStorage.getItem('keymemory_onboarding_completed_v1') !== 'true';
+  });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -363,6 +369,17 @@ function AppInner() {
           </div>
 
           <div className="app-header-status flex items-center gap-2" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            <button
+              type="button"
+              className="app-guide-button"
+              onClick={() => {
+                setGuideFirstRun(false);
+                setGuideOpen(true);
+              }}
+            >
+              <BookOpen size={14} />
+              {language === 'zh' ? '使用说明' : 'Guide'}
+            </button>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: store.healthOk ? 'var(--success)' : 'var(--danger)' }} />
             {store.healthOk ? t('app.connected') : t('app.disconnected')}
           </div>
@@ -608,6 +625,20 @@ function AppInner() {
           )}
         </div>
       </div>
+
+      <UserGuide
+        open={guideOpen}
+        firstRun={guideFirstRun}
+        onClose={() => setGuideOpen(false)}
+        onComplete={() => {
+          localStorage.setItem('keymemory_onboarding_completed_v1', 'true');
+          setGuideFirstRun(false);
+        }}
+        onOpenIntegrations={() => {
+          setViewMode('integrations');
+          setGuideOpen(false);
+        }}
+      />
 
       {authLocked && (
         <div

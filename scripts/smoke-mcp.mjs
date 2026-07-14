@@ -96,7 +96,7 @@ try {
   await call('initialize');
   const listed = await call('tools/list');
   const toolNames = listed.tools.map(tool => tool.name);
-  for (const required of ['keymemory', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'keymemory_auto_remember', 'keymemory_secret_set', 'keymemory_secret_get', 'keymemory_secret_list', 'keymemory_secret_delete', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_supersede', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
+  for (const required of ['keymemory', 'keymemory_connection_status', 'keymemory_create', 'keymemory_search', 'keymemory_context_pack', 'keymemory_auto_remember', 'keymemory_secret_set', 'keymemory_secret_get', 'keymemory_secret_list', 'keymemory_secret_delete', 'memory_connection_status', 'memory_create', 'memory_search', 'memory_context_pack', 'memory_relate', 'memory_related', 'memory_supersede', 'memory_migration_discover', 'memory_migration_import', 'memory_backup_create', 'memory_backup_inspect', 'memory_backup_restore_dry_run', 'memory_project_suggestions', 'memory_project_suggestion_accept', 'memory_project_suggestion_reject']) {
     if (!toolNames.includes(required)) throw new Error(`missing MCP tool: ${required}`);
   }
   const searchTool = listed.tools.find(tool => tool.name === 'keymemory_search');
@@ -122,6 +122,14 @@ try {
   const temporalSearchTool = listed.tools.find(tool => tool.name === 'memory_search');
   if (!temporalSearchTool?.inputSchema?.properties?.asOf || !temporalSearchTool.inputSchema.properties.explain) {
     throw new Error(`expected memory_search temporal/explain schema, got ${JSON.stringify(temporalSearchTool?.inputSchema)}`);
+  }
+
+  const connectionReceipt = JSON.parse(toolText(await call('tools/call', {
+    name: 'keymemory_connection_status',
+    arguments: {},
+  })));
+  if (connectionReceipt.status !== 'connected' || connectionReceipt.service !== 'KeyMemory' || connectionReceipt.transport !== 'mcp') {
+    throw new Error(`expected a live KeyMemory connection receipt, got ${JSON.stringify(connectionReceipt)}`);
   }
 
   const secretValue = 'hmcp_test_secret_1234567890';

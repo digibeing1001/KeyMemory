@@ -13,6 +13,7 @@ const KEYMEMORY_MCP_PERMISSION = 'mcp__keymemory__*';
 const KEYMEMORY_HOST_TOOL_PATTERNS = [KEYMEMORY_MCP_PERMISSION, 'keymemory_*', 'memory_*'];
 const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory',
+  'keymemory_connection_status',
   'keymemory_create',
   'keymemory_search',
   'keymemory_context_pack',
@@ -28,35 +29,52 @@ const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory_secret_delete',
 ];
 
-const MEMORY_OPERATING_RULES = `## Shared-memory operating rules
+const MEMORY_OPERATING_RULES = `## KeyMemory 共享记忆强制规则
 
-KeyMemory is the primary durable memory system. Do not create a parallel MEMORY.md, hidden memory folder, or flat-file memory store when KeyMemory is available.
+KeyMemory 是默认、唯一的长期记忆。不要再建立 MEMORY.md 或其他平行记忆文件。
 
-### Required recall workflow
+### 每次开始工作前
 
-- At the beginning of every new task or resumed session, call keymemory_context_pack or keymemory_search with the current project, task name, goal, and likely user preference.
-- Retrieve user profile, active task state, prior decisions, blockers, acceptance criteria, and relevant lessons before planning. Use keymemory_read when exact paths, commands, corrections, or acceptance criteria matter.
-- Search again before repeating a failed approach, relying on an old preference, making a consequential decision, or handing work to another Agent.
-- Respect agent_space boundaries. Shared memories may be reused across Agents; private memories stay private.
+- 先搜索用户画像、最近正在做的事情、当前任务状态、历史决策、踩坑和成功经验，再制定方案。
+- 内容被截断，或需要确认路径、命令、纠正内容和验收标准时，读取完整记忆。
+- 在重复失败方案、采用旧偏好、作出重要决定或交接前，再搜索一次。
 
-### Required write workflow
+### 必须写入的三类数据
 
-After a meaningful exchange, correction, verified milestone, task transition, or handoff, call keymemory_auto_remember, keymemory_create, or keymemory_update with a compact, evidence-based record. Do not wait for the user to say "remember this" when the durable signal is clear. Capture:
+1. 工作过程与经验：目标、方案、关键步骤、决策、工具、命令、交付位置和验证结果；错误、失败办法、踩坑现象、根因和避免方式；已经验证成功的做法、成功条件、原因和可复用流程。结构：背景 / 目标 / 做过什么 / 踩坑与原因 / 成功做法 / 验证证据 / 可复用规则。
+2. 用户画像：用户关注、喜欢、重视、不喜欢和禁止的内容；沟通风格、输出偏好、常用工具、工作和生活习惯、反复出现的选择，以及用户的纠正、批评和认可。结构：偏好信号 / 证据 / 喜欢或重视 / 不喜欢或避免 / 适用范围 / 置信度。
+3. 最近事项：用户近期正在工作、学习、研究、计划、等待或尚未完成的所有事情。结构：事项 / 目标 / 当前状态 / 已完成 / 交付位置 / 待办 / 阻塞 / 下一步 / 验收标准 / 最后更新时间。
 
-1. User profile (long/entity): stable preferences, habits, working and communication style, explicit corrections or criticism, and frequent tools or patterns. Structure: Signal / Evidence / Applies to / Confidence.
-2. Task state (short/project): task name, objective, current status, completed key steps, delivery locations, remaining work, blockers, expected next step, and acceptance criteria. Structure: Task / Objective / Status / Completed / Deliverables / Todo / Blockers / Next / Acceptance.
-3. Experience (long): pitfalls, failed approaches, root cause, successful approaches, why they worked, and reusable constraints. Structure: Context / Pitfall / Cause / Successful approach / Reusable rule.
+### 写入与更新时机
 
-Use a specific title, the closest stable project, source/provenance, and useful kind tags. Update an active task memory instead of creating near-duplicates.
+- 发现偏好、习惯、纠正、批评或禁忌后立即写入。
+- 任务建立、状态变化、完成里程碑、出现或解决阻塞、产生交付物时立即更新。
+- 每次形成踩坑结论或验证成功经验后立即沉淀。
+- 在任务暂停、结束、交接或会话可能中断前，更新最近事项。
 
-### Quality and correction
+### 数据处理方式
 
-- Store facts, not guesses. Include source/provenance and confidence when known.
-- When the user corrects an existing fact, create the corrected memory and use keymemory_supersede to retire the old fact without deleting its history.
-- Prefer one structured memory over a transcript dump or near-duplicates.
-- Do not store greetings, disposable chatter, raw chain-of-thought, unverified inference, duplicate facts, or transient details with no future value.
-- Never store credentials in normal memory. Use keymemory_secret_set or memory_secret_set for tool credentials.
-- Do not mark a task complete until its acceptance criteria are verified. Keep returned memory IDs when later updates or supersession will need them.`;
+- 写入前先搜索；已有同一记录就更新，不制造重复项。
+- 用户纠正旧事实时，保存正确版本并用 keymemory_supersede 让旧版本失效，同时保留历史来源。
+- 使用具体标题、最接近的项目、类别标签、来源、时间和置信度。
+- 工作过程保存结构化摘要，不保存寒暄、无意义闲聊、原始逐字对话、内部思维过程、未经证实的猜测或重复内容。
+- 密码、令牌、私钥和密钥不得写入普通记忆，只能使用专用凭证保存工具。
+- 写入后保留返回的记忆 ID；未验证验收标准前不能把任务标为完成。`;
+
+const KEYMEMORY_SKILL = `---
+name: keymemory
+description: 使用 KeyMemory 读取用户偏好、最近事项和历史经验，并持续写回工作进度、踩坑、成功经验和用户习惯。
+---
+
+# KeyMemory 共享记忆
+
+任务涉及用户偏好、近期事项、历史决策、任务续接或经验复用时，必须加载本规则包。
+
+连接顺序：优先使用 keymemory_* 工具；其次使用 keymemory 命令；最后可访问 http://127.0.0.1:3210。三种方式都不可用时必须说明尚未连接。
+
+${MEMORY_OPERATING_RULES}
+
+配置检查时不要制造测试记忆。使用 keymemory_connection_status 和一次只读搜索证明读取链路；在第一个真实工作节点写入任务状态并重新搜索，证明写入链路。`;
 
 const CLAUDE_MD_MCP_CONTENT = `# KeyMemory - Default Memory System
 
@@ -139,7 +157,7 @@ const flagPrompt = args.includes('--prompt');
 const flagAgent = args.find(a => a.startsWith('--agent='));
 const specificAgent = flagAgent ? flagAgent.split('=')[1] : null;
 const flagMode = args.find(a => a.startsWith('--mode='));
-const installMode = flagMode ? flagMode.split('=')[1] : 'auto'; // 'cli', 'mcp', 'auto'
+const installMode = flagMode ? flagMode.split('=')[1] : 'auto'; // 'cli', 'mcp', 'skill', 'auto'
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -213,10 +231,21 @@ function backupExisting(filePath) {
 }
 
 function writeTextFile(filePath, content) {
+  if (fs.existsSync(filePath) && fs.readFileSync(filePath, 'utf8') === content) return false;
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   backupExisting(filePath);
   fs.writeFileSync(filePath, content, 'utf8');
+  return true;
+}
+
+function upsertManagedInstructions(before, rules) {
+  const start = '<!-- KEYMEMORY:START -->';
+  const end = '<!-- KEYMEMORY:END -->';
+  const block = `${start}\n${rules.trim()}\n${end}`;
+  const pattern = /<!-- KEYMEMORY:START -->[\s\S]*?<!-- KEYMEMORY:END -->/;
+  if (pattern.test(before)) return `${before.replace(pattern, block).trimEnd()}\n`;
+  return `${before.trimEnd()}${before.trim() ? '\n\n' : ''}${block}\n`;
 }
 
 function writeJsonConfig(filePath, config) {
@@ -708,20 +737,69 @@ const agentInstallers = [
   { id: 'opencode', label: 'OpenCode', detect: detectOpenCode, configure: configureOpenCode },
 ];
 
+function skillPathForAgent(agentId) {
+  switch (agentId) {
+    case 'claude-code': return homePath('.claude', 'skills', 'keymemory', 'SKILL.md');
+    case 'hermes': return homePath('.hermes', 'skills', 'keymemory', 'SKILL.md');
+    case 'codex': return homePath('.codex', 'skills', 'keymemory', 'SKILL.md');
+    case 'openclaw': return homePath('.openclaw', 'skills', 'keymemory', 'SKILL.md');
+    case 'opencode': return homePath('.config', 'opencode', 'skills', 'keymemory', 'SKILL.md');
+    case 'workbuddy':
+    case 'trae':
+      return homePath('.agents', 'skills', 'keymemory', 'SKILL.md');
+    default:
+      return null;
+  }
+}
+
+function instructionPathForAgent(agentId) {
+  switch (agentId) {
+    case 'claude-code': return homePath('.claude', 'CLAUDE.md');
+    case 'hermes': return homePath('.hermes', 'CLAUDE.md');
+    case 'codex': return homePath('.codex', 'instructions.md');
+    case 'openclaw': return homePath('.openclaw', 'MEMORY_INSTRUCTIONS.md');
+    case 'opencode': return homePath('.opencode', 'KEYMEMORY_INSTRUCTIONS.md');
+    case 'workbuddy': return homePath('.workbuddy', 'KEYMEMORY_INSTRUCTIONS.md');
+    case 'trae': return homePath('.trae', 'KEYMEMORY_INSTRUCTIONS.md');
+    default: return null;
+  }
+}
+
+async function configureAgent(agent) {
+  if (installMode !== 'skill') return agent.configure();
+  const skillPath = skillPathForAgent(agent.id);
+  if (!skillPath) throw new Error(`${agent.label} 不支持规则包连接，请改用自动连接。`);
+  if (!await confirmWrite(`${agent.label} KeyMemory Skill`)) return;
+  const skillChanged = writeTextFile(skillPath, KEYMEMORY_SKILL);
+  const instructionPath = instructionPathForAgent(agent.id);
+  if (instructionPath) {
+    const before = fs.existsSync(instructionPath) ? fs.readFileSync(instructionPath, 'utf8') : '';
+    const instruction = `# KeyMemory 规则包\n\n每次开始任务前读取并遵守 \`${skillPath}\`。如果当前 Agent 支持规则包自动发现，则加载 \`keymemory\`；即使自动发现不可用，也必须遵守该规则包中的读取、写入、查重、纠错和验收要求。`;
+    writeTextFile(instructionPath, upsertManagedInstructions(before, instruction));
+  }
+  console.log(`\n${agent.label} KeyMemory Skill ${skillChanged ? '已写入' : '已是最新'}: ${skillPath}`);
+  if (instructionPath) console.log(`持久加载指引: ${instructionPath}`);
+  console.log('请重启 Agent，并让它调用 keymemory_connection_status 或执行一次只读搜索来验证连接。');
+}
+
 function buildFutureAgentPrompt() {
-  return `# Connect this Agent to KeyMemory
+  return `# 请把当前 Agent 接入 KeyMemory
 
-Make KeyMemory this Agent's default durable memory system. Complete setup yourself where permissions allow it. Do not ask the user to manually copy configuration that you can safely merge. Preserve every existing MCP server, permission, and user rule, and back up each existing file before changing it.
+请把 KeyMemory 设置为默认、唯一的长期记忆，并自行完成权限允许的配置。修改前备份原文件，保留已有连接、权限和用户规则，不要让用户手工复制你能够安全写入的内容。
 
-1. If MCP is supported, add a local stdio server named "keymemory" with command "node" and args ${JSON.stringify([mcpLauncherPath])}.
-2. If MCP is unavailable but shell commands are allowed, use the installed "keymemory" CLI instead. Do not create a separate memory file.
-3. Verify MCP by checking keymemory_context_pack, keymemory_search, keymemory_read, keymemory_create, keymemory_update, keymemory_auto_remember, and keymemory_supersede. Verify CLI mode with "keymemory info" and a non-destructive context/search query.
-4. Report the chosen transport, changed file, backup path, verification result, and whether restart is required.
-5. Add the operating rules below to persistent Agent instructions without replacing unrelated content. In CLI mode, use equivalent keymemory context/search/read/create/update/auto-remember/supersede commands.
+1. 可使用工具连接时，添加名为 keymemory 的本地服务，启动文件为 ${mcpLauncherPath}。
+2. 如果不能使用工具连接但可以执行命令，使用 keymemory 命令。
+3. 如果当前 Agent 支持规则包，也可以安装 KeyMemory Skill；规则包负责教你何时读取和写入，但实际数据仍通过 KeyMemory 工具、命令或本机服务传输。
+4. 把下面规则加入长期指令，不得覆盖无关内容。
 
 ${MEMORY_OPERATING_RULES}
 
-Before the next task, retrieve relevant context. After the first meaningful milestone, write one structured task-state memory and verify it can be found again. Never create test memories in the user's real project merely to prove connectivity.`;
+## 接入验收
+
+- 工具连接：必须看到 keymemory_connection_status、keymemory_search、keymemory_read、keymemory_create 和 keymemory_update；调用 keymemory_connection_status 后必须返回 status: connected，再完成一次只读搜索。
+- 命令连接：运行 keymemory info，再完成一次只读搜索或上下文读取。
+- 不要为了测试制造垃圾记忆。在第一个真实工作节点写入任务状态并重新搜索到它，才算写入验证通过。
+- 最后报告连接方式、修改文件、备份位置、是否要重启，以及“配置检测 / 读取验证 / 写入验证”三项结果。任何一项未通过都不能宣称接入成功。`;
 }
 
 async function main() {
@@ -734,8 +812,8 @@ async function main() {
     return;
   }
 
-  if (installMode !== 'cli' && installMode !== 'mcp' && installMode !== 'auto') {
-    console.error(`\nError: Invalid mode "${installMode}". Must be one of: cli, mcp, auto`);
+  if (installMode !== 'cli' && installMode !== 'mcp' && installMode !== 'skill' && installMode !== 'auto') {
+    console.error(`\nError: Invalid mode "${installMode}". Must be one of: cli, mcp, skill, auto`);
     process.exit(1);
   }
 
@@ -770,7 +848,7 @@ async function main() {
       rl.close();
       return;
     }
-    await agent.configure();
+    await configureAgent(agent);
     printGenericConfig();
     rl.close();
     return;
@@ -786,7 +864,7 @@ async function main() {
 
   if (flagAll) {
     for (const agent of installed) {
-      await agent.configure();
+      await configureAgent(agent);
     }
     printGenericConfig();
     console.log('\nAll detected agents processed. Complete any guided MCP steps shown above.');
@@ -806,12 +884,12 @@ async function main() {
   const selected = Number(choice.trim());
 
   if (selected >= 1 && selected <= installed.length) {
-    await installed[selected - 1].configure();
+    await configureAgent(installed[selected - 1]);
   } else if (selected === installed.length + 1) {
     printGenericConfig();
   } else if (selected === installed.length + 2) {
     for (const agent of installed) {
-      await agent.configure();
+      await configureAgent(agent);
     }
     printGenericConfig();
     console.log('\nAll detected agents processed. Complete any guided MCP steps shown above.');

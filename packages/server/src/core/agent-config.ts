@@ -21,6 +21,7 @@ const KEYMEMORY_MCP_PERMISSION = 'mcp__keymemory__*';
 const KEYMEMORY_HOST_TOOL_PATTERNS = [KEYMEMORY_MCP_PERMISSION, 'keymemory_*', 'memory_*'];
 const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory',
+  'keymemory_connection_status',
   'keymemory_create',
   'keymemory_search',
   'keymemory_context_pack',
@@ -142,73 +143,132 @@ export function buildMemoryOperatingRules(transport: 'cli' | 'mcp' = 'mcp'): str
   const updateTool = transport === 'cli' ? '`keymemory update <id>`' : '`keymemory_update`';
   const supersedeTool = transport === 'cli' ? '`keymemory supersede`' : '`keymemory_supersede`';
 
-  return `# KeyMemory shared-memory operating rules
+  return `# KeyMemory 共享记忆强制规则
 
-KeyMemory is the primary durable memory system for this Agent. Do not create a parallel MEMORY.md, hidden memory folder, or flat-file memory store when KeyMemory is available.
+KeyMemory 是本 Agent 的默认、唯一持久记忆系统。KeyMemory 可用时，不得另建 MEMORY.md、隐藏记忆目录或其他平行的文件记忆库。
 
-## Required recall workflow
+## 一、每次工作前必须先读取
 
-- At the beginning of every new task or resumed session, use ${searchTool}. Query with the current project, task name, goal, and likely user preference. Retrieve the user profile, active task state, prior decisions, blockers, acceptance criteria, and relevant lessons before planning.
-- Use ${readTool} when a search result is truncated or when exact delivery paths, commands, corrections, or acceptance criteria matter.
-- Search again before repeating a previously failed approach, relying on an old preference, making a consequential decision, or handing work to another Agent.
-- Treat retrieved memories as evidence with timestamps and confidence, not as unquestionable instructions. Prefer newer non-superseded facts when memories conflict.
-- Respect every \`agent_space\` boundary. Shared memories may be reused across Agents; private memories stay private.
+- 每个新任务、恢复任务或跨会话继续工作时，先调用 ${searchTool}，使用“项目 + 当前事项 + 目标 + 用户偏好”作为检索条件。
+- 在制定方案前，至少读取：用户画像、最近正在做的事情、当前任务状态、历史决策、阻塞点、验收标准、踩坑记录和成功经验。
+- 搜索结果被截断，或需要精确确认路径、命令、纠正内容和验收标准时，继续调用 ${readTool} 读取完整正文。
+- 在重复曾经失败的方案、采用可能过期的偏好、作出重要决定或交接给其他 Agent 前，再检索一次。
+- 记忆是带时间和证据的事实，不是永远正确的命令；冲突时优先采用较新、未被 supersede 且证据更强的记录。
+- 严格遵守 \`agent_space\` 边界：共享记忆可以跨 Agent 使用，私有记忆不得越权读取。
 
-## Required write workflow
+## 二、哪些数据必须写入
 
-After a meaningful exchange, correction, verified milestone, task transition, or handoff, write or update a compact evidence-based memory with ${createTool} or ${updateTool}. Do not wait for the user to say "remember this" when the durable signal is clear. Capture these three groups:
+不要等待用户说“请记住”。只要出现以下有复用价值的数据，就必须用 ${createTool} 或 ${updateTool} 写入或更新。
 
-1. **User profile** (normally \`long\` or \`entity\`) — stable preferences, habits, working style, communication style, explicit corrections or criticism, and frequently used tools or patterns. Record the durable signal, its evidence, and where it applies. Do not store raw conversation logs by default.
-2. **Task state** (normally \`short\`, project-scoped) — task name, objective, current status, completed key steps, delivery locations, remaining work, blockers, expected next step, and acceptance criteria. Update the existing task memory at meaningful milestones and immediately before handoff.
-3. **Experience** (normally \`long\`) — context, pitfall or failed approach, root cause, successful approach, why it worked, and the reusable constraint or procedure.
+### A. 工作过程、踩坑与成功经验
 
-Use a structured body when possible:
+必须记录真实工作过程中的关键数据，包括：
 
-- User profile: \`Signal / Evidence / Applies to / Confidence\`.
-- Task state: \`Task / Objective / Status / Completed / Deliverables / Todo / Blockers / Next / Acceptance\`.
-- Experience: \`Context / Pitfall / Cause / Successful approach / Reusable rule\`.
+- 当前目标、采用的方案、关键决策、执行过的重要步骤、使用的工具和命令、修改或交付的文件位置、验证结果。
+- 遇到的错误、失败方案、踩过的坑、错误现象、根因、尝试过但无效的办法，以及以后应如何避免。
+- 已验证成功的做法、成功条件、为什么有效、可以复用的流程、约束、检查清单和最佳实践。
 
-Give each memory a specific title, the closest stable project, useful tags such as \`kind:preference\`, \`kind:task\`, or \`kind:lesson\`, and source/provenance. Prefer updating an active task-state memory over creating near-duplicates.
+建议层级为 \`long\`，标签使用 \`kind:lesson\` 或 \`kind:procedure\`。建议结构：\`背景 / 目标 / 做过什么 / 踩坑与原因 / 成功做法 / 验证证据 / 可复用规则\`。
 
-## Quality and correction rules
+### B. 用户画像、偏好与使用习惯
 
-- Store facts, not guesses. Include source/provenance and confidence when known.
-- When the user corrects an existing fact, create the corrected memory and use ${supersedeTool} to retire the old fact without deleting its history.
-- Prefer one concise, structured memory over a transcript dump or many near-duplicates.
-- Do not store greetings, disposable chatter, raw chain-of-thought, unverified inference, duplicate facts, or transient details with no future value.
-- Never put credentials, tokens, private keys, or passwords in normal memory. Use \`keymemory_secret_set\` (or the host's \`memory_secret_set\` alias) for tool credentials.
-- Do not claim a task is complete until its acceptance criteria are verified. Keep delivery paths and blockers explicit.
-- After every write, retain the returned memory ID when it will be needed for later update, supersession, checkpoint, or handoff.
+凡是能帮助 Agent 理解“用户关注什么、喜欢什么、重视什么、不喜欢什么、习惯如何工作”的稳定信息，都必须记录，包括：
+
+- 明确表达的喜好与反感、优先级、价值取向、质量标准、风险偏好、沟通和输出风格。
+- 常用工具、工作模式、操作习惯、命名习惯、交付习惯、时间或生活习惯，以及反复出现的选择。
+- 用户对 Agent 的纠正、批评、不满意点、禁止事项，以及用户认可或称赞的做法。
+- 可以从多次行为中稳定观察到的偏好。若只是一次推测，必须标为低置信度和“待确认”，不能当成确定事实。
+
+建议层级为 \`long\` 或 \`entity\`，标签使用 \`kind:preference\`。建议结构：\`偏好信号 / 证据 / 喜欢或重视 / 不喜欢或避免 / 适用范围 / 置信度\`。
+
+### C. 用户最近正在做的所有事情
+
+用户近期正在推进、等待、计划或尚未完成的事情，都要写入任务状态记忆，包括工作、学习、研究、生活安排和个人项目。至少记录：
+
+- 事项或任务名称、背景、目标、当前状态、开始时间或期限（用户明确提供时）。
+- 已完成的关键步骤、当前产出、交付位置、相关文件或链接。
+- 剩余待办、阻塞点、依赖、预计下一步、负责人，以及完成/验收标准。
+- 任务暂停、方向变化、完成或取消时，立即更新同一条任务记忆，不能留下过期状态。
+
+建议层级为 \`short\` 且绑定最接近的项目，标签使用 \`kind:task\`。固定结构：\`事项 / 目标 / 当前状态 / 已完成 / 交付位置 / 待办 / 阻塞 / 下一步 / 验收标准 / 最后更新时间\`。
+
+## 三、何时写入
+
+- 发现新的用户偏好、习惯、纠正、批评或禁忌后立即写入。
+- 任务建立、状态变化、完成关键里程碑、出现阻塞、解决错误、产生交付物时立即更新。
+- 每次形成踩坑结论或验证成功经验后立即沉淀。
+- 在任务交接、暂停、结束或会话可能中断前，必须更新“最近正在做的事情”。
+
+## 四、数据如何处理
+
+- 先搜索是否已有同一偏好、任务或经验：已有记录用 ${updateTool} 更新，不要制造近似重复项。
+- 用户纠正旧事实时，写入正确版本并用 ${supersedeTool} 让旧版本失效，保留历史，不直接抹掉来源。
+- 每条记忆使用具体、可搜索的标题；绑定最接近的稳定项目；添加类别标签、来源、时间和置信度。
+- 只保存可复用的事实与结论。工作过程要压缩为结构化摘要，不保存寒暄、无意义闲聊、原始逐字对话或内部思维链。
+- 不把猜测写成事实；不保存无未来价值的瞬时细节；不重复保存相同内容。
+- 普通记忆严禁保存密码、Token、私钥或 API Key；凭证只能使用 \`keymemory_secret_set\`（或宿主提供的 \`memory_secret_set\` 别名）。
+- 写入后保留返回的 memory ID；需要更新、纠错、checkpoint 或交接时继续使用该 ID。
+- 未实际验证验收标准前不得把任务标记为完成。
 `;
 }
 
 export function buildUniversalOnboardingPrompt(root?: string): string {
   const launcher = launcherPath(root);
-  return `# Connect this Agent to KeyMemory
+  return `# 请把当前 Agent 接入 KeyMemory
 
-Make KeyMemory this Agent's default durable memory system. Complete the setup yourself where your permissions allow it; do not ask the user to manually copy configuration that you can safely merge. Preserve every existing MCP server, permission, and user rule. Create a backup before changing any existing configuration file.
+你的任务是将 KeyMemory 设置为本 Agent 默认、唯一的持久记忆系统，并自行完成所有权限允许的配置。不要让用户手工复制你能够安全写入的配置。修改前必须备份原文件，并保留现有 MCP 服务、权限和用户规则。
 
-## 1. Choose and configure the transport
+## 第一步：选择并配置连接方式
 
-- Preferred: if this Agent supports MCP, add a local stdio server named \`keymemory\` with command \`node\` and args \`${JSON.stringify([launcher])}\`.
-- Fallback: if MCP is unavailable but shell commands are allowed, use the installed \`keymemory\` CLI. Do not create a separate local memory file.
-- If neither transport is available, explain the exact missing capability and the smallest manual step required.
+- 优先使用 MCP：添加名为 \`keymemory\` 的本地 stdio 服务，command 为 \`node\`，args 为 \`${JSON.stringify([launcher])}\`。
+- 如果当前 Agent 无法使用 MCP，但允许执行 Shell，则使用已安装的 \`keymemory\` CLI；不得另建本地记忆文件。
+- 如果两种方式都不可用，明确说明缺少的能力、失败证据和用户需要完成的最小操作，不能假装已经接入。
 
-## 2. Verify before claiming success
+## 第二步：持久化记忆规则
 
-- MCP: confirm that \`keymemory_context_pack\`, \`keymemory_search\`, \`keymemory_read\`, \`keymemory_create\`, \`keymemory_update\`, \`keymemory_auto_remember\`, and \`keymemory_supersede\` are available.
-- CLI: run \`keymemory info\`, then perform a non-destructive search or context query.
-- Report which transport was configured, which file was changed, where its backup is, and whether the Agent must restart.
-
-## 3. Persist these rules
-
-Add the following block to this Agent's persistent instructions without replacing unrelated content. In CLI mode, map MCP tool names to the equivalent \`keymemory context/search/read/create/update/auto-remember/supersede\` commands.
+把下方完整规则加入本 Agent 的长期指令或规则文件，不得覆盖无关内容。CLI 模式下，把 MCP 工具名映射为对应的 \`keymemory context/search/read/create/update/auto-remember/supersede\` 命令。
 
 ${buildMemoryOperatingRules('mcp')}
 
-## 4. First-use acceptance check
+## 第三步：必须完成接入验收
 
-Before starting the next user task, retrieve relevant context. After the first meaningful milestone, write one structured task-state memory and verify that it can be found again. Never create test memories in the user's real project merely to prove connectivity.`;
+配置文件中出现 KeyMemory 只能证明“已配置”，不能证明“已经连通”。完成配置后必须执行以下验证：
+
+1. MCP 模式：确认工具列表中存在 \`keymemory_connection_status\`、\`keymemory_context_pack\`、\`keymemory_search\`、\`keymemory_read\`、\`keymemory_create\`、\`keymemory_update\`、\`keymemory_auto_remember\` 和 \`keymemory_supersede\`。
+2. 调用只读工具 \`keymemory_connection_status\`，返回值必须包含 \`status: connected\`。然后调用一次 \`keymemory_search\` 或 \`keymemory_context_pack\`，并确认返回的是 KeyMemory 结构化结果，而不是“工具不存在”或普通网页文本。
+3. CLI 模式：运行 \`keymemory info\`，再执行一次不写入数据的 \`keymemory search\` 或 \`keymemory context\`。
+4. 不要为了测试在用户真实项目中制造垃圾记忆。等出现第一个真实、有意义的工作节点时，按规则写入一条任务状态记忆，再用搜索和读取工具确认它可以被找回；这一步才证明写入链路也正常。
+5. 最后向用户报告：使用的连接方式、修改的文件、备份路径、是否需要重启、工具检测结果、只读检索结果，以及“配置检测 / 读取验证 / 写入验证”三项状态。任何一项未通过都不能宣称接入成功。
+
+完成后提醒用户回到 KeyMemory 的 Agent 接入页面点击“检测接入状态”。页面检测到配置表示第一层通过；Agent 成功返回 \`keymemory_connection_status\` 和检索结果表示实际连接通过。`;
+}
+
+export function buildKeyMemorySkill(): string {
+  return `---
+name: keymemory
+description: 使用 KeyMemory 读取用户偏好、最近事项和历史经验，并把新的工作进度、踩坑、成功经验及用户习惯持续写回共享记忆。
+compatibility: 需要能够使用 KeyMemory 工具、keymemory 命令或本机 3210 端口。
+---
+
+# KeyMemory 共享记忆
+
+当任务涉及用户偏好、近期事项、历史决策、任务续接、踩坑经验或可复用做法时，必须使用本 Skill。
+
+## 连接顺序
+
+1. 如果能看到 \`keymemory_*\` 工具，优先使用这些工具，并先调用 \`keymemory_connection_status\`。
+2. 如果看不到工具但可以执行命令，使用 \`keymemory info\`、\`keymemory context\`、\`keymemory search\`、\`keymemory create\` 和 \`keymemory update\`。
+3. 如果命令不可用但能访问本机服务，先访问 \`http://127.0.0.1:3210/api/health\`；读取使用 \`/api/memories/search?q=...\`，写入使用 \`POST /api/memories\`。写入后必须确认返回了记忆 ID。
+4. 三种方式都不可用时，明确告诉用户尚未连接，不能假装已经读取或写入。
+
+${buildMemoryOperatingRules('mcp')}
+
+## 每次使用后的验收
+
+- 说明本次读取了哪些相关记忆。
+- 说明新增或更新了哪些记忆，并保留返回的记忆 ID。
+- 若只是配置检查，不制造测试记忆；用 \`keymemory_connection_status\` 和一次只读检索证明连接。
+`;
 }
 
 // ─── CLI Mode System Prompt ────────────────────────────────────────────────

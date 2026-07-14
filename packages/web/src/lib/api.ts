@@ -219,12 +219,15 @@ export interface AgentIntegrationStatus {
   detected: boolean;
   connected: boolean;
   automatic: boolean;
-  recommendedMode: 'cli' | 'mcp';
+  recommendedMode: AgentConnectMode;
+  availableModes: AgentConnectMode[];
   evidence: string[];
   configPathHints: string[];
   snippet: string;
   notes: string[];
 }
+
+export type AgentConnectMode = 'mcp' | 'cli' | 'skill';
 
 export interface AgentDiscoveryReport {
   scannedAt: string;
@@ -243,7 +246,7 @@ export async function discoverAgentIntegrations(): Promise<AgentDiscoveryReport>
 export interface AgentConnectResult {
   success: boolean;
   agentId: string;
-  mode: 'cli' | 'mcp';
+  mode: AgentConnectMode;
   changed: boolean;
   files: string[];
   backups: string[];
@@ -251,10 +254,10 @@ export interface AgentConnectResult {
   message: string;
 }
 
-export async function connectAgentIntegration(agentId: string): Promise<{ result: AgentConnectResult; report: AgentDiscoveryReport }> {
+export async function connectAgentIntegration(agentId: string, mode: AgentConnectMode | 'auto' = 'auto'): Promise<{ result: AgentConnectResult; report: AgentDiscoveryReport }> {
   return request(`/integrations/${encodeURIComponent(agentId)}/connect`, {
     method: 'POST',
-    body: JSON.stringify({ confirm: true }),
+    body: JSON.stringify({ confirm: true, mode }),
   });
 }
 
