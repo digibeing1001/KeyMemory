@@ -1,11 +1,11 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, Settings } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, Settings, Plug } from './Icons';
 import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -35,6 +35,7 @@ const LAYER_ICONS: Record<Layer, typeof Flash> = {
 const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers }> = [
   { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
   { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
+  { mode: 'integrations', labelKey: 'nav.integrations', icon: Plug },
   { mode: 'nebula', labelKey: 'nav.nebula', icon: Globe },
   { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
   { mode: 'dream', labelKey: 'nav.dream', icon: Moon },
@@ -121,13 +122,16 @@ export default function Sidebar({
       }}
     >
       <div className="sidebar-brand-row" style={{ padding: '16px 16px 12px' }}>
-        <div>
+        <div className="sidebar-brand-lockup">
+          <span className="sidebar-brand-mark"><span /><span /><span /></span>
+          <div>
           <h1 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0, lineHeight: 1.4 }}>
             KeyMemory
           </h1>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.45 }}>
             {t('sidebar.subtitle')}
           </p>
+          </div>
         </div>
         <button
           type="button"

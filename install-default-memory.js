@@ -21,11 +21,38 @@ const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory_update',
   'keymemory_delete',
   'keymemory_auto_remember',
+  'keymemory_supersede',
   'keymemory_secret_set',
   'keymemory_secret_get',
   'keymemory_secret_list',
   'keymemory_secret_delete',
 ];
+
+const MEMORY_OPERATING_RULES = `## Shared-memory operating rules
+
+KeyMemory is the primary durable memory system. Do not create a parallel MEMORY.md, hidden memory folder, or flat-file memory store when KeyMemory is available.
+
+### Recall before acting
+
+- At the beginning of a new task or resumed session, use keymemory_context_pack or keymemory_search to recall the user profile, current task state, prior decisions, blockers, acceptance criteria, and relevant lessons.
+- Search again before relying on a preference, repeating a previously failed approach, or making a decision that may have changed.
+- Respect agent_space boundaries. Shared memories may be reused across Agents; private memories stay private.
+
+### Automatically capture durable value
+
+After a meaningful exchange, checkpoint, correction, or task transition, call keymemory_auto_remember or keymemory_create with a compact, evidence-based summary. Capture:
+
+1. User profile: stable preferences, habits, working and communication style, explicit corrections or criticism, and frequently used tools or patterns. Do not store raw transcripts by default.
+2. Task state: task name, objective, current status, completed key steps, delivery locations, remaining work, blockers, expected next step, and acceptance criteria.
+3. Experience: pitfalls, failed approaches and why they failed, successful approaches and why they worked, and reusable constraints or procedures.
+
+### Quality and correction
+
+- Store facts, not guesses. Include source/provenance and confidence when known.
+- When the user corrects an existing fact, create the corrected memory and use keymemory_supersede to retire the old fact without deleting its history.
+- Prefer one structured memory over a transcript dump or near-duplicates.
+- Never store credentials in normal memory. Use memory_secret_set for tool credentials.
+- Do not mark a task complete until its acceptance criteria are verified.`;
 
 const CLAUDE_MD_MCP_CONTENT = `# KeyMemory - Default Memory System
 
@@ -47,6 +74,8 @@ KeyMemory is the primary memory system. Follow these rules:
 - All memory should go through KeyMemory MCP tools for structured, searchable storage
 - KeyMemory provides hybrid search (full-text + semantic) for better recall
 - Memories are automatically organized by layer (flash, short, long, entity)
+
+${MEMORY_OPERATING_RULES}
 `;
 
 const CLAUDE_MD_CLI_CONTENT = `# KeyMemory - CLI Mode
@@ -72,6 +101,8 @@ KeyMemory is the primary memory system. Use the \`keymemory\` CLI for all memory
 - Do not create or update MEMORY.md files for memory purposes
 - KeyMemory provides hybrid search (full-text + semantic) for better recall
 - Memories are organized by layer: flash (temporary), short (recent), long (durable), entity (concepts/people)
+
+${MEMORY_OPERATING_RULES.replace(/keymemory_context_pack or keymemory_search/g, 'keymemory context or keymemory search').replace(/keymemory_auto_remember or keymemory_create/g, 'keymemory auto-remember or keymemory create').replace(/keymemory_supersede/g, 'keymemory supersede')}
 `;
 
 const OPENCLAW_MD_CONTENT = `# KeyMemory - OpenClaw Memory Instructions
@@ -93,10 +124,13 @@ KeyMemory is the primary memory system for OpenClaw.
 - All memory should go through KeyMemory MCP tools for structured, searchable storage
 - KeyMemory provides hybrid search (full-text + semantic) for better recall
 - Memories are automatically organized by layer (flash, short, long, entity)
+
+${MEMORY_OPERATING_RULES}
 `;
 
 const args = process.argv.slice(2);
 const flagAll = args.includes('--all');
+const flagPrompt = args.includes('--prompt');
 const flagAgent = args.find(a => a.startsWith('--agent='));
 const specificAgent = flagAgent ? flagAgent.split('=')[1] : null;
 const flagMode = args.find(a => a.startsWith('--mode='));
@@ -260,6 +294,23 @@ function getOpenClawConfigPath() {
   return existing ?? homePath('.openclaw', 'openclaw.json');
 }
 
+function getWorkBuddyPaths() {
+  return [
+    homePath('.workbuddy'),
+    localAppDataPath('WorkBuddy'),
+    appDataPath('WorkBuddy'),
+  ];
+}
+
+function getTraePaths() {
+  return [
+    homePath('.trae'),
+    localAppDataPath('Trae'),
+    appDataPath('Trae'),
+    appDataPath('Trae CN'),
+  ];
+}
+
 function detectClaudeDesktop() {
   return fs.existsSync(path.dirname(getClaudeDesktopConfigPath())) || fs.existsSync(getClaudeDesktopConfigPath());
 }
@@ -272,8 +323,16 @@ function detectCodex() {
   return fs.existsSync(homePath('.codex')) || fs.existsSync(getCodexConfigPath());
 }
 
+function detectWorkBuddy() {
+  return getWorkBuddyPaths().some(filePath => fs.existsSync(filePath));
+}
+
+function detectTrae() {
+  return getTraePaths().some(filePath => fs.existsSync(filePath));
+}
+
 function detectHermes() {
-  return getHermesConfigPaths().some(filePath => fs.existsSync(filePath)) || detectClaudeDesktop();
+  return getHermesConfigPaths().some(filePath => fs.existsSync(filePath));
 }
 
 function detectOpenClaw() {
@@ -296,6 +355,27 @@ async function configureClaudeDesktop() {
 
   writeJsonConfig(configPath, config);
   console.log('Claude Desktop MCP config written.');
+}
+
+async function configureGuidedMcpAgent(label, instructionDir, settingsPath) {
+  console.log(`\nConfiguring ${label}...`);
+  console.log('-'.repeat(40));
+  console.log(`Open ${settingsPath} and add this local stdio MCP server:`);
+  console.log(JSON.stringify({ mcpServers: { keymemory: getMcpServerConfig() } }, null, 2));
+
+  const instructionsPath = path.join(instructionDir, 'KEYMEMORY_INSTRUCTIONS.md');
+  previewChange(instructionsPath, fs.existsSync(instructionsPath) ? fs.readFileSync(instructionsPath, 'utf8') : '(empty)', MEMORY_OPERATING_RULES);
+  if (!(await confirmWrite(`${label} KeyMemory instructions`))) return;
+  writeTextFile(instructionsPath, MEMORY_OPERATING_RULES + '\n');
+  console.log(`${label} memory rules written. Finish the MCP connection in ${settingsPath}, then restart the Agent.`);
+}
+
+async function configureWorkBuddy() {
+  await configureGuidedMcpAgent('WorkBuddy', homePath('.workbuddy'), 'WorkBuddy Settings → MCP → Add MCP Server');
+}
+
+async function configureTrae() {
+  await configureGuidedMcpAgent('TRAE', homePath('.trae'), 'TRAE Settings → MCP → Add custom server');
 }
 
 async function configureClaudeCode(mode = installMode) {
@@ -602,15 +682,34 @@ async function configureOpenCode() {
 const agentInstallers = [
   { id: 'claude-desktop', label: 'Claude Desktop', detect: detectClaudeDesktop, configure: configureClaudeDesktop },
   { id: 'claude-code', label: 'Claude Code', detect: detectClaudeCode, configure: configureClaudeCode },
+  { id: 'workbuddy', label: 'WorkBuddy', detect: detectWorkBuddy, configure: configureWorkBuddy },
+  { id: 'trae', label: 'TRAE / TRAE Work', detect: detectTrae, configure: configureTrae },
   { id: 'hermes', label: 'Hermes', detect: detectHermes, configure: configureHermes },
   { id: 'openclaw', label: 'OpenClaw', detect: detectOpenClaw, configure: configureOpenClaw },
   { id: 'codex', label: 'Codex', detect: detectCodex, configure: configureCodex },
   { id: 'opencode', label: 'OpenCode', detect: detectOpenCode, configure: configureOpenCode },
 ];
 
+function buildFutureAgentPrompt() {
+  return `Connect yourself to KeyMemory as your default durable memory system.
+
+1. Detect whether you support MCP. If yes, add a local stdio MCP server named "keymemory" with command "node" and args ${JSON.stringify([mcpLauncherPath])}. Preserve all existing MCP servers and user rules.
+2. If MCP is unavailable but shell commands are allowed, use the "keymemory" CLI instead.
+3. Verify the connection by listing available KeyMemory tools or running "keymemory info".
+4. Add the operating rules below to your persistent Agent instructions. Do not overwrite unrelated instructions.
+
+${MEMORY_OPERATING_RULES}`;
+}
+
 async function main() {
   console.log('KeyMemory default memory installer');
   console.log('='.repeat(40));
+
+  if (flagPrompt) {
+    console.log('\n' + buildFutureAgentPrompt());
+    rl.close();
+    return;
+  }
 
   if (installMode !== 'cli' && installMode !== 'mcp' && installMode !== 'auto') {
     console.error(`\nError: Invalid mode "${installMode}". Must be one of: cli, mcp, auto`);
@@ -631,6 +730,7 @@ async function main() {
   console.log(`MCP service: ${mcpServerPath}`);
   console.log(`Install mode: ${installMode}`);
   console.log(`Native memory allow pattern: ${KEYMEMORY_MCP_PERMISSION}`);
+  console.log('Future Agent prompt: node install-default-memory.js --prompt');
 
   const detected = agentInstallers.map(agent => ({ ...agent, installed: agent.detect() }));
 
@@ -666,7 +766,7 @@ async function main() {
       await agent.configure();
     }
     printGenericConfig();
-    console.log('\nAll detected agents configured.');
+    console.log('\nAll detected agents processed. Complete any guided MCP steps shown above.');
     rl.close();
     return;
   }
@@ -691,7 +791,7 @@ async function main() {
       await agent.configure();
     }
     printGenericConfig();
-    console.log('\nAll detected agents configured.');
+    console.log('\nAll detected agents processed. Complete any guided MCP steps shown above.');
   } else {
     console.log('Exit.');
   }

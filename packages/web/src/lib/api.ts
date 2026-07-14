@@ -213,6 +213,32 @@ export async function getAgents(): Promise<AgentInfo[]> {
   return request('/agents');
 }
 
+export interface AgentIntegrationStatus {
+  id: string;
+  label: string;
+  detected: boolean;
+  connected: boolean;
+  recommendedMode: 'cli' | 'mcp';
+  evidence: string[];
+  configPathHints: string[];
+  snippet: string;
+  notes: string[];
+}
+
+export interface AgentDiscoveryReport {
+  scannedAt: string;
+  projectRoot: string;
+  detectedCount: number;
+  connectedCount: number;
+  agents: AgentIntegrationStatus[];
+  operatingRules: string;
+  onboardingPrompt: string;
+}
+
+export async function discoverAgentIntegrations(): Promise<AgentDiscoveryReport> {
+  return request('/integrations/discover');
+}
+
 export interface DreamSession {
   id: string;
   phase: 'light' | 'rem' | 'deep';

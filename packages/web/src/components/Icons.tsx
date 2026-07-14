@@ -201,3 +201,15 @@ export const Box: FC<IconProps> = (p) => (
 export const Sliders: FC<IconProps> = (p) => (
   <I {...p}><path d="M4 6h2M14 6h2M8 6h2M4 12h8M14 12h2M4 18h2M10 18h6" /><path d="M8 4v4M12 10v4M6 16v4" /></I>
 );
+
+export const Plug: FC<IconProps> = (p) => (
+  <I {...p}><path d="M7 3v5M13 3v5M5 8h10v2a5 5 0 01-5 5v3M7 18h6" /></I>
+);
+
+export const Copy: FC<IconProps> = (p) => (
+  <I {...p}><rect x="7" y="7" width="10" height="10" rx="2" /><path d="M13 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2" /></I>
+);
+
+export const Terminal: FC<IconProps> = (p) => (
+  <I {...p}><rect x="2" y="3" width="16" height="14" rx="2" /><path d="M5 7l3 3-3 3M10 13h4" /></I>
+);

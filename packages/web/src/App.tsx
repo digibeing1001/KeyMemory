@@ -16,6 +16,7 @@ import LLMConfigView from './components/LLMConfigView';
 import MigrationView from './components/MigrationView';
 import ProjectSuggestionsView from './components/ProjectSuggestionsView';
 import WorkingSetView from './components/WorkingSetView';
+import IntegrationView from './components/IntegrationView';
 import Editor from './views/Editor';
 import { I18nProvider, useI18n } from './i18n';
 import {
@@ -32,7 +33,7 @@ import {
 import type { MemoryGraphData, TagCloudData } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
 
 function isViewMode(value: string | null): value is ViewMode {
   return value === 'memories'
@@ -43,7 +44,8 @@ function isViewMode(value: string | null): value is ViewMode {
     || value === 'organize'
     || value === 'recycle'
     || value === 'workingSet'
-    || value === 'llm';
+    || value === 'llm'
+    || value === 'integrations';
 }
 
 function AppInner() {
@@ -52,6 +54,8 @@ function AppInner() {
   const { toast } = useToast();
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
+    const linked = new URLSearchParams(window.location.search).get('view');
+    if (isViewMode(linked)) return linked;
     const saved = localStorage.getItem('keymemory_view_mode');
     return isViewMode(saved) ? saved : 'memories';
   });
@@ -61,10 +65,10 @@ function AppInner() {
   const [isDark, setIsDark] = useState(() => {
     const themeVersion = localStorage.getItem('keymemory_theme_version');
     const saved = localStorage.getItem('keymemory_theme');
-    if (themeVersion === 'bright-notes-20260601' && (saved === 'dark' || saved === 'light')) {
+    if (themeVersion === 'memory-control-plane-20260715' && (saved === 'dark' || saved === 'light')) {
       return saved === 'dark';
     }
-    return false;
+    return true;
   });
   const [searchInput, setSearchInput] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -80,7 +84,7 @@ function AppInner() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
     localStorage.setItem('keymemory_theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('keymemory_theme_version', 'bright-notes-20260601');
+    localStorage.setItem('keymemory_theme_version', 'memory-control-plane-20260715');
   }, [isDark]);
 
   useEffect(() => {
@@ -516,6 +520,12 @@ function AppInner() {
                   store.selectMemory(id);
                 }}
               />
+            </div>
+          )}
+
+          {viewMode === 'integrations' && (
+            <div className="flex-1 overflow-y-auto">
+              <IntegrationView />
             </div>
           )}
 

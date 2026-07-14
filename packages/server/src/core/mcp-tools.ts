@@ -27,6 +27,7 @@ const MEMORY_KINDS = [
   'event',
   'constraint',
   'raw_note',
+  'project_journal',
 ];
 export const ENTITY_TYPES = ['person', 'tool', 'concept', 'organization', 'location', 'event', 'time', 'project'];
 
@@ -47,6 +48,8 @@ const memoryFilterProperties = {
   updatedBefore: { type: 'string', description: 'ISO 8601 timestamp. Only memories updated at or before this time.' },
   lastHitAfter: { type: 'string', description: 'ISO 8601 timestamp. Only memories whose last retrieval hit was at or after this time. Memories never hit are excluded.' },
   lastHitBefore: { type: 'string', description: 'ISO 8601 timestamp. Only memories whose last retrieval hit was at or before this time. Memories never hit are excluded.' },
+  asOf: { type: 'string', description: 'ISO 8601 instant used for temporal validity. Defaults to now.' },
+  includeExpired: { type: 'boolean', description: 'Include memories outside their validity windows. Default false for agent retrieval.' },
 };
 
 const memoryCreateSchema = {
@@ -57,6 +60,9 @@ const memoryCreateSchema = {
     layer: { type: 'string', enum: LAYERS, description: 'Memory layer: flash, short, long, or entity. Optional; inferred from content/metadata when omitted. Default short.' },
     projectId: { type: 'string', description: 'Optional KeyMemory project ID.' },
     projectPath: { type: 'string', description: 'Optional project path, such as Product/Backend/Memory. Missing folders are created automatically.' },
+    confidence: { type: 'number', minimum: 0, maximum: 1, description: 'Evidence-calibrated confidence. Explicit writes default to 1.' },
+    validFrom: { type: 'string', description: 'ISO 8601 start of the fact validity window. Defaults to creation time.' },
+    validTo: { type: 'string', description: 'ISO 8601 exclusive end of the fact validity window.' },
     tags: { type: 'array', items: { type: 'string' }, description: 'Optional searchable tags.' },
     metadata: { type: 'object', description: 'Optional structured metadata such as timeline, entities, context, category, and importance.' },
     source: { type: 'string', description: 'Optional source label, such as conversation, hermes, openclaw, or manual.' },
@@ -75,6 +81,7 @@ const memorySearchSchema = {
     memoryKind: { type: 'string', enum: MEMORY_KINDS, description: 'Optional normalized memory kind filter.' },
     layer: { type: 'string', enum: LAYERS, description: 'Optional memory layer filter.' },
     limit: { type: 'number', description: 'Maximum number of results. Default 10.' },
+    explain: { type: 'boolean', description: 'Include RRF ranks and quality-boost contributions in each result.' },
     ...memoryFilterProperties,
   },
   required: ['query'],
@@ -87,6 +94,9 @@ const memoryContextPackSchema = {
     project: { type: 'string', description: 'Project path, name, or ID. Descendants are included by default.' },
     projectId: { type: 'string', description: 'Project ID.' },
     includeDescendants: { type: 'boolean', description: 'Whether to include child projects. Default true.' },
+    includeSuperseded: { type: 'boolean', description: 'Include superseded memories for audit or historical inspection.' },
+    asOf: { type: 'string', description: 'ISO 8601 instant used to assemble historical/current context. Defaults to now.' },
+    includeExpired: { type: 'boolean', description: 'Include memories outside their validity windows. Default false.' },
     memoryKinds: { type: 'array', items: { type: 'string' }, description: 'Optional memory kinds to include.' },
     maxItems: { type: 'number', description: 'Max memories. Default 12.' },
     maxChars: { type: 'number', description: 'Approximate character budget. Default 6000.' },
@@ -189,6 +199,9 @@ const memoryImportSchema = {
           layer: { type: 'string', enum: LAYERS, description: 'Optional memory layer. Auto-inferred when omitted.' },
           projectId: { type: 'string', description: 'Optional project ID.' },
           projectPath: { type: 'string', description: 'Optional project path.' },
+          confidence: { type: 'number', minimum: 0, maximum: 1, description: 'Optional source confidence.' },
+          validFrom: { type: 'string', description: 'Optional ISO 8601 validity start.' },
+          validTo: { type: 'string', description: 'Optional ISO 8601 validity end.' },
           tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags.' },
           metadata: { type: 'object', description: 'Optional structured metadata.' },
           source: { type: 'string', description: 'Optional source label.' },
@@ -287,6 +300,9 @@ const BASE_MCP_TOOLS: MCPTool[] = [
         layer: { type: 'string', enum: LAYERS, description: 'New memory layer.' },
         projectId: { type: 'string', description: 'New project ID.' },
         projectPath: { type: 'string', description: 'New project path.' },
+        confidence: { type: 'number', minimum: 0, maximum: 1, description: 'New evidence confidence.' },
+        validFrom: { type: 'string', description: 'New ISO 8601 validity start.' },
+        validTo: { type: ['string', 'null'], description: 'New exclusive validity end; null reopens the window.' },
         tags: { type: 'array', items: { type: 'string' }, description: 'New tags.' },
         metadata: { type: 'object', description: 'New metadata.' },
         source: { type: 'string', description: 'New source label.' },
@@ -346,6 +362,21 @@ const BASE_MCP_TOOLS: MCPTool[] = [
       },
       required: ['id'],
     },
+  },
+  {
+    name: 'memory_supersede',
+    description: 'Make one visible memory supersede another, close the older fact validity window, and preserve both memories for temporal recall.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: { type: 'string', description: 'Newer replacement memory ID.' },
+        targetId: { type: 'string', description: 'Older memory ID whose validity window will be closed.' },
+        effectiveAt: { type: 'string', description: 'ISO 8601 effective time. Defaults to the newer memory validFrom.' },
+        reason: { type: 'string', description: 'Required provenance for the knowledge update.' },
+      },
+      required: ['sourceId', 'targetId', 'reason'],
+    },
+    annotations: { idempotentHint: true },
   },
   {
     name: 'memory_import',
@@ -636,6 +667,8 @@ export const MCP_TOOL_ALIASES: Record<string, string> = {
   list_memory: 'memory_list',
   keymemory_update: 'memory_update',
   update_memory: 'memory_update',
+  keymemory_supersede: 'memory_supersede',
+  supersede_memory: 'memory_supersede',
   keymemory_delete: 'memory_delete',
   delete_memory: 'memory_delete',
   forget_memory: 'memory_delete',

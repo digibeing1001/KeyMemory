@@ -2,7 +2,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-export type AgentConfigTarget = 'generic' | 'claude-desktop' | 'claude-code' | 'hermes' | 'openclaw' | 'codex' | 'opencode';
+export type AgentConfigTarget = 'generic' | 'claude-desktop' | 'claude-code' | 'workbuddy' | 'trae' | 'hermes' | 'openclaw' | 'codex' | 'opencode';
 export type AgentMode = 'cli' | 'mcp' | 'auto';
 
 export interface AgentConfigSnippet {
@@ -16,7 +16,7 @@ export interface AgentConfigSnippet {
   mode: AgentMode;
 }
 
-const TARGETS: AgentConfigTarget[] = ['generic', 'claude-desktop', 'claude-code', 'hermes', 'openclaw', 'codex', 'opencode'];
+const TARGETS: AgentConfigTarget[] = ['generic', 'claude-desktop', 'claude-code', 'workbuddy', 'trae', 'hermes', 'openclaw', 'codex', 'opencode'];
 const KEYMEMORY_MCP_PERMISSION = 'mcp__keymemory__*';
 const KEYMEMORY_HOST_TOOL_PATTERNS = [KEYMEMORY_MCP_PERMISSION, 'keymemory_*', 'memory_*'];
 const KEYMEMORY_TOOL_INCLUDE = [
@@ -29,6 +29,7 @@ const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory_update',
   'keymemory_delete',
   'keymemory_auto_remember',
+  'keymemory_supersede',
   'keymemory_secret_set',
   'keymemory_secret_get',
   'keymemory_secret_list',
@@ -113,6 +114,8 @@ export function defaultModeForTarget(target: AgentConfigTarget): AgentMode {
     case 'hermes':
       return 'cli';
     case 'claude-desktop':
+    case 'workbuddy':
+    case 'trae':
     case 'openclaw':
     case 'opencode':
     case 'generic':
@@ -124,6 +127,57 @@ export function defaultModeForTarget(target: AgentConfigTarget): AgentMode {
 function resolveMode(mode: AgentMode | undefined, target: AgentConfigTarget): AgentMode {
   if (mode && mode !== 'auto') return mode;
   return defaultModeForTarget(target);
+}
+
+// ─── Shared memory policy ──────────────────────────────────────────────────
+
+export function buildMemoryOperatingRules(transport: 'cli' | 'mcp' = 'mcp'): string {
+  const createTool = transport === 'cli'
+    ? '`keymemory create` / `keymemory auto-remember`'
+    : '`keymemory_create` / `keymemory_auto_remember`';
+  const searchTool = transport === 'cli'
+    ? '`keymemory context` / `keymemory search`'
+    : '`keymemory_context_pack` / `keymemory_search`';
+  const supersedeTool = transport === 'cli' ? '`keymemory supersede`' : '`keymemory_supersede`';
+
+  return `# KeyMemory shared-memory operating rules
+
+KeyMemory is the primary durable memory system for this Agent. Do not create a parallel MEMORY.md, hidden memory folder, or flat-file memory store when KeyMemory is available.
+
+## Recall before acting
+
+- At the beginning of a new task or resumed session, use ${searchTool} to recall the user profile, current task state, prior decisions, blockers, acceptance criteria, and relevant lessons.
+- Search again before relying on a preference, repeating a previously failed approach, or making a decision that may have changed.
+- Respect every \`agent_space\` boundary. Shared memories may be reused across Agents; private memories stay private.
+
+## Automatically capture durable value
+
+After a meaningful exchange, checkpoint, correction, or task transition, write a compact evidence-based memory with ${createTool}. Capture these three groups:
+
+1. **User profile** — stable preferences, habits, working style, communication style, explicit corrections or criticism, and frequently used tools or patterns. Summarize the durable signal; do not store raw conversation logs by default.
+2. **Task state** — task name, objective, current status, completed key steps, delivery locations, remaining work, blockers, expected next step, and acceptance criteria. Update this at meaningful milestones and before handoff.
+3. **Experience** — pitfalls, failed approaches and why they failed, successful approaches and why they worked, plus reusable constraints or procedures.
+
+## Quality and correction rules
+
+- Store facts, not guesses. Include source/provenance and confidence when known.
+- When the user corrects an existing fact, create the corrected memory and use ${supersedeTool} to retire the old fact without deleting its history.
+- Prefer one concise, structured memory over a transcript dump or many near-duplicates.
+- Never put credentials, tokens, private keys, or passwords in normal memory. Use \`memory_secret_set\` for tool credentials.
+- Do not claim a task is complete until its acceptance criteria are verified. Keep delivery paths and blockers explicit.
+`;
+}
+
+export function buildUniversalOnboardingPrompt(root?: string): string {
+  const launcher = launcherPath(root);
+  return `Connect yourself to KeyMemory as your default durable memory system.
+
+1. Detect whether you support MCP. If yes, add a local stdio MCP server named \`keymemory\` with command \`node\` and args \`${JSON.stringify([launcher])}\`. Preserve all existing MCP servers and user rules.
+2. If MCP is unavailable but shell commands are allowed, use the \`keymemory\` CLI instead.
+3. Verify the connection by listing available KeyMemory tools or running \`keymemory info\`.
+4. Add the operating rules below to your persistent Agent instructions. Do not overwrite unrelated instructions.
+
+${buildMemoryOperatingRules('mcp')}`;
 }
 
 // ─── CLI Mode System Prompt ────────────────────────────────────────────────
@@ -146,14 +200,7 @@ KeyMemory is your durable memory system. Use the \`keymemory\` CLI for all memor
 | Context pack | \`keymemory context "current task" --project "project/name" --max-items 12\` |
 | Auto-remember | \`keymemory auto-remember -c "content to evaluate"\` |
 
-## Rules
-
-- Always use KeyMemory for durable memory instead of MEMORY.md or local Memory files
-- Before relying on user preferences, prior decisions, or previous instructions, run \`keymemory search <query>\`
-- After significant exchanges, run \`keymemory auto-remember -c "<summary>"\` to capture durable value
-- Do not create or update MEMORY.md files for memory purposes
-- KeyMemory provides hybrid search (full-text + semantic) for better recall
-- Memories are organized by layer: flash (temporary), short (recent), long (durable), entity (concepts/people)
+${buildMemoryOperatingRules('cli')}
 `;
 }
 
@@ -238,6 +285,48 @@ function claudeCodeMcpSnippet(root?: string): AgentConfigSnippet {
       'Keep existing servers in the file and merge the keymemory entry.',
       `Keep ${KEYMEMORY_MCP_PERMISSION} in permissions.allow so KeyMemory native memory reads and writes do not prompt in every new session.`,
       'Prefer keymemory_* tools for durable memory; memory_* names remain compatibility aliases.',
+    ],
+    mode: 'mcp',
+  };
+}
+
+function workbuddyMcpSnippet(root?: string): AgentConfigSnippet {
+  return {
+    target: 'workbuddy',
+    label: 'WorkBuddy',
+    format: 'json',
+    launcherPath: launcherPath(root),
+    configPathHints: [
+      homePath('.workbuddy'),
+      homePath('.workbuddy', 'connectors', 'default', 'mcp.json'),
+    ],
+    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
+    notes: [
+      'Open WorkBuddy Settings → MCP → Add MCP Server, then add the local stdio server shown above.',
+      'WorkBuddy configuration is versioned independently under ~/.workbuddy; preserve existing connectors and permissions.',
+      `Allow ${KEYMEMORY_MCP_PERMISSION} when WorkBuddy asks for a persistent MCP permission.`,
+      'Add the generated KeyMemory operating rules to WorkBuddy custom instructions so retrieval and automatic capture happen consistently.',
+    ],
+    mode: 'mcp',
+  };
+}
+
+function traeMcpSnippet(root?: string): AgentConfigSnippet {
+  return {
+    target: 'trae',
+    label: 'TRAE / TRAE Work',
+    format: 'json',
+    launcherPath: launcherPath(root),
+    configPathHints: [
+      homePath('.trae'),
+      appDataPath('Trae'),
+      appDataPath('Trae CN'),
+    ],
+    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
+    notes: [
+      'Open TRAE Settings → MCP and add a custom local stdio server using the command and args above.',
+      'Keep existing MCP servers and TRAE rules; KeyMemory should be added, not used as a replacement config file.',
+      'Paste the generated KeyMemory operating rules into TRAE custom rules so every built-in or custom Agent uses the same memory policy.',
     ],
     mode: 'mcp',
   };
@@ -397,6 +486,8 @@ export function buildAgentConfigSnippet(target: AgentConfigTarget, mode?: AgentM
   if (target === 'generic') return genericMcpSnippet(root);
   if (target === 'claude-desktop') return claudeDesktopMcpSnippet(root);
   if (target === 'claude-code') return resolved === 'cli' ? claudeCodeCliSnippet(root) : claudeCodeMcpSnippet(root);
+  if (target === 'workbuddy') return workbuddyMcpSnippet(root);
+  if (target === 'trae') return traeMcpSnippet(root);
   if (target === 'hermes') return resolved === 'cli' ? hermesCliSnippet(root) : hermesMcpSnippet(root);
   if (target === 'openclaw') return openClawMcpSnippet(root);
   if (target === 'codex') return resolved === 'cli' ? codexCliSnippet(root) : codexMcpSnippet(root);

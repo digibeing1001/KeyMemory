@@ -64,6 +64,7 @@ const zh: Record<string, string> = {
   'nav.organize': '项目整理',
   'nav.recycle': '回收站',
   'nav.workingSet': '使用动态',
+  'nav.integrations': 'Agent 接入',
 
   'llm.title': 'LLM 配置',
   'llm.subtitle': '配置大语言模型 API（OpenAI 兼容协议），用于关联推理。本地模型推荐 Ollama（默认 http://localhost:11434/v1）。',
@@ -418,6 +419,7 @@ const en: Record<string, string> = {
   'nav.organize': 'Project cleanup',
   'nav.recycle': 'Recycle bin',
   'nav.workingSet': 'Activity',
+  'nav.integrations': 'Agent integrations',
 
   'llm.title': 'LLM Configuration',
   'llm.subtitle': 'Configure a large language model API (OpenAI-compatible protocol) for relation reasoning. Local models recommended via Ollama (default http://localhost:11434/v1).',

@@ -7,6 +7,7 @@ import { getDatabase } from '../db/sqlite.js';
 import { findRelatedMemories } from '../graph/entity.js';
 import { getPendingTodosForContext } from './dreaming.js';
 import { getPendingInjectionForProject, getLatestProjectJournal } from './project-journal.js';
+import { isMemoryValidAt, resolveAsOf } from './temporal.js';
 
 /**
  * 项目命名规范指南（注入到 context pack，让 agent 在写入记忆时遵循）
@@ -106,10 +107,17 @@ function truncate(value: string, maxChars: number): string {
   return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
-function addCandidate(map: Map<string, AgentContextItem>, memory: Memory, score = 0, accessibleSpaces?: Set<string>): void {
+function addCandidate(
+  map: Map<string, AgentContextItem>,
+  memory: Memory,
+  score = 0,
+  accessibleSpaces?: Set<string>,
+  temporal?: { asOf: string; includeExpired: boolean },
+): void {
   // 隔离过滤：若指定了可见空间集合，非可见记忆一律不进入候选池。
   // 这覆盖了 search/list/related/superseders 所有引入路径，防止跨 agent 私有空间泄露。
   if (accessibleSpaces && !accessibleSpaces.has(memory.agentSpace)) return;
+  if (temporal && !temporal.includeExpired && !isMemoryValidAt(memory, temporal.asOf)) return;
   const kind = memoryKindOf(memory);
   const finalScore = score + (KIND_WEIGHT.get(kind) ?? 0) + layerWeight(memory) + Math.min(0.01, Math.log1p(memory.hitCount) * 0.002);
   const existing = map.get(memory.id);
@@ -124,12 +132,14 @@ function addCandidate(map: Map<string, AgentContextItem>, memory: Memory, score 
     projectPath: projectPathOf(memory),
     tags: memory.tags,
     source: memory.source,
+    validFrom: memory.validFrom,
+    validTo: memory.validTo,
     updatedAt: memory.updatedAt,
     score: Number(finalScore.toFixed(6)),
   });
 }
 
-function activeSuperseders(): Map<string, string> {
+function activeSuperseders(asOf: string): Map<string, string> {
   const db = getDatabase();
   const rows = db.prepare(`
     SELECT r.target_memory_id as targetId, r.source_memory_id as sourceId
@@ -142,21 +152,32 @@ function activeSuperseders(): Map<string, string> {
 
   const map = new Map<string, string>();
   for (const row of rows) {
+    const source = getMemory(row.sourceId);
+    if (!source || !isMemoryValidAt(source, asOf)) continue;
     if (!map.has(row.targetId)) map.set(row.targetId, row.sourceId);
   }
   return map;
 }
 
-function promoteSupersedingMemories(candidates: Map<string, AgentContextItem>, superseders: Map<string, string>, accessibleSpaces?: Set<string>): void {
+function promoteSupersedingMemories(
+  candidates: Map<string, AgentContextItem>,
+  superseders: Map<string, string>,
+  accessibleSpaces?: Set<string>,
+  temporal?: { asOf: string; includeExpired: boolean },
+): void {
   for (const item of Array.from(candidates.values())) {
     const sourceId = superseders.get(item.id);
     if (!sourceId || candidates.has(sourceId)) continue;
     const source = getMemory(sourceId);
-    if (source?.status === 'active') addCandidate(candidates, source, item.score + 0.05, accessibleSpaces);
+    if (source?.status === 'active') addCandidate(candidates, source, item.score + 0.05, accessibleSpaces, temporal);
   }
 }
 
-function expandRelatedMemories(candidates: Map<string, AgentContextItem>, accessibleSpaces?: Set<string>): void {
+function expandRelatedMemories(
+  candidates: Map<string, AgentContextItem>,
+  accessibleSpaces?: Set<string>,
+  temporal?: { asOf: string; includeExpired: boolean },
+): void {
   const seeds = Array.from(candidates.values());
   for (const item of seeds) {
     const related = findRelatedMemories(item.id)
@@ -166,7 +187,7 @@ function expandRelatedMemories(candidates: Map<string, AgentContextItem>, access
       if (candidates.has(rel.memoryId)) continue;
       const memory = getMemory(rel.memoryId);
       if (memory?.status !== 'active') continue;
-      addCandidate(candidates, memory, item.score + Math.min(0.04, rel.strength * 0.04), accessibleSpaces);
+      addCandidate(candidates, memory, item.score + Math.min(0.04, rel.strength * 0.04), accessibleSpaces, temporal);
     }
   }
 }
@@ -199,14 +220,16 @@ function estimateChars(items: AgentContextItem[]): number {
 
 function formatItem(item: AgentContextItem): string {
   const source = item.projectPath ? `, project=${item.projectPath}` : '';
+  const validity = item.validTo ? `, valid=${item.validFrom}..${item.validTo}` : '';
   const shortId = item.id.slice(0, 8);
-  return `- [${item.layer}, ${shortId}${source}] ${item.title}: ${item.content}${relationLine(item)}`;
+  return `- [${item.layer}, ${shortId}${source}${validity}] ${item.title}: ${item.content}${relationLine(item)}`;
 }
 
 function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, handoff?: { instruction?: string; lastJournal?: { id: string; title: string; content: string; createdAt: string } | null }): string {
   const lines = ['# KeyMemory Context'];
   if (pack.project) lines.push(`Project: ${pack.project}`);
   if (pack.query) lines.push(`Query: ${pack.query}`);
+  lines.push(`As of: ${pack.asOf}${pack.includeExpired ? ' (including expired facts)' : ''}`);
   lines.push(`Generated: ${pack.generatedAt}`);
   lines.push('');
 
@@ -263,22 +286,27 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
   const projectMissing = Boolean((input.projectId || input.project) && !project);
   const projectId = input.projectId ?? project?.id;
   const projectName = project?.path ?? input.project;
+  const asOf = resolveAsOf(input.asOf);
+  const temporal = { asOf, includeExpired: input.includeExpired === true };
   const allowedKinds = input.memoryKinds && input.memoryKinds.length > 0 ? new Set(input.memoryKinds) : null;
   // 隔离过滤：若调用方传入 agentSpaces，则 search/list/扩展路径都只接受这些空间的记忆。
   // accessibleSpaces 是 Set 形式供 addCandidate O(1) 判断；agentSpaces 原数组透传给 SQL 层。
   const accessibleSpaces = input.agentSpaces && input.agentSpaces.length > 0 ? new Set(input.agentSpaces) : undefined;
 
   const candidates = new Map<string, AgentContextItem>();
-  const superseders = activeSuperseders();
+  const superseders = input.includeSuperseded === true ? new Map<string, string>() : activeSuperseders(asOf);
 
   if (input.query?.trim() && !projectMissing) {
     const results = await searchHybrid(input.query, {
       projectId,
       includeDescendants,
+      includeSuperseded: input.includeSuperseded,
+      asOf,
+      includeExpired: temporal.includeExpired,
       limit: maxItems * 3,
       agentSpaces: input.agentSpaces,
     });
-    for (const result of results) addCandidate(candidates, result.memory, result.score, accessibleSpaces);
+    for (const result of results) addCandidate(candidates, result.memory, result.score, accessibleSpaces, temporal);
   }
 
   if (!projectMissing) {
@@ -286,14 +314,16 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
       projectId,
       includeDescendants,
       status: 'active',
+      asOf,
+      includeExpired: temporal.includeExpired,
       limit: maxItems * 5,
       agentSpaces: input.agentSpaces,
     });
-    for (const memory of scoped) addCandidate(candidates, memory, 0, accessibleSpaces);
+    for (const memory of scoped) addCandidate(candidates, memory, 0, accessibleSpaces, temporal);
   }
 
-  promoteSupersedingMemories(candidates, superseders, accessibleSpaces);
-  expandRelatedMemories(candidates, accessibleSpaces);
+  promoteSupersedingMemories(candidates, superseders, accessibleSpaces, temporal);
+  expandRelatedMemories(candidates, accessibleSpaces, temporal);
 
   const sorted = Array.from(candidates.values())
     .filter(item => !allowedKinds || allowedKinds.has(item.memoryKind))
@@ -333,6 +363,8 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     query: input.query,
     project: projectName,
     projectId,
+    asOf,
+    includeExpired: temporal.includeExpired,
     generatedAt: new Date().toISOString(),
     totalItems: selected.length,
     usedChars,

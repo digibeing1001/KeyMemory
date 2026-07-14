@@ -24,9 +24,24 @@ The generator prints config snippets without writing files. This keeps setup saf
 - `generic`: JSON snippet for any MCP-compatible agent.
 - `claude-desktop`: JSON snippet for Claude Desktop `mcpServers`.
 - `claude-code`: project MCP JSON snippet plus `permissions.allow = ["mcp__keymemory__*"]`.
+- `workbuddy`: local stdio MCP snippet for WorkBuddy Settings → MCP, plus persistent memory rules under `~/.workbuddy`.
+- `trae`: local stdio MCP snippet for TRAE / TRAE Work Settings → MCP, plus custom Agent rules.
 - `hermes`: Hermes `mcp_servers.keymemory` config plus native-memory usage notes.
 - `openclaw`: JSON snippet with `mcpServers.keymemory`, `memory.provider = keymemory`, `permissions.allow`, and `allowedTools`.
 - `codex`: TOML snippet for Codex `~/.codex/config.toml`.
+- `opencode`: JSON MCP snippet with persistent KeyMemory permissions.
+
+`pnpm setup` runs the device scan automatically. Re-run `pnpm install-memory` at any time, or open **Agent integrations** in the Web UI to see detected and connected tools. To onboard a future Agent, run `node install-default-memory.js --prompt` and paste the result into that Agent.
+
+## Automatic Memory Policy
+
+Every generated instruction set makes KeyMemory the primary durable memory tool and requires recall at task start plus automatic capture at meaningful transitions:
+
+1. User profile: stable preferences, habits, working/communication style, explicit corrections or criticism, and frequently used tools or patterns.
+2. Task state: task name, objective, status, completed key steps, delivery paths, remaining work, blockers, next step, and acceptance criteria.
+3. Experience: pitfalls, failed approaches and causes, successful approaches, constraints, and reusable procedures.
+
+Corrections create a new fact and use `keymemory_supersede` to close the old fact's validity window without deleting history. Generated rules also forbid normal memory from storing credentials and require `agent_space` boundaries to be respected.
 
 ## Native Memory Permissions
 

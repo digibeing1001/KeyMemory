@@ -30,6 +30,8 @@ import { isApiRequestAuthorized, shouldAuthenticateHttpPath } from '../core/secu
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, startLoopRun } from '../core/loop-harness.js';
 import path from 'path';
 import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
+import { supersedeMemory } from '../core/supersession.js';
+import { discoverAgentIntegrations } from '../core/agent-discovery.js';
 
 /**
  * 校验导入路径安全性，防止 null byte 注入和明显的路径攻击
@@ -67,6 +69,16 @@ function loopHttpStatus(code: string | undefined): number {
   if (code === 'LIMIT_EXCEEDED') return 413;
   if (code === 'INTERNAL_ERROR') return 500;
   return 409;
+}
+
+function getVisibleMemoryForRequest(request: FastifyRequest, id: string) {
+  const memory = getMemory(id);
+  if (!memory) return null;
+  const agentId = request.headers['x-agent-id'];
+  if (typeof agentId !== 'string' || !agentId.trim()) return memory;
+  const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode | undefined) ?? 'hybrid';
+  const visible = new Set(visibleSpacesFor(agentId, isolationMode));
+  return visible.has(memory.agentSpace) ? memory : null;
 }
 
 export function registerRoutes(app: FastifyInstance): void {
@@ -117,6 +129,9 @@ export function registerRoutes(app: FastifyInstance): void {
       projectId: query.projectId,
       includeDescendants: query.includeDescendants !== 'false',
       includeSuperseded: query.includeSuperseded === 'true',
+      asOf: query.asOf,
+      includeExpired: query.includeExpired === 'true',
+      explain: query.explain === 'true',
       memoryKind: query.memoryKind as SearchQuery['memoryKind'],
       status: query.status as MemoryStatus | undefined,
       limit: query.limit ? parseInt(query.limit, 10) : 20,
@@ -130,6 +145,8 @@ export function registerRoutes(app: FastifyInstance): void {
       projectId: query.projectId,
       includeDescendants: query.includeDescendants === 'true',
       status: query.status as MemoryStatus | undefined,
+      asOf: query.asOf,
+      includeExpired: query.includeExpired === undefined ? undefined : query.includeExpired === 'true',
       limit: query.limit ? parseInt(query.limit, 10) : undefined,
       offset: query.offset ? parseInt(query.offset, 10) : undefined,
     });
@@ -633,6 +650,10 @@ export function registerRoutes(app: FastifyInstance): void {
     return agents;
   });
 
+  app.get('/api/integrations/discover', async () => {
+    return discoverAgentIntegrations();
+  });
+
   app.post('/api/backup', async (request, reply) => {
     const db = getDatabase();
     const data = db.prepare(`SELECT * FROM memories`).all();
@@ -1121,13 +1142,13 @@ export function registerRoutes(app: FastifyInstance): void {
       return { error: `relationType must be one of: ${MEMORY_RELATION_TYPES.join(', ')}` };
     }
     try {
-      if (!getMemory(id)) {
+      if (!getVisibleMemoryForRequest(request, id)) {
         reply.code(404);
-        return { error: `Memory not found: ${id}` };
+        return { error: `Memory not found or not accessible: ${id}` };
       }
-      if (!getMemory(targetId)) {
+      if (!getVisibleMemoryForRequest(request, targetId)) {
         reply.code(404);
-        return { error: `Memory not found: ${targetId}` };
+        return { error: `Memory not found or not accessible: ${targetId}` };
       }
       const relation = createMemoryRelation(id, targetId, relationType, strength ?? 1.0, reason);
       return relation;
@@ -1137,10 +1158,34 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  app.get('/api/memories/:id/related', async (request) => {
+  app.get('/api/memories/:id/related', async (request, reply) => {
     const { id } = request.params as { id: string };
     const query = request.query as Record<string, string>;
-    return findRelatedMemories(id, query.type);
+    if (!getVisibleMemoryForRequest(request, id)) {
+      reply.code(404);
+      return { error: `Memory not found or not accessible: ${id}` };
+    }
+    return findRelatedMemories(id, query.type)
+      .filter(related => Boolean(getVisibleMemoryForRequest(request, related.memoryId)));
+  });
+
+  app.post('/api/memories/:id/supersede', async (request, reply) => {
+    const { id: targetId } = request.params as { id: string };
+    const { sourceId, effectiveAt, reason } = request.body as { sourceId?: string; effectiveAt?: string; reason?: string };
+    if (!sourceId || !reason?.trim()) {
+      reply.code(400);
+      return { error: 'sourceId and reason are required' };
+    }
+    if (!getVisibleMemoryForRequest(request, sourceId) || !getVisibleMemoryForRequest(request, targetId)) {
+      reply.code(404);
+      return { error: 'Memory not found or not accessible' };
+    }
+    try {
+      return supersedeMemory(sourceId, targetId, { effectiveAt, reason });
+    } catch (err) {
+      reply.code(400);
+      return { error: (err as Error).message };
+    }
   });
 
   app.get('/api/tags/namespaces', async () => {

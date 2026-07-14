@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { writeFileSync } from 'node:fs';
 import { initDatabase, closeDatabase, getDataDir, getDbPath } from './db/sqlite.js';
 import { createMemory, getMemory, listMemories, updateMemory, deleteMemory, exportMemoriesAsJson, importMemories, listVersions, getVersion, revertToVersion, recordHit } from './core/atom.js';
 import { searchHybrid, ensureEmbedding, findDuplicateMemories } from './core/query.js';
@@ -21,6 +22,7 @@ import { initEmbedding } from './embed/onnx.js';
 import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security.js';
 import type { Layer, MemoryKind, MemoryStatus, ForgetMethod } from '@keymemory/shared';
 import { DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
+import { supersedeMemory } from './core/supersession.js';
 
 type OutputFormat = 'json' | 'table' | 'compact';
 
@@ -149,14 +151,18 @@ function ensureInit(): void {
   initEmbedding().catch(() => {});
 }
 
-function printAndExit(data: unknown, format: OutputFormat, exitCode = 0): never {
-  process.stdout.write(formatOutput(data, format) + '\n');
+function printTextAndExit(text: string, exitCode = 0): void {
+  process.stdout.write(text.endsWith('\n') ? text : text + '\n');
   closeDatabase();
-  process.exit(exitCode);
+  process.exitCode = exitCode;
+}
+
+function printAndExit(data: unknown, format: OutputFormat, exitCode = 0): void {
+  printTextAndExit(formatOutput(data, format), exitCode);
 }
 
 function printError(message: string, exitCode = 1): never {
-  process.stderr.write(`Error: ${message}\n`);
+  writeFileSync(process.stderr.fd, `Error: ${message}\n`);
   closeDatabase();
   process.exit(exitCode);
 }
@@ -185,6 +191,9 @@ program
   .requiredOption('-l, --layer <layer>', 'memory layer: flash|short|long|entity')
   .option('-p, --projectId <projectId>', 'associated project ID')
   .option('--project-path <projectPath>', 'project path, auto-created if missing')
+  .option('--confidence <number>', 'evidence confidence from 0 to 1')
+  .option('--valid-from <timestamp>', 'ISO 8601 validity start')
+  .option('--valid-to <timestamp>', 'ISO 8601 exclusive validity end')
   .option('--tags <tags>', 'comma-separated tags')
   .option('--metadata <json>', 'JSON metadata or key:val pairs')
   .option('--source <source>', 'memory source identifier')
@@ -204,6 +213,9 @@ program
       layer: opts.layer as Layer,
       projectId: opts.projectId,
       projectPath: opts.projectPath,
+      confidence: opts.confidence !== undefined ? parseFloat(opts.confidence) : undefined,
+      validFrom: opts.validFrom,
+      validTo: opts.validTo,
       tags,
       metadata,
       source: opts.source,
@@ -233,6 +245,10 @@ program
   .option('-c, --content <content>', 'new content')
   .option('-l, --layer <layer>', 'new layer')
   .option('-p, --projectId <projectId>', 'new project ID')
+  .option('--confidence <number>', 'new evidence confidence from 0 to 1')
+  .option('--valid-from <timestamp>', 'new ISO 8601 validity start')
+  .option('--valid-to <timestamp>', 'new ISO 8601 exclusive validity end')
+  .option('--clear-valid-to', 'reopen the validity window')
   .option('--tags <tags>', 'new comma-separated tags')
   .option('--metadata <json>', 'new JSON metadata')
   .option('--reason <reason>', 'change reason')
@@ -242,6 +258,10 @@ program
     if (opts.content !== undefined) updateData.content = opts.content;
     if (opts.layer !== undefined) updateData.layer = opts.layer;
     if (opts.projectId !== undefined) updateData.projectId = opts.projectId;
+    if (opts.confidence !== undefined) updateData.confidence = parseFloat(opts.confidence);
+    if (opts.validFrom !== undefined) updateData.validFrom = opts.validFrom;
+    if (opts.validTo !== undefined) updateData.validTo = opts.validTo;
+    if (opts.clearValidTo) updateData.validTo = null;
     if (opts.tags !== undefined) updateData.tags = parseTags(opts.tags);
     if (opts.metadata !== undefined) updateData.metadata = parseMetadata(opts.metadata);
 
@@ -322,6 +342,9 @@ program
   .option('--no-descendants', 'exclude child projects when --projectId is used')
   .option('--kind <memoryKind>', 'filter by memory kind')
   .option('--include-superseded', 'include memories superseded by active newer memories')
+  .option('--as-of <timestamp>', 'retrieve facts valid at this ISO 8601 instant')
+  .option('--include-expired', 'include facts outside their validity windows')
+  .option('--explain', 'include hybrid ranking score breakdowns')
   .action(async (query, opts) => {
     const results = await searchHybrid(query, {
       limit: parseInt(opts.limit, 10),
@@ -329,17 +352,18 @@ program
       projectId: opts.projectId,
       includeDescendants: opts.descendants,
       includeSuperseded: Boolean(opts.includeSuperseded),
+      asOf: opts.asOf,
+      includeExpired: Boolean(opts.includeExpired),
+      explain: Boolean(opts.explain),
       memoryKind: opts.kind,
     });
 
     if (results.length === 0) {
       const format: OutputFormat = program.opts().format || 'json';
       if (format === 'json') {
-        printAndExit([], format);
+        return printAndExit([], format);
       } else {
-        process.stdout.write('No memories found.\n');
-        closeDatabase();
-        process.exit(0);
+        return printTextAndExit('No memories found.');
       }
     }
 
@@ -353,6 +377,9 @@ program
   .option('--project <project>', 'project path/name/id; descendants included by default')
   .option('--project-id <projectId>', 'project ID')
   .option('--no-descendants', 'exclude child projects')
+  .option('--include-superseded', 'include superseded facts')
+  .option('--as-of <timestamp>', 'build context from facts valid at this ISO 8601 instant')
+  .option('--include-expired', 'include facts outside their validity windows')
   .option('--kinds <memoryKinds>', 'comma-separated memory kinds')
   .option('--max-items <number>', 'max memories to include', '12')
   .option('--max-chars <number>', 'approximate character budget', '6000')
@@ -363,14 +390,15 @@ program
       project: opts.project,
       projectId: opts.projectId,
       includeDescendants: opts.descendants,
+      includeSuperseded: Boolean(opts.includeSuperseded),
+      asOf: opts.asOf,
+      includeExpired: Boolean(opts.includeExpired),
       memoryKinds: parseMemoryKinds(opts.kinds),
       maxItems: parseInt(opts.maxItems, 10),
       maxChars: parseInt(opts.maxChars, 10),
     });
     if (opts.markdown) {
-      process.stdout.write(pack.markdown + '\n');
-      closeDatabase();
-      process.exit(0);
+      return printTextAndExit(pack.markdown);
     }
     const format: OutputFormat = program.opts().format || 'json';
     printAndExit(pack, format);
@@ -382,12 +410,16 @@ program
   .option('-l, --layer <layer>', 'filter by layer')
   .option('-p, --projectId <projectId>', 'filter by project ID')
   .option('-s, --status <status>', 'filter by status', 'active')
+  .option('--as-of <timestamp>', 'list facts valid at this ISO 8601 instant')
+  .option('--include-expired', 'include facts outside their validity windows')
   .option('-n, --limit <number>', 'max results', '20')
   .action((opts) => {
     const mems = listMemories({
       layer: opts.layer as Layer | undefined,
       projectId: opts.projectId,
       status: opts.status as MemoryStatus | undefined,
+      asOf: opts.asOf,
+      includeExpired: Boolean(opts.includeExpired),
       limit: parseInt(opts.limit, 10),
     });
 
@@ -556,9 +588,7 @@ program
       layer: opts.layer as Layer | undefined,
       status: opts.status as MemoryStatus | undefined,
     });
-    process.stdout.write(json + '\n');
-    closeDatabase();
-    process.exit(0);
+    return printTextAndExit(json);
   });
 
 program
@@ -815,6 +845,20 @@ program
   });
 
 program
+  .command('supersede <sourceId> <targetId>')
+  .description('Close an older fact validity window and link its replacement')
+  .requiredOption('--reason <reason>', 'provenance for the knowledge update')
+  .option('--effective-at <timestamp>', 'ISO 8601 effective time; defaults to source validFrom')
+  .action((sourceId, targetId, opts) => {
+    const result = supersedeMemory(sourceId, targetId, {
+      effectiveAt: opts.effectiveAt,
+      reason: opts.reason,
+    });
+    const format: OutputFormat = program.opts().format || 'json';
+    printAndExit(result, format);
+  });
+
+program
   .command('project-suggestions')
   .description('List dream-created project organization suggestions')
   .option('--status <status>', 'pending|accepted|rejected')
@@ -888,14 +932,14 @@ program
 
 program
   .command('agent-config [target]')
-  .description('Print config snippets for Agent hosts: generic, claude-desktop, claude-code, hermes, openclaw, codex, opencode, or all')
+  .description('Print config snippets for Agent hosts: generic, claude-desktop, claude-code, workbuddy, trae, hermes, openclaw, codex, opencode, or all')
   .option('--root <path>', 'KeyMemory project root for generated launcher path')
   .option('--mode <mode>', 'config mode: cli, mcp, or auto (default: auto)', 'auto')
   .option('--list', 'list supported targets')
   .action((target = 'generic', opts) => {
     const format: OutputFormat = program.opts().format || 'json';
     if (opts.list) {
-      printAndExit(listAgentConfigTargets(), format);
+      return printAndExit(listAgentConfigTargets(), format);
     }
 
     const allowed = new Set([...listAgentConfigTargets(), 'all']);
@@ -910,7 +954,7 @@ program
 
     const snippets = buildAgentConfigSnippets(target, mode, opts.root);
     if (format === 'json') {
-      printAndExit(target === 'all' ? snippets : snippets[0], format);
+      return printAndExit(target === 'all' ? snippets : snippets[0], format);
     }
 
     const text = snippets.map(item => [
@@ -919,9 +963,7 @@ program
       item.snippet,
       item.notes.map(note => `- ${note}`).join('\n'),
     ].filter(Boolean).join('\n')).join('\n\n');
-    process.stdout.write(text + '\n');
-    closeDatabase();
-    process.exit(0);
+    return printTextAndExit(text);
   });
 
 program
@@ -997,9 +1039,7 @@ program
     const format: OutputFormat = program.opts().format || 'json';
     const report = runDreamCycle();
     if (format !== 'json') {
-      process.stdout.write(formatDreamReport(report) + '\n');
-      closeDatabase();
-      process.exit(0);
+      return printTextAndExit(formatDreamReport(report));
     }
     printAndExit(report, format);
   });
@@ -1018,43 +1058,37 @@ program
     if (opts.run) {
       const report = runDreamCycle();
       if (format !== 'json') {
-        process.stdout.write(formatDreamReport(report) + '\n');
-        closeDatabase();
-        process.exit(0);
+        return printTextAndExit(formatDreamReport(report));
       }
-      printAndExit(report, format);
+      return printAndExit(report, format);
     }
 
     if (opts.list) {
       const reports = listDreamReports();
-      printAndExit(reports, format);
+      return printAndExit(reports, format);
     }
 
     if (opts.show) {
       const report = getDreamReport(opts.show);
       if (!report) printError(`Report not found: ${opts.show}`);
       if (format !== 'json') {
-        process.stdout.write(formatDreamReport(report!) + '\n');
-        closeDatabase();
-        process.exit(0);
+        return printTextAndExit(formatDreamReport(report!));
       }
-      printAndExit(report, format);
+      return printAndExit(report, format);
     }
 
     if (opts.signals) {
       const signals = getDreamSignalsForReport(opts.signals);
-      printAndExit(signals, format);
+      return printAndExit(signals, format);
     }
 
     if (opts.rollback) {
       try {
         const result = rollbackDream(opts.rollback);
         if (format !== 'json') {
-          process.stdout.write(formatDreamReport(result) + '\n');
-          closeDatabase();
-          process.exit(0);
+          return printTextAndExit(formatDreamReport(result));
         }
-        printAndExit(result, format);
+        return printAndExit(result, format);
       } catch (err) {
         printError((err as Error).message);
       }
