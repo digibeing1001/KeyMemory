@@ -7,6 +7,7 @@ const commands = [
   'pnpm eval:memory',
   'pnpm smoke:mcp',
   'pnpm smoke:loop',
+  'pnpm smoke:mailbox',
   'pnpm loop:audit',
 ];
 

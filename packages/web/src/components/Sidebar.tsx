@@ -1,11 +1,10 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, Settings, Plug } from './Icons';
-import ProjectTree from './ProjectTree';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, Close, Activity, Settings, Plug, Mail } from './Icons';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
+type ViewMode = 'mailbox' | 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -18,9 +17,6 @@ interface SidebarProps {
   onViewModeChange: (mode: ViewMode) => void;
   isDark: boolean;
   onToggleTheme: () => void;
-  activeProjectId: string | null;
-  onSelectProject: (projectId: string | null) => void;
-  projectRefreshToken: number;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
 }
@@ -33,6 +29,7 @@ const LAYER_ICONS: Record<Layer, typeof Flash> = {
 };
 
 const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers }> = [
+  { mode: 'mailbox', labelKey: 'nav.mailbox', icon: Mail },
   { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
   { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
   { mode: 'integrations', labelKey: 'nav.integrations', icon: Plug },
@@ -41,7 +38,6 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers 
   { mode: 'dream', labelKey: 'nav.dream', icon: Moon },
   { mode: 'llm', labelKey: 'nav.llm', icon: Settings },
   { mode: 'migration', labelKey: 'nav.migration', icon: Inbox },
-  { mode: 'organize', labelKey: 'nav.organize', icon: GitMerge },
   { mode: 'recycle', labelKey: 'nav.recycle', icon: Trash },
 ];
 
@@ -87,9 +83,6 @@ export default function Sidebar({
   onViewModeChange,
   isDark,
   onToggleTheme,
-  activeProjectId,
-  onSelectProject,
-  projectRefreshToken,
   isMobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
@@ -143,7 +136,7 @@ export default function Sidebar({
         </button>
       </div>
 
-      <div style={{ padding: '0 12px 12px' }}>
+      {viewMode !== 'mailbox' && <div style={{ padding: '0 12px 12px' }}>
         <button
           onClick={onCreateNew}
           className="btn btn-primary"
@@ -152,7 +145,7 @@ export default function Sidebar({
           <Plus size={14} />
           {t('sidebar.newMemory')}
         </button>
-      </div>
+      </div>}
 
       <div className="sidebar-scroll">
         <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
@@ -177,10 +170,6 @@ export default function Sidebar({
         </nav>
 
         <div style={{ height: 1, background: 'var(--border)', margin: '8px 16px' }} />
-
-        <ProjectTree activeProjectId={activeProjectId} onSelectProject={onSelectProject} refreshToken={projectRefreshToken} />
-
-        <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
 
         <div style={{ padding: '4px 16px 6px' }}>
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>

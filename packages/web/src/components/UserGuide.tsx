@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, BookOpen, CheckCircle, Close, Layers, Plug, RefreshCw, Search, User, Zap } from './Icons';
+import { Activity, BookOpen, CheckCircle, Close, Layers, Mail, Plug, RefreshCw, Search, User, Zap } from './Icons';
 
 interface UserGuideProps {
   open: boolean;
@@ -82,13 +82,13 @@ function WelcomePage() {
   return (
     <article>
       <div className="guide-page-number">01</div>
-      <span className="guide-eyebrow">你的 AI 共用记忆本</span>
-      <h3>换了 AI 助手，也不用从头解释自己。</h3>
-      <p>KeyMemory 会把不同 AI 助手需要长期记住的内容放在同一个地方。以后换工具、换窗口或隔几天继续做事，助手仍能找到你的偏好、进度和过去的经验。</p>
-      <div className="guide-callout"><Zap size={18} /><div><strong>最简单的理解</strong><span>它像一本由多个 AI 助手共同使用、会自动整理的工作手册。</span></div></div>
+      <span className="guide-eyebrow">人类与 AI 共用的记忆办公室</span>
+      <h3>换了 AI 助手，也能从同一封工作邮件继续。</h3>
+      <p>具体项目、任务和事件会成为持续回复的邮件主题；偏好、规则、事实和经验保存在记忆库。以后换工具、换窗口或隔几天继续做事，助手先读收件箱就能了解完整经过。</p>
+      <div className="guide-callout"><Zap size={18} /><div><strong>最简单的理解</strong><span>它像一个人类与多个 AI 助手共同使用、由记忆秘书整理的内部工作邮箱。</span></div></div>
       <div className="guide-three-columns">
         <div><User size={18} /><strong>更懂你</strong><span>记住喜欢、不喜欢、重视和习惯。</span></div>
-        <div><Activity size={18} /><strong>接着做</strong><span>记住最近在做什么、做到哪里。</span></div>
+        <div><Activity size={18} /><strong>接着做</strong><span>在同一邮件主题中看见进度和下一步。</span></div>
         <div><CheckCircle size={18} /><strong>少踩坑</strong><span>记住失败原因和成功办法。</span></div>
       </div>
     </article>
@@ -120,8 +120,8 @@ function VerifyPage() {
       <h3>看到三项通过，才算真正接好。</h3>
       <div className="guide-check-list">
         <div><b>1</b><div><strong>设置已经写入</strong><span>回到接入页面，点击“检测接入状态”，页面应显示“已检测到配置”。</span></div></div>
-        <div><b>2</b><div><strong>助手能读到记忆</strong><span>让助手检查 KeyMemory 连接，再搜索一次旧记忆。它必须返回真实结果，不能只口头说成功。</span></div></div>
-        <div><b>3</b><div><strong>助手能写入并找回</strong><span>开始真实工作后，让助手保存当前进度，再搜索回来。不要专门制造无用测试内容。</span></div></div>
+        <div><b>2</b><div><strong>助手能读到收件箱</strong><span>让助手检查 KeyMemory 连接，再列出共同邮箱。它必须返回真实主题，不能只口头说成功。</span></div></div>
+        <div><b>3</b><div><strong>助手能回复并找回</strong><span>开始真实工作后，让助手把进度回复到邮件，再重新读取。不要专门制造无用测试内容。</span></div></div>
       </div>
       <div className="guide-callout"><RefreshCw size={18} /><div><strong>如果第一项通过、后两项失败</strong><span>通常只需要重启对应的 AI 助手，再让它重新检查一次。</span></div></div>
     </article>
@@ -146,23 +146,23 @@ function CapturePage() {
 
 function FeaturesPage() {
   const items = [
-    ['记忆', '查看、搜索、修改每一条内容；点开后可看到完整正文。'],
+    ['共同邮箱', '一项工作一个主题；人类、Agent 和记忆秘书通过回复接力。'],
+    ['记忆库', '查看、搜索、修改可跨事情复用的偏好、规则、事实和经验。'],
     ['使用动态', '看看最近哪些记忆被读取、哪些事情正在继续。'],
     ['Agent 接入', '连接新的 AI 助手，复制中文接入提示词，检查连接状态。'],
     ['关系图', '看看人物、工具、项目和经验之间有什么联系。'],
     ['标签', '按主题快速找到同类内容。'],
     ['自动整理', '让重复、过期和零散内容得到整理。'],
     ['导入旧内容', '把以前保存的资料带进 KeyMemory。'],
-    ['项目整理', '把放错位置或命名含糊的内容重新归好。'],
     ['回收站', '找回误删内容，或决定彻底清理。'],
   ];
   return (
     <article>
       <div className="guide-page-number">05</div>
       <span className="guide-eyebrow">页面功能一览</span>
-      <h3>平时最常用的是“记忆”和“Agent 接入”。</h3>
+      <h3>平时最常用的是“共同邮箱”和“Agent 接入”。</h3>
       <div className="guide-feature-grid">
-        {items.map(([title, description]) => <div key={title}><Layers size={15} /><strong>{title}</strong><span>{description}</span></div>)}
+        {items.map(([title, description]) => <div key={title}>{title === '共同邮箱' ? <Mail size={15} /> : <Layers size={15} />}<strong>{title}</strong><span>{description}</span></div>)}
       </div>
     </article>
   );

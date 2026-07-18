@@ -25,7 +25,7 @@ function assertFile(filePath, pattern, reason) {
 function auditManifest() {
   const pkg = readJson('package.json');
   const scripts = pkg.scripts ?? {};
-  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:agent-connect', 'smoke:loop', 'smoke:launchers', 'release:check']) {
+  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:agent-connect', 'smoke:loop', 'smoke:mailbox', 'smoke:launchers', 'release:check']) {
     if (!scripts[scriptName]) throw new Error(`package.json missing script: ${scriptName}`);
   }
 }
@@ -49,10 +49,10 @@ function auditReleaseArtifacts() {
   assertFile('scripts/smoke-keymemory.mjs', /assertSafeServerBinding[\s\S]*public host binding to require KEYMEMORY_API_KEY[\s\S]*protected REST route to reject missing API key[\s\S]*HTTP MCP route to accept x-api-key[\s\S]*isCorsOriginAllowed[\s\S]*apiKeyAuthAccepted/, 'local-first server binding, API key auth, and CORS smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /REST migration import to create safety backup before write[\s\S]*restMigrationBackupCreated/, 'REST and Web migration safety backup smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /HTTP MCP backup create[\s\S]*HTTP MCP backup dry-run readiness[\s\S]*httpMcpBackupDryRun/, 'HTTP MCP backup smoke coverage');
-  assertFile('scripts/smoke-keymemory.mjs', /memory_search schema[\s\S]*projectId[\s\S]*memoryKind[\s\S]*HTTP MCP memory_search to honor projectId and memoryKind filters[\s\S]*httpMcpProjectSearchScoped/, 'HTTP MCP project and kind search smoke coverage');
+  assertFile('scripts/smoke-keymemory.mjs', /memory_search schema[\s\S]*projectPath[\s\S]*memoryKind[\s\S]*HTTP MCP memory_search to honor projectPath and memoryKind filters[\s\S]*httpMcpProjectSearchScoped/, 'HTTP MCP source-path and kind search smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /relation expansion should pull linked context/, 'relation expansion context smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /dream REM phase to create relates_to association[\s\S]*dreamAssociations/, 'dream association relation smoke coverage');
-  assertFile('scripts/smoke-keymemory.mjs', /project-suggestions[\s\S]*project-suggestion-accept[\s\S]*projectSuggestionContextItems/, 'dream project suggestion CLI coverage');
+  assertFile('scripts/smoke-keymemory.mjs', /project-suggestions[\s\S]*stop dream project-folder suggestions[\s\S]*projectSuggestionsPending[\s\S]*flattenedSourceContextItems/, 'mailbox replacement of dream project suggestion coverage');
   assertFile('scripts/smoke-keymemory.mjs', /getSchedulerConfig[\s\S]*invalid dream cron to be rejected[\s\S]*schedulerNextRun/, 'dream scheduler validation smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /scheduler[\s\S]*--cron[\s\S]*scheduler CLI to reject invalid dream cron[\s\S]*schedulerCliNextRun/, 'dream scheduler CLI smoke coverage');
   assertFile('scripts/smoke-keymemory.mjs', /bin\/keymemory\.js[\s\S]*context/, 'top-level keymemory CLI passthrough smoke coverage');
@@ -70,9 +70,12 @@ function auditReleaseArtifacts() {
   assertFile('packages/server/src/db/sqlite.ts', /journal_mode = WAL[\s\S]*busy_timeout = 5000[\s\S]*loop_runs[\s\S]*loop_checkpoints[\s\S]*loop_events/, 'SQLite Loop concurrency and persistence schema');
   assertFile('packages/server/src/core/backup.ts', /loop_runs[\s\S]*loop_checkpoints[\s\S]*loop_events[\s\S]*tokenize='trigram'/, 'Loop disaster recovery and current FTS tokenizer');
   assertFile('packages/server/src/core/context-pack.ts', /getPendingTodosForContext\(undefined, pack\.projectId\)/, 'project-scoped pending review context');
-  assertFile('packages/web/src/components/ProjectSuggestionsView.tsx', /listProjectSuggestions[\s\S]*acceptProjectSuggestion[\s\S]*rejectProjectSuggestion/, 'Web project suggestion review actions');
-  assertFile('packages/web/src/App.tsx', /ProjectSuggestionsView[\s\S]*organize/, 'Web project organization route');
-  assertFile('packages/web/src/components/Sidebar.tsx', /organize[\s\S]*GitMerge/, 'Web project organization sidebar entry');
+  assertFile('packages/web/src/components/MailboxView.tsx', /createMailboxThread[\s\S]*replyMailboxThread[\s\S]*syncMailboxThread/, 'working mailbox compose, reply, and secretary sync actions');
+  assertFile('packages/web/src/App.tsx', /MailboxView[\s\S]*viewMode === 'mailbox'/, 'mailbox as a first-class Web route');
+  assertFile('packages/web/src/components/Sidebar.tsx', /mailbox[\s\S]*Shared mailbox|mailbox[\s\S]*nav\.mailbox/, 'shared mailbox navigation entry');
+  assertFile('packages/server/src/core/mailbox.ts', /assertUsefulSubject[\s\S]*extractTechnicalAttachments[\s\S]*syncMailThread/, 'mail subject, readable body, collapsed attachment, and secretary digest contract');
+  assertFile('packages/server/src/core/mcp-tools.ts', /memory_inbox_list[\s\S]*memory_thread_context[\s\S]*memory_thread_reply[\s\S]*memory_mailbox_sync/, 'Agent mailbox read and write tools');
+  assertFile('scripts/smoke-mailbox.mjs', /(?=[\s\S]*duplicate subjects)(?=[\s\S]*collapsed attachments)(?=[\s\S]*one reusable memory may support multiple mail threads)/, 'mailbox handoff and many-to-many memory smoke coverage');
   assertFile('packages/server/src/core/agent-discovery.ts', /workbuddy[\s\S]*trae[\s\S]*availableModes[\s\S]*buildKeyMemorySkill[\s\S]*buildUniversalOnboardingPrompt/, 'local Agent discovery, MCP CLI Skill connection, and onboarding prompt');
   assertFile('packages/server/src/core/agent-config.ts', /keymemory_connection_status[\s\S]*工作过程、踩坑与成功经验[\s\S]*用户画像、偏好与使用习惯[\s\S]*用户最近正在做的所有事情[\s\S]*配置检测 \/ 读取验证 \/ 写入验证[\s\S]*buildKeyMemorySkill/, 'Chinese automatic shared-memory operating rules and verification protocol');
   assertFile('packages/server/src/api/rest.ts', /integrations\/discover[\s\S]*discoverAgentIntegrations/, 'Agent integration discovery API');
@@ -87,7 +90,7 @@ function auditReleaseArtifacts() {
   assertFile('docs/loop-harness.md', /memory_loop_start[\s\S]*memory_loop_context[\s\S]*VERSION_CONFLICT[\s\S]*memory_loop_finish/, 'Loop harness integration docs');
   assertFile('docs/memory-relations.md', /memory_relations[\s\S]*supersedes[\s\S]*memory_relate/, 'memory relation docs');
   assertFile('docs/temporal-memory.md', /LongMemEval[\s\S]*MemoryAgentBench[\s\S]*validFrom[\s\S]*memory_supersede[\s\S]*asOf[\s\S]*scoreBreakdown/, 'research-backed temporal memory and explainable retrieval docs');
-  assertFile('docs/project-organization.md', /project-suggestions[\s\S]*project-suggestion-accept[\s\S]*Web UI[\s\S]*memory_project_suggestions/, 'project organization suggestion docs');
+  assertFile('docs/mailbox.md', /一事一主题[\s\S]*memory_inbox_list[\s\S]*memory_thread_context[\s\S]*memory_thread_reply/, 'mailbox product and Agent operating guide');
   assertFile('docs/memory-eval.md', /LongMemEval[\s\S]*pnpm eval:memory/, 'memory eval docs');
   assertFile('docs/performance.md', /pnpm perf:memory[\s\S]*search p95[\s\S]*dream cycle/, 'performance budget docs');
   assertFile('docs/privacy-and-safety.md', /Default Redaction[\s\S]*Tool Credential Storage[\s\S]*privacyRedactedCount/, 'privacy and safety docs');
@@ -118,6 +121,7 @@ run('pnpm perf:memory');
 run('pnpm smoke');
 run('pnpm smoke:mcp');
 run('pnpm smoke:loop');
+run('pnpm smoke:mailbox');
 run('pnpm smoke:launchers');
 
 console.log('\n[release-check] ok');

@@ -1,4 +1,6 @@
-# Project Organization
+# Project Organization (Legacy Compatibility)
+
+> Since the shared mailbox release, the user-facing project tree and project clustering entry are replaced by one durable email thread per concrete project, task, or event. This page documents legacy APIs only. New Agents must follow [the mailbox operating guide](mailbox.md).
 
 KeyMemory treats the project tree as part of memory quality. Dream consolidation can detect projects that share entities, concepts, tools, or people, then create `project_suggestions` records instead of silently moving the tree.
 

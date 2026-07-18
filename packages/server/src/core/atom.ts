@@ -4,8 +4,7 @@ import type { Memory, CreateMemoryInput, UpdateMemoryInput, Layer, MemoryStatus,
 import { getDatabase, isDatabaseInitialized } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
 import { extractEntities, ensureEntity, linkMemoryEntity, processContent, autoAssociate } from '../graph/entity.js';
-import { ensureProjectPath } from './project.js';
-import { extractProjectPathFromContent, normalizeMemoryInput, normalizeMemoryUpdate } from './memory-schema.js';
+import { normalizeMemoryInput, normalizeMemoryUpdate } from './memory-schema.js';
 import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
 import { removeFromFts, insertIntoFts, refreshFts } from './fts-helpers.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
@@ -23,12 +22,10 @@ export function createMemory(input: CreateMemoryInput): Memory {
   const id = uuid();
 
   let projectId = input.projectId;
-  const projectPath = input.projectPath || extractProjectPathFromContent(input.content);
-  if (!projectId && projectPath) {
-    projectId = ensureProjectPath(projectPath)?.id;
-  }
   if (!projectId) {
-    const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
+    // 邮箱线程已经替代层层项目文件夹。原子记忆默认回到共享记忆池，
+    // projectPath 仅保留在 metadata 中作为来源线索，不再自动创建目录。
+    const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL AND name = '未分类' ORDER BY created_at LIMIT 1").get() as { id: string } | undefined;
     projectId = rootProject?.id ?? '';
   }
 
@@ -336,10 +333,8 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
     updates.push('layer = @layer');
     params.layer = input.layer;
   }
-  const projectIdFromPath = input.projectPath !== undefined
-    ? (input.projectPath.trim() ? ensureProjectPath(input.projectPath)?.id ?? '' : '')
-    : undefined;
-  const nextProjectId = input.projectId !== undefined ? input.projectId : projectIdFromPath;
+  // projectPath 不再创建或移动文件夹。显式 projectId 仍作为内部兼容范围可用。
+  const nextProjectId = input.projectId;
   if (nextProjectId !== undefined) {
     updates.push('project_id = @projectId');
     params.projectId = nextProjectId;

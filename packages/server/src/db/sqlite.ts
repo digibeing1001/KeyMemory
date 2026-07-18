@@ -359,6 +359,80 @@ function runMigrations(db: Database.Database): void {
       UNIQUE(run_id, sequence),
       FOREIGN KEY (run_id) REFERENCES loop_runs(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS mail_threads (
+      id TEXT PRIMARY KEY,
+      subject TEXT NOT NULL,
+      normalized_subject TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      folder TEXT NOT NULL DEFAULT 'inbox',
+      agent_space TEXT NOT NULL DEFAULT 'global',
+      project_scope_id TEXT,
+      legacy_project_id TEXT,
+      current_summary TEXT,
+      created_by_type TEXT NOT NULL,
+      created_by_id TEXT,
+      starred INTEGER NOT NULL DEFAULT 0,
+      snoozed_until TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_message_at TEXT,
+      metadata TEXT,
+      FOREIGN KEY (project_scope_id) REFERENCES projects(id) ON DELETE SET NULL,
+      FOREIGN KEY (legacy_project_id) REFERENCES projects(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_messages (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      parent_message_id TEXT,
+      sender_type TEXT NOT NULL,
+      sender_id TEXT,
+      recipient_ids TEXT NOT NULL DEFAULT '[]',
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      message_type TEXT NOT NULL DEFAULT 'reply',
+      status TEXT NOT NULL DEFAULT 'sent',
+      sent_at TEXT,
+      created_at TEXT NOT NULL,
+      metadata TEXT,
+      FOREIGN KEY (thread_id) REFERENCES mail_threads(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_message_id) REFERENCES mail_messages(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_attachments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT,
+      memory_id TEXT,
+      collapsed INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      metadata TEXT,
+      FOREIGN KEY (message_id) REFERENCES mail_messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_thread_memories (
+      thread_id TEXT NOT NULL,
+      memory_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL DEFAULT 'source',
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (thread_id, memory_id, relation_type),
+      FOREIGN KEY (thread_id) REFERENCES mail_threads(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_receipts (
+      message_id TEXT NOT NULL,
+      recipient_id TEXT NOT NULL,
+      delivered_at TEXT NOT NULL,
+      read_at TEXT,
+      PRIMARY KEY (message_id, recipient_id),
+      FOREIGN KEY (message_id) REFERENCES mail_messages(id) ON DELETE CASCADE
+    );
   `);
 
   db.exec(`
@@ -387,6 +461,14 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_loop_runs_agent ON loop_runs(agent_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_run ON loop_checkpoints(run_id, version);
     CREATE INDEX IF NOT EXISTS idx_loop_events_run ON loop_events(run_id, sequence);
+    CREATE INDEX IF NOT EXISTS idx_mail_threads_folder ON mail_threads(folder, last_message_at);
+    CREATE INDEX IF NOT EXISTS idx_mail_threads_space ON mail_threads(agent_space, last_message_at);
+    CREATE INDEX IF NOT EXISTS idx_mail_threads_subject ON mail_threads(normalized_subject);
+    CREATE INDEX IF NOT EXISTS idx_mail_messages_thread ON mail_messages(thread_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_mail_messages_sender ON mail_messages(sender_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_mail_attachments_message ON mail_attachments(message_id);
+    CREATE INDEX IF NOT EXISTS idx_mail_thread_memories_memory ON mail_thread_memories(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_mail_receipts_recipient ON mail_receipts(recipient_id, read_at);
     -- 注意：idx_loop_runs_token_budget 索引在 alterStatements 之后创建，
     -- 因为旧数据库的 loop_runs 表可能还没有 token_budget 列（在 ALTER 中才添加）
   `);
@@ -432,6 +514,7 @@ function runMigrations(db: Database.Database): void {
   // Migrate existing data: convert project strings to project_ids
   migrateProjectData(db);
   migrateMemoryRelationData(db);
+  migrateLegacyProjectsToMailboxPool(db);
   ensureMemoryFtsSchema(db);
 
   // Create indexes for new columns (must run after ALTER TABLE)
@@ -456,6 +539,109 @@ CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id
   `);
 
   ensureWelcomeMemory(db);
+}
+
+/**
+ * 邮箱成为项目上下文入口后，旧项目树只保留为兼容范围。
+ *
+ * 迁移会把记忆重新放回统一记忆池，并在 metadata 中保留原项目来源。
+ * 旧 project 行不删除：历史 Loop、版本和外键仍可审计，但 Web UI 不再展示项目树。
+ */
+function migrateLegacyProjectsToMailboxPool(db: Database.Database): void {
+  const markerKey = 'mailbox_v1_legacy_projects_flattened';
+  const marker = db.prepare('SELECT value FROM scheduler_config WHERE key = ?').get(markerKey) as { value: string } | undefined;
+  if (marker) return;
+
+  const defaultProjectId = ensureDefaultProject(db);
+  const defaultProject = db.prepare('SELECT id, name, path FROM projects WHERE id = ?').get(defaultProjectId) as { id: string; name: string; path: string };
+  const memories = db.prepare(`
+    SELECT m.id, m.project_id, m.metadata, p.name as project_name, p.path as project_path
+    FROM memories m
+    LEFT JOIN projects p ON p.id = m.project_id
+    WHERE m.project_id IS NOT NULL AND m.project_id != ?
+  `).all(defaultProjectId) as Array<{
+    id: string;
+    project_id: string;
+    metadata: string | null;
+    project_name: string | null;
+    project_path: string | null;
+  }>;
+
+  let backupPath: string | undefined;
+  const dbName = String((db as unknown as { name?: string }).name ?? '');
+  if (memories.length > 0 && dbName && dbName !== ':memory:') {
+    const backupDir = path.join(path.dirname(dbName), 'backups');
+    fs.mkdirSync(backupDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    backupPath = path.join(backupDir, `pre-mailbox-migration-${stamp}.db`);
+    const escaped = backupPath.replace(/'/g, "''");
+    db.exec(`VACUUM INTO '${escaped}'`);
+  }
+
+  const now = new Date().toISOString();
+  let removedSuggestions = 0;
+  const updateMemory = db.prepare('UPDATE memories SET project_id = ?, metadata = ?, updated_at = ? WHERE id = ?');
+  const updateProject = db.prepare('UPDATE projects SET metadata = ?, updated_at = ? WHERE id = ?');
+
+  db.transaction(() => {
+    for (const memory of memories) {
+      let metadata: Record<string, unknown> = {};
+      try {
+        const parsed = memory.metadata ? JSON.parse(memory.metadata) : {};
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) metadata = parsed as Record<string, unknown>;
+      } catch {
+        metadata = {};
+      }
+      metadata.legacyProject = {
+        id: memory.project_id,
+        name: memory.project_name,
+        path: memory.project_path,
+        detachedAt: now,
+      };
+      updateMemory.run(defaultProjectId, JSON.stringify(metadata), now, memory.id);
+    }
+
+    // memory_entities 的主键包含 project_id。先补目标行再删旧行，避免直接 UPDATE 冲突。
+    db.prepare(`
+      INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, project_id, context)
+      SELECT memory_id, entity_id, ?, context
+      FROM memory_entities
+      WHERE project_id != ?
+    `).run(defaultProjectId, defaultProjectId);
+    db.prepare('DELETE FROM memory_entities WHERE project_id != ?').run(defaultProjectId);
+
+    const legacyProjects = db.prepare('SELECT id, metadata FROM projects WHERE id != ?').all(defaultProjectId) as Array<{ id: string; metadata: string | null }>;
+    for (const project of legacyProjects) {
+      let metadata: Record<string, unknown> = {};
+      try {
+        const parsed = project.metadata ? JSON.parse(project.metadata) : {};
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) metadata = parsed as Record<string, unknown>;
+      } catch {
+        metadata = {};
+      }
+      metadata.mailboxLegacyRetired = true;
+      metadata.mailboxRetiredAt = now;
+      updateProject.run(JSON.stringify(metadata), now, project.id);
+    }
+
+    removedSuggestions = db.prepare('DELETE FROM project_suggestions').run().changes;
+    db.prepare(`
+      INSERT INTO scheduler_config (key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(markerKey, JSON.stringify({
+      appliedAt: now,
+      defaultProjectId,
+      defaultProjectPath: defaultProject.path,
+      movedMemories: memories.length,
+      retiredProjects: legacyProjects.length,
+      removedSuggestions,
+      backupPath,
+    }), now);
+  })();
+
+  if (memories.length > 0) {
+    console.error(`[Mailbox Migration] Returned ${memories.length} memories to the shared pool; backup=${backupPath ?? 'not-required'}`);
+  }
 }
 
 function ensureMemoryFtsSchema(db: Database.Database): void {

@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import type { Layer, SearchResult, HealthReport, Memory } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
-import { Search, Close, Key, Menu, BookOpen } from './components/Icons';
+import { Search, Close, Key, Menu, BookOpen, Inbox } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
@@ -14,7 +14,7 @@ import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
 import LLMConfigView from './components/LLMConfigView';
 import MigrationView from './components/MigrationView';
-import ProjectSuggestionsView from './components/ProjectSuggestionsView';
+import MailboxView from './components/MailboxView';
 import WorkingSetView from './components/WorkingSetView';
 import IntegrationView from './components/IntegrationView';
 import UserGuide from './components/UserGuide';
@@ -34,15 +34,15 @@ import {
 import type { MemoryGraphData, TagCloudData } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
+type ViewMode = 'mailbox' | 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
 
 function isViewMode(value: string | null): value is ViewMode {
-  return value === 'memories'
+  return value === 'mailbox'
+    || value === 'memories'
     || value === 'nebula'
     || value === 'tags'
     || value === 'dream'
     || value === 'migration'
-    || value === 'organize'
     || value === 'recycle'
     || value === 'workingSet'
     || value === 'llm'
@@ -57,12 +57,11 @@ function AppInner() {
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
     const linked = new URLSearchParams(window.location.search).get('view');
     if (isViewMode(linked)) return linked;
-    const saved = localStorage.getItem('keymemory_view_mode');
-    return isViewMode(saved) ? saved : 'memories';
+    const saved = localStorage.getItem('keymemory_view_mode_mailbox_v1');
+    return isViewMode(saved) ? saved : 'mailbox';
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
-  const [projectRefreshToken, setProjectRefreshToken] = useState(0);
   const [isDark, setIsDark] = useState(() => {
     const themeVersion = localStorage.getItem('keymemory_theme_version');
     const saved = localStorage.getItem('keymemory_theme');
@@ -135,7 +134,7 @@ function AppInner() {
 
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
-    localStorage.setItem('keymemory_view_mode', mode);
+    localStorage.setItem('keymemory_view_mode_mailbox_v1', mode);
     setSidebarOpen(false);
   };
 
@@ -187,16 +186,6 @@ function AppInner() {
     setSidebarOpen(false);
   };
 
-  const handleProjectSelect = (projectId: string | null) => {
-    setIsSearchMode(false);
-    setSearchResults([]);
-    setSearchInput('');
-    setViewMode('memories');
-    store.setActiveProject(projectId);
-    store.selectMemory(null);
-    setSidebarOpen(false);
-  };
-
   const handleSave = async (data: { title: string; content: string; layer: Layer; projectId?: string; tags?: string[]; source?: string; metadata?: Record<string, unknown> }) => {
     try {
       await store.save(data);
@@ -209,7 +198,6 @@ function AppInner() {
   };
 
   const handleProjectChanged = () => {
-    setProjectRefreshToken((value) => value + 1);
     setGraphData(null);
     setTagCloudData(null);
     store.refresh();
@@ -306,9 +294,6 @@ function AppInner() {
         onViewModeChange={setViewMode}
         isDark={isDark}
         onToggleTheme={() => setIsDark((value) => !value)}
-        activeProjectId={store.activeProject}
-        onSelectProject={handleProjectSelect}
-        projectRefreshToken={projectRefreshToken}
         isMobileOpen={sidebarOpen}
         onCloseMobile={() => setSidebarOpen(false)}
       />
@@ -331,7 +316,7 @@ function AppInner() {
             <Menu size={17} />
           </button>
           <div className="flex items-center gap-4 flex-1" style={{ minWidth: 0 }}>
-            <form onSubmit={handleSearch} className="app-search-form relative flex-1" style={{ maxWidth: 520 }}>
+            {viewMode !== 'mailbox' && <form onSubmit={handleSearch} className="app-search-form relative flex-1" style={{ maxWidth: 520 }}>
               <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type="text"
@@ -359,7 +344,17 @@ function AppInner() {
                   <Close size={14} />
                 </button>
               )}
-            </form>
+            </form>}
+
+            {viewMode === 'mailbox' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                <Inbox size={17} style={{ color: 'var(--accent)' }} />
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ display: 'block', color: 'var(--text-primary)', fontSize: 13 }}>{language === 'zh' ? '共同工作邮箱' : 'Shared work mailbox'}</strong>
+                  <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{language === 'zh' ? '人类、Agent 与记忆秘书在同一主题中接力' : 'Human, Agents, and Memory Secretary hand off in one thread'}</span>
+                </div>
+              </div>
+            )}
 
             {isSearchMode && (
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -386,6 +381,8 @@ function AppInner() {
         </header>
 
         <div className="app-content-row flex flex-1 overflow-hidden">
+          {viewMode === 'mailbox' && <MailboxView />}
+
           {viewMode === 'memories' && (
             <>
               <div className="memory-list-shell flex-1 overflow-y-auto">
@@ -549,12 +546,6 @@ function AppInner() {
           {viewMode === 'migration' && (
             <div className="flex-1 overflow-y-auto">
               <MigrationView onImported={handleProjectChanged} onToast={toast} />
-            </div>
-          )}
-
-          {viewMode === 'organize' && (
-            <div className="flex-1 overflow-y-auto">
-              <ProjectSuggestionsView onChanged={handleProjectChanged} onToast={toast} />
             </div>
           )}
 

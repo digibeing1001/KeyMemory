@@ -17,7 +17,6 @@ import {
   Eye,
   Trash,
   Sparkles,
-  Folder,
 } from './Icons';
 import {
   listDreamReports,
@@ -30,7 +29,6 @@ import {
   forgetMemory,
   getMemory,
   listProjects,
-  updateMemory,
   resolveConflict,
 } from '../lib/api';
 import type { DreamReport, DreamSignalEntry, SchedulerConfig, ConflictAction } from '../lib/api';
@@ -111,8 +109,6 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const [cronHour, setCronHour] = useState(3);
   const [cronMinute, setCronMinute] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [assignmentInputs, setAssignmentInputs] = useState<Record<string, string>>({});
-  const [assigningMemoryId, setAssigningMemoryId] = useState<string | null>(null);
   const [previewMemory, setPreviewMemory] = useState<Memory | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -249,44 +245,6 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
     }
   }, [language, toast]);
 
-  const handleAssignProject = useCallback(async (memoryId: string) => {
-    const value = (assignmentInputs[memoryId] ?? '').trim();
-    if (!value) {
-      toast(t('dream.todo.assignMissing'), 'error');
-      return;
-    }
-
-    const matchedProject = projects.find((project) => (
-      project.id === value
-      || project.path.toLowerCase() === value.toLowerCase()
-      || project.name.toLowerCase() === value.toLowerCase()
-    ));
-
-    setAssigningMemoryId(memoryId);
-    try {
-      await updateMemory(memoryId, matchedProject ? { projectId: matchedProject.id } : { projectPath: value });
-      setAssignmentInputs((prev) => {
-        const next = { ...prev };
-        delete next[memoryId];
-        return next;
-      });
-      setSelectedReport((prev) => prev ? {
-        ...prev,
-        todoItems: prev.todoItems.filter((item) => item.memoryId !== memoryId || item.type !== 'orphan'),
-      } : prev);
-      setReports((prev) => prev.map((report) => ({
-        ...report,
-        todoItems: report.todoItems.filter((item) => item.memoryId !== memoryId || item.type !== 'orphan'),
-      })));
-      await fetchProjects();
-      toast(t('dream.todo.assigned'), 'success');
-    } catch {
-      toast(t('dream.todo.assignFailed'), 'error');
-    } finally {
-      setAssigningMemoryId(null);
-    }
-  }, [assignmentInputs, fetchProjects, projects, t, toast]);
-
   const handlePreviewMemory = useCallback(async (memoryId: string) => {
     setPreviewLoadingId(memoryId);
     setPreviewMemory(null);
@@ -351,7 +309,9 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
     );
   }
 
-  const todoItems = selectedReport?.todoItems ?? [];
+  // 未归入旧项目目录的记忆现在是正常的公共原子记忆，历史 orphan 建议
+  // 不再显示成“请分配文件夹”的用户待办。
+  const todoItems = (selectedReport?.todoItems ?? []).filter((item) => item.type !== 'orphan');
   const promoted = selectedReport?.details?.promoted ?? [];
   const archived = selectedReport?.details?.archived ?? [];
   const merged = selectedReport?.details?.merged ?? [];
@@ -366,11 +326,6 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
       />
-      <datalist id="dream-project-options">
-        {projects.map((project) => (
-          <option key={project.id} value={project.path}>{project.name}</option>
-        ))}
-      </datalist>
       {(previewMemory || previewLoadingId) && (
         <DreamMemoryDrawer
           memory={previewMemory}
@@ -610,31 +565,6 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
                               <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t('dream.todo.howToFix')}：</span>
                               {isOrphan ? t('dream.todo.orphanHowTo') : t('dream.todo.conflictHowTo')}
                             </p>
-                            {isOrphan && (
-                              <div className="dream-assign-row">
-                                <label htmlFor={`dream-assign-${item.memoryId}`}>
-                                  {t('dream.todo.assignProject')}
-                                </label>
-                                <div className="dream-assign-control">
-                                  <input
-                                    id={`dream-assign-${item.memoryId}`}
-                                    type="text"
-                                    list="dream-project-options"
-                                    value={assignmentInputs[item.memoryId] ?? ''}
-                                    placeholder={t('dream.todo.assignPlaceholder')}
-                                    onChange={(event) => setAssignmentInputs((prev) => ({ ...prev, [item.memoryId]: event.target.value }))}
-                                  />
-                                  <button
-                                    className="btn"
-                                    onClick={() => handleAssignProject(item.memoryId)}
-                                    disabled={assigningMemoryId === item.memoryId}
-                                  >
-                                    <Folder size={12} />
-                                    {t('dream.todo.assign')}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
                             <div className="dream-todo-actions flex items-center gap-2">
                               <button className="btn" onClick={() => handlePreviewMemory(item.memoryId)}>
                                 <Eye size={12} />

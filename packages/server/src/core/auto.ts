@@ -2,8 +2,6 @@ import type { Memory, Layer, SelfCheckResult } from '@keymemory/shared';
 import { createMemory } from './atom.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
-import { getDatabase } from '../db/sqlite.js';
-import { ensureProjectPath, resolveProjectRef } from './project.js';
 import { extractProjectPathFromContent, inferMemoryLayer, isMeaningfulTag, cleanTag } from './memory-schema.js';
 
 interface AutoRememberInput {
@@ -144,25 +142,10 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   const layer = inferMemoryLayer(title, content, undefined, evaluation);
   const projects = extractProjects(content);
   const inferredProjectPath = extractProjectPathFromContent(content);
-  const projectName = projects[0] || currentProjectId;
-
-  // Look up project ID from name, fallback to uncategorized root
-  const db = getDatabase();
-  let projectId: string | undefined;
-  let projectPath: string | undefined = projects[0] || inferredProjectPath;
-  if (projectName) {
-    const project = projects[0] ? ensureProjectPath(projects[0]) : resolveProjectRef(projectName);
-    projectId = project?.id;
-    projectPath = project?.path ?? projectPath;
-  } else if (inferredProjectPath) {
-    const project = ensureProjectPath(inferredProjectPath);
-    projectId = project?.id;
-    projectPath = project?.path ?? inferredProjectPath;
-  }
-  if (!projectId && !projectPath) {
-    const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
-    projectId = rootProject?.id;
-  }
+  // 项目路径只作为来源线索保留，不再创建或扩展用户项目文件夹。
+  // 具体工作的连续上下文由邮件主题承担；原子记忆统一进入公共记忆池，
+  // 之后可以被多个邮件线程引用。
+  const projectPath: string | undefined = projects[0] || inferredProjectPath;
 
   const tags = extractTags(content);
   // Agent-derived memories should not be indistinguishable from explicit user
@@ -188,7 +171,6 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     title,
     content: content.trim(),
     layer,
-    projectId,
     projectPath,
     agentSpace: isolationMode === 'isolated' && agentId ? `agent:${agentId}` : 'global',
     ownerAgentId: agentId,

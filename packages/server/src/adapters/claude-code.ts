@@ -37,6 +37,7 @@ export const claudeCodeAdapter: MemoryAdapter = {
       layer: options?.layer,
       limit: options?.limit,
       projectId: options?.projectId,
+      projectPath: options?.projectPath,
       includeDescendants: options?.includeDescendants,
       includeSuperseded: options?.includeSuperseded,
       memoryKind: options?.memoryKind,

@@ -9,7 +9,7 @@ import { moveLayer } from './layer.js';
 import { createMemoryRelation } from '../graph/entity.js';
 import { detectDuplicateActions, detectStaleActions, detectOldFlashActions, computeTextSimilarity } from './consolidation-detectors.js';
 import { runRelationReasonerBatch } from './relation-reasoner.js';
-import { scanProjectJournalInjections } from './project-journal.js';
+import { syncMailbox } from './mailbox.js';
 
 type ScoredDreamCandidate = DreamCandidate & {
   qualityScore: number;
@@ -85,31 +85,8 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
         console.error('[Dream] Semantic phase failed (non-fatal):', (err as Error).message);
       }
 
-      try {
-        const clusteringResult = runProjectClusteringPhase(reportId);
-        sessions.push(clusteringResult.session);
-        totalCandidates += clusteringResult.session.candidatesProcessed;
-      } catch (err) {
-        console.error('[Dream] Project clustering phase failed (non-fatal):', (err as Error).message);
-      }
-
-      // 项目接龙注入扫描（同步，不调 LLM）
-      // 扫描哪些项目近 N 天有活动但缺少 project_journal，标记为 pending。
-      // 当 agent 检索命中这些项目时，context-pack 会注入"请写日志"指令。
-      // 注意：本阶段只做标记，不生成日志内容。日志由 agent 自己写。
-      try {
-        const journalReport = scanProjectJournalInjections();
-        if (journalReport.marked > 0) {
-          details.projectJournalInjected = journalReport.details.map(d => ({
-            projectId: d.projectId,
-            projectName: d.projectName,
-            lastActivityAt: d.lastActivityAt,
-          }));
-          console.error(`[Dream] Project handoff: marked ${journalReport.marked} projects for journal injection`);
-        }
-      } catch (err) {
-        console.error('[Dream] Project handoff scan failed (non-fatal):', (err as Error).message);
-      }
+      // 项目树聚类和 project_journal 接龙已由邮箱线程替代。
+      // 同步版 Dream 不生成邮件；异步入口会在关系整理完成后调用记忆秘书。
 
       // 关联推理（异步，不在此同步函数中执行）
       // 关联推理调用 LLM 做四问深度扫描，是异步操作。
@@ -227,6 +204,14 @@ export async function runDreamCycleAsync(quickMode: boolean = false): Promise<Dr
     }
   } catch (err) {
     console.error('[Dream] Relation reasoning failed (non-fatal):', (err as Error).message);
+  }
+
+  // 4. 记忆秘书只为真正发生变化的线程追加邮件；没有变化时不制造通知噪声。
+  try {
+    const mailboxReport = await syncMailbox();
+    console.error(`[Dream] Mailbox: checked ${mailboxReport.checked} threads, sent ${mailboxReport.sent} updates`);
+  } catch (err) {
+    console.error('[Dream] Mailbox sync failed (non-fatal):', (err as Error).message);
   }
 
   return report;
@@ -612,9 +597,10 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
 
   const candidatesProcessed = candidates.length + actions.length;
 
-  // Detect current review items after automatic project routing.
-  const autoRouted = autoRouteProjectOrphans(db);
-  const orphans = detectOrphanMemories(db);
+  // 共同邮箱已替代自动项目归集：未进入具体邮件线程的内容就是正常的公共
+  // 原子记忆，不再自动创建/选择项目目录，也不再生成“孤立记忆”文件夹待办。
+  const autoRouted = 0;
+  const orphans: DreamTodoItem[] = [];
   const conflicts = detectConflictMemories(db);
   const todoItems: DreamTodoItem[] = [...orphans, ...conflicts];
 
@@ -1906,10 +1892,24 @@ export function getPendingTodosForContext(limit?: number, projectId?: string): D
     const rows = db.prepare(`
       SELECT m.id
       FROM memories m
-      JOIN projects p ON p.id = m.project_id
+      LEFT JOIN projects p ON p.id = m.project_id
       WHERE m.id IN (${placeholders})
-        AND (p.id = ? OR p.path LIKE ?)
-    `).all(...memoryIds, projectId, `${project.path}/%`) as { id: string }[];
+        AND (
+          p.id = ? OR p.path LIKE ?
+          OR json_extract(m.metadata, '$.sourceProjectPath') = ?
+          OR json_extract(m.metadata, '$.sourceProjectPath') LIKE ?
+          OR json_extract(m.metadata, '$.legacyProject.path') = ?
+          OR json_extract(m.metadata, '$.legacyProject.path') LIKE ?
+        )
+    `).all(
+      ...memoryIds,
+      projectId,
+      `${project.path}/%`,
+      project.path,
+      `${project.path}/%`,
+      project.path,
+      `${project.path}/%`,
+    ) as { id: string }[];
     const allowed = new Set(rows.map(row => row.id));
     for (let index = allTodos.length - 1; index >= 0; index--) {
       if (!allowed.has(allTodos[index].memoryId)) allTodos.splice(index, 1);

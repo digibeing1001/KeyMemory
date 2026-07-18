@@ -23,6 +23,7 @@ import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security
 import type { Layer, MemoryKind, MemoryStatus, ForgetMethod } from '@keymemory/shared';
 import { DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
 import { supersedeMemory } from './core/supersession.js';
+import { createMailThread, getMailThreadContext, getMailThreadDetail, listMailThreads, replyToMailThread, syncMailbox, syncMailThread } from './core/mailbox.js';
 
 type OutputFormat = 'json' | 'table' | 'compact';
 
@@ -339,6 +340,7 @@ program
   .option('-n, --limit <number>', 'max results', '10')
   .option('-l, --layer <layer>', 'filter by layer')
   .option('-p, --projectId <projectId>', 'filter by project ID; includes descendants by default')
+  .option('--project-path <projectPath>', 'filter by retained source path without creating folders')
   .option('--no-descendants', 'exclude child projects when --projectId is used')
   .option('--kind <memoryKind>', 'filter by memory kind')
   .option('--include-superseded', 'include memories superseded by active newer memories')
@@ -350,6 +352,7 @@ program
       limit: parseInt(opts.limit, 10),
       layer: opts.layer as Layer | undefined,
       projectId: opts.projectId,
+      projectPath: opts.projectPath,
       includeDescendants: opts.descendants,
       includeSuperseded: Boolean(opts.includeSuperseded),
       asOf: opts.asOf,
@@ -402,6 +405,93 @@ program
     }
     const format: OutputFormat = program.opts().format || 'json';
     printAndExit(pack, format);
+  });
+
+program
+  .command('inbox')
+  .description('List project, task, and event email threads before starting work')
+  .option('--folder <folder>', 'inbox|starred|snoozed|sent|drafts|scheduled|archive|trash|all', 'inbox')
+  .option('-q, --query <query>', 'search subjects and message bodies')
+  .option('--agent-id <agentId>', 'mailbox identity', 'cli')
+  .option('-n, --limit <number>', 'max threads', '100')
+  .action((opts) => {
+    const threads = listMailThreads({
+      folder: opts.folder,
+      query: opts.query,
+      recipientId: `agent:${opts.agentId}`,
+      limit: parseInt(opts.limit, 10),
+    });
+    printAndExit(threads, program.opts().format || 'json');
+  });
+
+program
+  .command('thread-create')
+  .description('Create one human-readable email thread for one explicit project, task, or event')
+  .requiredOption('-s, --subject <subject>', 'natural work-email subject, not a category name')
+  .requiredOption('-c, --content <content>', 'first email body in clear written language')
+  .option('-k, --kind <kind>', 'project|task|event', 'project')
+  .option('--agent-id <agentId>', 'sender Agent identity', 'cli')
+  .option('--memory-ids <ids>', 'comma-separated source memory IDs')
+  .action((opts) => {
+    const detail = createMailThread({
+      subject: opts.subject,
+      kind: opts.kind,
+      body: opts.content,
+      senderType: 'agent',
+      senderId: `agent:${opts.agentId}`,
+      memoryIds: opts.memoryIds ? String(opts.memoryIds).split(',').map((item: string) => item.trim()).filter(Boolean) : undefined,
+    });
+    printAndExit(detail, program.opts().format || 'json');
+  });
+
+program
+  .command('thread-read <threadId>')
+  .description('Read a complete shared email thread and mark it read')
+  .option('--agent-id <agentId>', 'reader Agent identity', 'cli')
+  .action((threadId, opts) => {
+    const detail = getMailThreadDetail(threadId, `agent:${opts.agentId}`);
+    if (!detail) return printError('Mail thread not found.');
+    printAndExit(detail, program.opts().format || 'json');
+  });
+
+program
+  .command('thread-context <threadId>')
+  .description('Read the current state, recent replies, open items, and linked memories for project handoff')
+  .option('--agent-id <agentId>', 'reader Agent identity', 'cli')
+  .option('--max-messages <number>', 'recent replies', '5')
+  .option('--max-memories <number>', 'linked memories', '8')
+  .option('--markdown', 'print human-readable context only')
+  .action((threadId, opts) => {
+    const context = getMailThreadContext(threadId, `agent:${opts.agentId}`, undefined, parseInt(opts.maxMessages, 10), parseInt(opts.maxMemories, 10));
+    if (!context) return printError('Mail thread not found.');
+    if (opts.markdown) return printTextAndExit(context.markdown);
+    printAndExit(context, program.opts().format || 'json');
+  });
+
+program
+  .command('thread-reply <threadId>')
+  .description('Reply with readable progress, results, blockers, decisions, or next steps')
+  .requiredOption('-c, --content <content>', 'human-readable email body; put technical output in attachments')
+  .option('-t, --type <type>', 'reply|progress|question|decision|correction', 'progress')
+  .option('--agent-id <agentId>', 'sender Agent identity', 'cli')
+  .action((threadId, opts) => {
+    const message = replyToMailThread(threadId, {
+      body: opts.content,
+      senderType: 'agent',
+      senderId: `agent:${opts.agentId}`,
+      messageType: opts.type,
+    });
+    printAndExit(message, program.opts().format || 'json');
+  });
+
+program
+  .command('mailbox-sync [threadId]')
+  .description('Let the memory secretary append readable updates for changed linked memories; never wakes an Agent')
+  .action(async (threadId) => {
+    const result = threadId
+      ? { sent: Boolean(await syncMailThread(threadId)) }
+      : await syncMailbox();
+    printAndExit(result, program.opts().format || 'json');
   });
 
 program

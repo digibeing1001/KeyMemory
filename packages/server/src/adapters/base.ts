@@ -6,6 +6,8 @@ export interface MemorySearchOptions {
   layer?: Layer;
   limit?: number;
   projectId?: string;
+  /** Filter by the remembered source path without creating or relying on folders. */
+  projectPath?: string;
   includeDescendants?: boolean;
   includeSuperseded?: boolean;
   /** Retrieve facts valid at this ISO 8601 instant. Defaults to now. */

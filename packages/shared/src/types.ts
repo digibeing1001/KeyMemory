@@ -30,6 +30,113 @@ export interface Project {
   metadata?: Record<string, unknown>;
 }
 
+export type MailThreadKind = 'project' | 'task' | 'event';
+export type MailThreadStatus = 'open' | 'waiting' | 'completed';
+export type MailThreadFolder = 'inbox' | 'archive' | 'trash';
+export type MailSenderType = 'human' | 'agent' | 'secretary';
+export type MailMessageType = 'reply' | 'digest' | 'progress' | 'question' | 'decision' | 'correction';
+export type MailMessageStatus = 'draft' | 'sent' | 'scheduled';
+export type MailAttachmentKind = 'memory' | 'file' | 'log' | 'hardware' | 'technical';
+
+/**
+ * 人类与 Agent 共用的项目邮件线程。
+ *
+ * 一个明确的项目、任务或事件只对应一个主题；后续变化通过回复追加。
+ * projectScopeId 是兼容现有 Context Pack / Loop 的内部范围，UI 不展示。
+ */
+export interface MailThread {
+  id: string;
+  subject: string;
+  kind: MailThreadKind;
+  status: MailThreadStatus;
+  folder: MailThreadFolder;
+  agentSpace: string;
+  projectScopeId?: string;
+  legacyProjectId?: string;
+  currentSummary?: string;
+  createdByType: MailSenderType;
+  createdById?: string;
+  starred: boolean;
+  snoozedUntil?: string;
+  unreadCount: number;
+  messageCount: number;
+  participantIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MailMessage {
+  id: string;
+  threadId: string;
+  parentMessageId?: string;
+  senderType: MailSenderType;
+  senderId?: string;
+  recipientIds: string[];
+  subject: string;
+  body: string;
+  messageType: MailMessageType;
+  status: MailMessageStatus;
+  sentAt?: string;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MailAttachment {
+  id: string;
+  messageId: string;
+  kind: MailAttachmentKind;
+  title: string;
+  content?: string;
+  memoryId?: string;
+  collapsed: boolean;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MailThreadMemoryLink {
+  threadId: string;
+  memoryId: string;
+  relationType: 'source' | 'supports' | 'decision' | 'task' | 'reference' | 'correction';
+  createdAt: string;
+}
+
+export interface MailThreadDetail {
+  thread: MailThread;
+  messages: Array<MailMessage & { attachments: MailAttachment[]; readAt?: string }>;
+  linkedMemories: Memory[];
+}
+
+/** Agent 读取线程时使用的紧凑接力上下文。 */
+export interface MailThreadContext {
+  thread: MailThread;
+  currentState: string;
+  recentMessages: MailMessage[];
+  openItems: string[];
+  linkedMemories: Memory[];
+  markdown: string;
+}
+
+export interface MailboxMigrationPreviewItem {
+  projectId: string;
+  projectPath: string;
+  memoryCount: number;
+  disposition: 'return_to_memory_pool' | 'empty_legacy_folder';
+  memoryIds: string[];
+}
+
+export interface MailboxMigrationReport {
+  alreadyApplied: boolean;
+  dryRun: boolean;
+  defaultProjectId: string;
+  movedMemories: number;
+  retiredProjects: number;
+  removedSuggestions: number;
+  backupPath?: string;
+  items: MailboxMigrationPreviewItem[];
+}
+
 export interface Memory {
   id: string;
   title: string;
@@ -301,6 +408,8 @@ export interface AgentContextPack {
   totalItems: number;
   usedChars: number;
   sections: AgentContextSection[];
+  /** Matching project/task/event mailbox handoff, when one thread is identifiable. */
+  mailThread?: MailThreadContext;
   markdown: string;
 }
 

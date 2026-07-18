@@ -59,7 +59,7 @@ const memoryCreateSchema = {
     content: { type: 'string', description: 'Full durable memory content. Markdown is supported.' },
     layer: { type: 'string', enum: LAYERS, description: 'Memory layer: flash, short, long, or entity. Optional; inferred from content/metadata when omitted. Default short.' },
     projectId: { type: 'string', description: 'Optional KeyMemory project ID.' },
-    projectPath: { type: 'string', description: 'Optional project path, such as Product/Backend/Memory. Missing folders are created automatically.' },
+    projectPath: { type: 'string', description: 'Optional legacy/source path hint. It is retained for compatible scoped retrieval but does not create folders; concrete work belongs in one mailbox thread.' },
     confidence: { type: 'number', minimum: 0, maximum: 1, description: 'Evidence-calibrated confidence. Explicit writes default to 1.' },
     validFrom: { type: 'string', description: 'ISO 8601 start of the fact validity window. Defaults to creation time.' },
     validTo: { type: 'string', description: 'ISO 8601 exclusive end of the fact validity window.' },
@@ -76,6 +76,7 @@ const memorySearchSchema = {
   properties: {
     query: { type: 'string', description: 'Search query for durable KeyMemory memories.' },
     projectId: { type: 'string', description: 'Optional project ID. Descendants are included by default.' },
+    projectPath: { type: 'string', description: 'Optional source-path scope retained from older project-based memories. Prefer mailbox threads for concrete work; this filter does not create folders.' },
     includeDescendants: { type: 'boolean', description: 'Whether project search includes child projects. Default true.' },
     includeSuperseded: { type: 'boolean', description: 'Include memories superseded by newer active memories. Default false.' },
     memoryKind: { type: 'string', enum: MEMORY_KINDS, description: 'Optional normalized memory kind filter.' },
@@ -101,6 +102,75 @@ const memoryContextPackSchema = {
     maxItems: { type: 'number', description: 'Max memories. Default 12.' },
     maxChars: { type: 'number', description: 'Approximate character budget. Default 6000.' },
   },
+};
+
+const mailboxListSchema = {
+  type: 'object',
+  properties: {
+    folder: { type: 'string', enum: ['inbox', 'starred', 'snoozed', 'sent', 'drafts', 'scheduled', 'archive', 'trash', 'all'], description: 'Mailbox folder. Default inbox.' },
+    query: { type: 'string', description: 'Optional natural-language search across thread subjects and message bodies.' },
+    limit: { type: 'number', minimum: 1, maximum: 250, description: 'Maximum threads. Default 100.' },
+    offset: { type: 'number', minimum: 0, description: 'Pagination offset.' },
+  },
+};
+
+const mailThreadCreateSchema = {
+  type: 'object',
+  properties: {
+    subject: { type: 'string', description: 'A natural, human-readable work-email subject that states what is being advanced. Do not use category-only names such as “Feishu” or “Project”.' },
+    kind: { type: 'string', enum: ['project', 'task', 'event'], description: 'What this one-thread context represents.' },
+    body: { type: 'string', description: 'The first email in plain written language: explain why the work exists, its current state, confirmed decisions, unresolved questions, and next action. Put code and logs in attachments, not the body.' },
+    recipientIds: { type: 'array', items: { type: 'string' }, description: 'Internal human or Agent mailbox IDs. Defaults to the local human and all Agents.' },
+    memoryIds: { type: 'array', items: { type: 'string' }, description: 'Existing atomic memories to attach as sources. One memory may support many threads.' },
+    metadata: { type: 'object', description: 'Optional structured envelope metadata; never substitute this for a readable email body.' },
+  },
+  required: ['subject', 'kind', 'body'],
+};
+
+const mailThreadIdSchema = {
+  type: 'object',
+  properties: {
+    threadId: { type: 'string', description: 'Mail thread ID.' },
+    maxMessages: { type: 'number', minimum: 1, maximum: 12, description: 'For context reads, maximum recent replies. Default 5.' },
+    maxMemories: { type: 'number', minimum: 1, maximum: 20, description: 'For context reads, maximum linked atomic memories. Default 8.' },
+  },
+  required: ['threadId'],
+};
+
+const mailThreadReplySchema = {
+  type: 'object',
+  properties: {
+    threadId: { type: 'string', description: 'Mail thread ID.' },
+    body: { type: 'string', description: 'A human-readable work reply. State progress, result, blocker, decision, question, or next step in ordinary written language. Never paste raw code, JSON, stack traces, or long logs into the body.' },
+    messageType: { type: 'string', enum: ['reply', 'digest', 'progress', 'question', 'decision', 'correction'], description: 'Meaning of the reply. Agent work updates normally use progress.' },
+    recipientIds: { type: 'array', items: { type: 'string' }, description: 'Internal recipients. Defaults to the local human and all Agents.' },
+    attachments: {
+      type: 'array',
+      description: 'Collapsed technical material or evidence. Use this for code, logs, hardware data, files, and exact memory sources.',
+      items: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['memory', 'file', 'log', 'hardware', 'technical'] },
+          title: { type: 'string' },
+          content: { type: 'string' },
+          memoryId: { type: 'string' },
+          collapsed: { type: 'boolean', description: 'Keep technical details collapsed. Default true.' },
+        },
+        required: ['kind', 'title'],
+      },
+    },
+  },
+  required: ['threadId', 'body'],
+};
+
+const mailThreadLinkSchema = {
+  type: 'object',
+  properties: {
+    threadId: { type: 'string' },
+    memoryId: { type: 'string' },
+    relationType: { type: 'string', enum: ['source', 'supports', 'decision', 'task', 'reference', 'correction'], description: 'How the atomic memory supports this thread.' },
+  },
+  required: ['threadId', 'memoryId'],
 };
 
 const loopBudgetProperties = {
@@ -245,8 +315,47 @@ const BASE_MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'memory_context_pack',
-    description: 'Build an agent-ready KeyMemory context pack grouped by preferences, constraints, decisions, tasks, procedures, and project facts. Use before long-running work.',
+    description: 'Build an agent-ready KeyMemory context pack. For a concrete project, task, or event, read its mailbox thread first; use this pack to add shared preferences, constraints, procedures, and reusable atomic memories.',
     inputSchema: memoryContextPackSchema,
+  },
+  {
+    name: 'memory_inbox_list',
+    description: '列出当前 Agent 的共同邮箱。开始或继续具体项目、任务、事件时，先读收件箱并找到唯一的相关邮件主题，再搜索零散记忆。 List the shared Agent inbox first and find the single related thread before raw memory search.',
+    inputSchema: mailboxListSchema,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'memory_thread_create',
+    description: '为一项明确的项目、任务或事件建立一个长期邮件主题。标题和正文必须像真实工作邮件，不能只写分类名，也不能直接粘贴机器日志。 Create one durable, human-readable work thread.',
+    inputSchema: mailThreadCreateSchema,
+  },
+  {
+    name: 'memory_thread_read',
+    description: '读取完整的共同邮件线程，并标记为当前 Agent 已读。人类与 Agent 看到相同的书面正文；代码、日志等技术证据保留在折叠附件中。 Read the same thread humans see.',
+    inputSchema: mailThreadIdSchema,
+  },
+  {
+    name: 'memory_thread_context',
+    description: '读取一份适合接力的紧凑邮件上下文，包括当前情况、最近回复、待办事项和关联记忆。规划或继续工作前必须先读它。 Read the human-readable thread handoff before planning or continuing work.',
+    inputSchema: mailThreadIdSchema,
+  },
+  {
+    name: 'memory_thread_reply',
+    description: '把有意义的进展、结果、阻碍、决定、问题或下一步回复到共同邮件主题。正文必须使用自然、通俗的书面语言；代码、日志、JSON、报错堆栈和硬件输出一律放入折叠附件。 Reply in plain human-readable prose and keep technical material collapsed.',
+    inputSchema: mailThreadReplySchema,
+  },
+  {
+    name: 'memory_thread_link_memory',
+    description: '把一条已有的原子记忆作为依据附加到邮件主题。记忆不会被复制，同一条记忆可以支持多个主题。 Link one reusable atomic memory to one or more mail threads.',
+    inputSchema: mailThreadLinkSchema,
+  },
+  {
+    name: 'memory_mailbox_sync',
+    description: '让记忆秘书检查关联记忆、去除已经整理过的变化，并仅在确有新内容时追加一封通俗易懂的摘要邮件。这个操作不会启动或唤醒任何 Agent。 Check changes and append a readable digest without waking Agents.',
+    inputSchema: {
+      type: 'object',
+      properties: { threadId: { type: 'string', description: 'Optional single thread. Omit to check all visible threads.' } },
+    },
   },
   {
     name: 'memory_loop_start',
@@ -646,6 +755,9 @@ export const KEYMEMORY_ALIAS_TOOLS: MCPTool[] = [
   aliasTool('keymemory_create', 'memory_create', 'KeyMemory: save a durable memory. Use for remember, keep this, save this, or update my memory requests instead of local Memory files.'),
   aliasTool('keymemory_search', 'memory_search', 'KeyMemory: search durable memories. Use for recall, what do you remember, preferences, prior decisions, and project context.'),
   aliasTool('keymemory_context_pack', 'memory_context_pack', 'KeyMemory: build a compact context pack before long-running work.'),
+  aliasTool('keymemory_inbox', 'memory_inbox_list', 'KeyMemory mailbox: list unread and relevant project, task, and event threads before starting work.'),
+  aliasTool('keymemory_thread_context', 'memory_thread_context', 'KeyMemory mailbox: read one project thread as a compact handoff.'),
+  aliasTool('keymemory_thread_reply', 'memory_thread_reply', 'KeyMemory mailbox: reply with human-readable progress or results.'),
   aliasTool('keymemory_read', 'memory_read', 'KeyMemory: read one durable memory by ID.'),
   aliasTool('keymemory_list', 'memory_list', 'KeyMemory: list recent durable memories.'),
   aliasTool('keymemory_update', 'memory_update', 'KeyMemory: update an existing durable memory.'),
@@ -669,6 +781,9 @@ export const MCP_TOOL_ALIASES: Record<string, string> = {
   search_memory: 'memory_search',
   keymemory_context: 'memory_context_pack',
   keymemory_context_pack: 'memory_context_pack',
+  keymemory_inbox: 'memory_inbox_list',
+  keymemory_thread_context: 'memory_thread_context',
+  keymemory_thread_reply: 'memory_thread_reply',
   keymemory_read: 'memory_read',
   read_memory: 'memory_read',
   keymemory_list: 'memory_list',
@@ -699,6 +814,7 @@ const READ_ONLY_TOOL_NAMES = new Set([
   'memory_read',
   'memory_list',
   'memory_related',
+  'memory_inbox_list',
   'memory_migration_discover',
   'memory_backup_inspect',
   'memory_backup_restore_dry_run',

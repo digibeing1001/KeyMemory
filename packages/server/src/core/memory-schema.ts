@@ -154,6 +154,9 @@ function normalizeInferredProjectPath(value: string): string | undefined {
 export function inferProjectPathFromContent(content: string, title = ''): string | undefined {
   const text = `${title}\n${content}`;
   const patterns: RegExp[] = [
+    // 旧版 Agent 广泛使用 [[父项目/子项目]] 标记。邮箱版不再据此创建目录，
+    // 但仍把它保存为来源线索，以便旧调用能按原范围读取历史上下文。
+    /\[\[([^\]\r\n]{2,120})\]\]/,
     /(?:projectPath|project_path|project\s*path)\s*[:=：]\s*([^\n\r。；;，,]+)/i,
     /(?:项目路径|项目目录|项目名|项目名称|所属项目|归属项目|当前项目|项目|工程|产品|仓库|workspace|repo|project)\s*[:=：]\s*([^\n\r。；;，,]+)/i,
     /(?:项目|工程|产品|仓库|workspace|repo|project)[「『《【"']([^」』》】"']{2,120})[」』》】"']/i,
@@ -311,6 +314,9 @@ export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInpu
       source: input.source ?? suppliedEvidence.source ?? 'manual',
       sourceId: input.sourceId ?? suppliedEvidence.sourceId,
     },
+    // 邮箱版本不再根据 projectPath 创建文件夹，但保留它作为可搜索的来源线索，
+    // 供旧 Agent 的 project-scoped Context Pack 兼容读取。
+    ...(inferredProjectPath ? { sourceProjectPath: inferredProjectPath } : {}),
     ...(inferredProjectPath && !input.projectPath ? { projectRouting: { inferredPath: inferredProjectPath, method: 'content-pattern' } } : {}),
     ...(privacy ? { privacy } : {}),
   };

@@ -14,6 +14,16 @@ import { canonicalToolName, ENTITY_TYPES } from './mcp-tools.js';
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, LoopProtocolError, startLoopRun } from './loop-harness.js';
 import type { MemoryAdapter } from '../adapters/base.js';
 import { supersedeMemory } from './supersession.js';
+import {
+  createMailThread,
+  getMailThreadContext,
+  getMailThreadDetail,
+  linkMemoryToThread,
+  listMailThreads,
+  replyToMailThread,
+  syncMailbox,
+  syncMailThread,
+} from './mailbox.js';
 
 export interface McpToolExecutionResult {
   content: Array<{ type: 'text'; text: string }>;
@@ -291,6 +301,7 @@ export async function executeMcpTool(
             read: true,
             write: true,
             context: true,
+            mailbox: true,
             supersession: true,
             secrets: true,
           },
@@ -313,6 +324,7 @@ export async function executeMcpTool(
           layer: optionalLayer(args),
           limit: optionalLimit(args, 10),
           projectId: optionalString(args, 'projectId'),
+          projectPath: optionalString(args, 'projectPath'),
           includeDescendants: args.includeDescendants !== false,
           includeSuperseded: Boolean(args.includeSuperseded),
           asOf: optionalString(args, 'asOf'),
@@ -354,6 +366,105 @@ export async function executeMcpTool(
           agentSpaces: adapter.getAgentSpaces?.(),
         });
         return { content: [{ type: 'text', text: pack.markdown }], structuredContent: { contextPack: pack } };
+      }
+
+      case 'memory_inbox_list': {
+        const recipientId = `agent:${adapter.name}`;
+        const threads = listMailThreads({
+          folder: optionalString(args, 'folder') as 'inbox' | 'archive' | 'trash' | 'all' | 'starred' | 'snoozed' | 'sent' | 'drafts' | 'scheduled' | undefined,
+          query: optionalString(args, 'query'),
+          recipientId,
+          agentSpaces: adapter.getAgentSpaces?.(),
+          limit: optionalNumber(args, 'limit'),
+          offset: optionalNumber(args, 'offset'),
+        });
+        return agentText
+          ? {
+              content: [{
+                type: 'text',
+                text: threads.length > 0
+                  ? threads.map(thread => `- [${thread.id}] ${thread.subject}（${thread.unreadCount} 封未读，${thread.messageCount} 封邮件）`).join('\n')
+                  : '收件箱里没有符合条件的邮件主题。',
+              }],
+              structuredContent: { threads },
+            }
+          : ok({ threads });
+      }
+
+      case 'memory_thread_create': {
+        const detail = createMailThread({
+          subject: requiredString(args, 'subject'),
+          kind: requiredString(args, 'kind') as 'project' | 'task' | 'event',
+          body: requiredString(args, 'body'),
+          senderType: 'agent',
+          senderId: `agent:${adapter.name}`,
+          recipientIds: optionalStringArray(args, 'recipientIds'),
+          agentSpace: adapter.getAgentSpaces?.()?.find(space => space.startsWith('agent:')) ?? 'global',
+          memoryIds: optionalStringArray(args, 'memoryIds'),
+          metadata: optionalRecord(args, 'metadata'),
+        });
+        return ok(detail);
+      }
+
+      case 'memory_thread_read': {
+        const threadId = requiredString(args, 'threadId');
+        const recipientId = `agent:${adapter.name}`;
+        const detail = getMailThreadDetail(threadId, recipientId, adapter.getAgentSpaces?.(), true);
+        return detail ? ok(detail) : fail(`Mail thread not found or not accessible: ${threadId}`);
+      }
+
+      case 'memory_thread_context': {
+        const threadId = requiredString(args, 'threadId');
+        const recipientId = `agent:${adapter.name}`;
+        const context = getMailThreadContext(
+          threadId,
+          recipientId,
+          adapter.getAgentSpaces?.(),
+          optionalNumber(args, 'maxMessages'),
+          optionalNumber(args, 'maxMemories'),
+        );
+        return context
+          ? { content: [{ type: 'text', text: context.markdown }], structuredContent: { threadContext: context } }
+          : fail(`Mail thread not found or not accessible: ${threadId}`);
+      }
+
+      case 'memory_thread_reply': {
+        const rawAttachments = Array.isArray(args.attachments) ? args.attachments : [];
+        const attachments = rawAttachments
+          .filter(isRecord)
+          .map(attachment => ({
+            kind: requiredString(attachment, 'kind') as 'memory' | 'file' | 'log' | 'hardware' | 'technical',
+            title: requiredString(attachment, 'title'),
+            content: optionalString(attachment, 'content'),
+            memoryId: optionalString(attachment, 'memoryId'),
+            collapsed: attachment.collapsed !== false,
+          }));
+        const message = replyToMailThread(requiredString(args, 'threadId'), {
+          body: requiredString(args, 'body'),
+          senderType: 'agent',
+          senderId: `agent:${adapter.name}`,
+          recipientIds: optionalStringArray(args, 'recipientIds'),
+          messageType: (optionalString(args, 'messageType') as 'reply' | 'digest' | 'progress' | 'question' | 'decision' | 'correction' | undefined) ?? 'progress',
+          attachments,
+        }, adapter.getAgentSpaces?.());
+        return ok(message);
+      }
+
+      case 'memory_thread_link_memory':
+        return ok(linkMemoryToThread(
+          requiredString(args, 'threadId'),
+          requiredString(args, 'memoryId'),
+          (optionalString(args, 'relationType') as 'source' | 'supports' | 'decision' | 'task' | 'reference' | 'correction' | undefined) ?? 'source',
+          adapter.getAgentSpaces?.(),
+        ));
+
+      case 'memory_mailbox_sync': {
+        const threadId = optionalString(args, 'threadId');
+        if (threadId) {
+          const message = await syncMailThread(threadId, adapter.getAgentSpaces?.());
+          return ok({ sent: Boolean(message), message });
+        }
+        return ok(await syncMailbox(adapter.getAgentSpaces?.()));
       }
 
       case 'memory_loop_start':

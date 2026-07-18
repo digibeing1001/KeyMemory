@@ -1,56 +1,21 @@
 import { createHash, randomUUID } from 'crypto';
-import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
+import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, MailThreadContext, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
 import { getMemory, listMemories } from './atom.js';
 import { searchHybrid } from './query.js';
 import { findProjectRef, getProject } from './project.js';
 import { getDatabase } from '../db/sqlite.js';
 import { findRelatedMemories } from '../graph/entity.js';
 import { getPendingTodosForContext } from './dreaming.js';
-import { getPendingInjectionForProject, getLatestProjectJournal } from './project-journal.js';
 import { isMemoryValidAt, resolveAsOf } from './temporal.js';
+import { getMailThreadContext, listMailThreads } from './mailbox.js';
 
-/**
- * 项目命名规范指南（注入到 context pack，让 agent 在写入记忆时遵循）
- *
- * 设计目的：
- * - 让 agent 知道如何为记忆选择/创建合适的项目
- * - 让项目命名符合公司机构实际习惯，方便人类和 agent 调用
- * - 避免出现"工作"、"杂项"、"temp"等无意义项目名
- *
- * 这份指南是 docs/project-naming-convention.md 的精简可执行版本，
- * 每次 context pack 都会注入，确保 agent 始终遵循规范。
- */
-const PROJECT_NAMING_GUIDE = `## Project Naming Guide
+const MAILBOX_OPERATING_GUIDE = `## Mailbox Continuity Rule
 
-当你写入记忆时，请遵循以下项目命名规范：
-
-### 命名公式（选择最合适的一种）
-
-1. **产品/系统直命名**：独立产品直接用产品名（如 KeyMemory、个人博客）
-2. **组织+项目**：父项目是团队/部门，子项目是具体项目（如"支付团队/订单中台"）
-3. **领域+项目**：父项目是业务领域，子项目是具体项目（如"前端/官网改版"）
-4. **客户+项目**：父项目是客户名，子项目是具体项目（如"某银行/核心系统升级"）
-
-### 命名原则
-
-- **具体优先于通用**：用"订单中台"而非"工作"；用"KeyMemory"而非"项目"
-- **稳定优先于临时**：用"个人博客"而非"2024年博客"；用"简历系统"而非"v2 重构"
-- **可读优先于可编码**：用"订单中台"而非"order_platform"；用"用户画像"而非"UserProfile"
-- **名实一致**：项目名应与记忆内容主题一致，找不到合适项目时提示用户创建
-
-### 禁止的命名
-
-- 通用名：工作、学习、笔记、临时、杂项、其他、默认、文档、待办、任务
-- 编程风格：order_platform、UserProfile、q3finance
-- 代号编号：模块A、项目001、阿波罗计划
-- 会过期的名：2024年博客、本月阅读、v2 重构
-
-### 写入记忆时的项目选择
-
-1. 优先选择与记忆内容最匹配的现有项目
-2. 如果记忆属于某项目的子模块，选择子项目（如"订单中台/支付模块"）
-3. 如果找不到合适项目，提示用户创建新项目，而非强行归类到通用项目
-4. 创建新项目时，遵循上述命名公式和原则`;
+- A concrete project, task, or event belongs to one email subject. Continue by replying to that thread instead of creating folders or duplicate subjects.
+- Read the matching thread before planning. Use atomic memories only to add reusable preferences, rules, facts, people, tools, knowledge, and lessons.
+- At a meaningful milestone, pause, handoff, or finish, reply to the thread with progress, current state, blockers, deliverables, and next steps.
+- Write for humans and Agents together: use ordinary written language. Put code, logs, JSON, stack traces, and hardware output in collapsed attachments.
+- KeyMemory stores mail for the Agent to read later; it never wakes or starts an Agent.`;
 
 const KIND_ORDER: MemoryKind[] = [
   'preference',
@@ -102,6 +67,26 @@ function projectPathOf(memory: Memory): string | undefined {
   return getProject(memory.projectId)?.path;
 }
 
+function sourceProjectPathOf(memory: Memory): string | undefined {
+  const metadata = memory.metadata as Record<string, unknown> | undefined;
+  if (typeof metadata?.sourceProjectPath === 'string') return metadata.sourceProjectPath;
+  const legacy = metadata?.legacyProject;
+  if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
+    const path = (legacy as Record<string, unknown>).path;
+    if (typeof path === 'string') return path;
+  }
+  return undefined;
+}
+
+function matchesSourceProject(memory: Memory, scope: string | undefined, includeDescendants: boolean): boolean {
+  if (!scope) return true;
+  // 打散到共享池的记忆以原始来源为准；仍由旧 Loop/MCP 显式绑定项目 ID
+  // 的记忆没有来源元数据，此时才退回实际项目路径。两者都只是兼容检索边界。
+  const contextPath = sourceProjectPathOf(memory) ?? projectPathOf(memory);
+  if (!contextPath) return false;
+  return contextPath === scope || (includeDescendants && contextPath.startsWith(`${scope}/`));
+}
+
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
@@ -129,7 +114,7 @@ function addCandidate(
     layer: memory.layer,
     memoryKind: kind,
     projectId: memory.projectId,
-    projectPath: projectPathOf(memory),
+    projectPath: sourceProjectPathOf(memory) ?? projectPathOf(memory),
     tags: memory.tags,
     source: memory.source,
     validFrom: memory.validFrom,
@@ -225,13 +210,21 @@ function formatItem(item: AgentContextItem): string {
   return `- [${item.layer}, ${shortId}${source}${validity}] ${item.title}: ${item.content}${relationLine(item)}`;
 }
 
-function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, handoff?: { instruction?: string; lastJournal?: { id: string; title: string; content: string; createdAt: string } | null }): string {
+function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: MailThreadContext): string {
   const lines = ['# KeyMemory Context'];
   if (pack.project) lines.push(`Project: ${pack.project}`);
   if (pack.query) lines.push(`Query: ${pack.query}`);
   lines.push(`As of: ${pack.asOf}${pack.includeExpired ? ' (including expired facts)' : ''}`);
   lines.push(`Generated: ${pack.generatedAt}`);
   lines.push('');
+
+  if (mailThread) {
+    lines.push('## Shared mailbox handoff');
+    lines.push('Read this project thread first. It is the shared account of the work seen by both the user and Agents.');
+    lines.push('');
+    lines.push(mailThread.markdown);
+    lines.push('');
+  }
 
   if (pack.sections.length === 0) {
     lines.push('No relevant memories found.');
@@ -243,25 +236,8 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, handoff?: { in
     }
   }
 
-  // 注入项目命名规范：让 agent 在写入记忆时遵循统一的项目命名规则
-  // 设计目的：人类和 agent 都能方便地调用、查看、检索项目
-  lines.push(PROJECT_NAMING_GUIDE);
+  lines.push(MAILBOX_OPERATING_GUIDE);
   lines.push('');
-
-  // 注入项目接龙：上次工作日志 + 本次接龙指令
-  // 设计目的：让用户在新会话中能从上次工作的进展继续，避免重复劳动
-  if (handoff?.lastJournal) {
-    lines.push('## Last Session Journal (Project Handoff)');
-    lines.push(`以下是该项目最近一次的工作日志（${handoff.lastJournal.createdAt.slice(0, 10)}），请基于此接力工作：`);
-    lines.push(`- [${handoff.lastJournal.id.slice(0, 8)}] ${handoff.lastJournal.title}`);
-    lines.push(handoff.lastJournal.content);
-    lines.push('');
-  }
-
-  if (handoff?.instruction) {
-    lines.push(handoff.instruction);
-    lines.push('');
-  }
 
   // 注入待确认项：让 Agent 在对话中自然地提醒用户
   const pendingTodos = getPendingTodosForContext(undefined, pack.projectId);
@@ -281,11 +257,22 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, handoff?: { in
 export async function buildAgentContextPack(input: AgentContextPackRequest = {}): Promise<AgentContextPack> {
   const maxItems = Math.max(1, Math.min(input.maxItems ?? 12, 40));
   const maxChars = Math.max(800, Math.min(input.maxChars ?? 6000, 30000));
-  const includeDescendants = input.includeDescendants !== false;
   const project = input.projectId ? getProject(input.projectId) : input.project ? findProjectRef(input.project) : null;
-  const projectMissing = Boolean((input.projectId || input.project) && !project);
+  const projectKnownBySource = !project && input.project ? Boolean(getDatabase().prepare(`
+    SELECT 1 FROM memories
+    WHERE status = 'active' AND (
+      json_extract(metadata, '$.sourceProjectPath') = @path
+      OR json_extract(metadata, '$.sourceProjectPath') LIKE @prefix
+      OR json_extract(metadata, '$.legacyProject.path') = @path
+      OR json_extract(metadata, '$.legacyProject.path') LIKE @prefix
+    )
+    LIMIT 1
+  `).get({ path: input.project, prefix: `${input.project}/%` })) : false;
+  const projectMissing = Boolean((input.projectId || input.project) && !project && !projectKnownBySource);
   const projectId = input.projectId ?? project?.id;
   const projectName = project?.path ?? input.project;
+  const sourceProjectScope = input.project ?? project?.path;
+  const includeSourceDescendants = input.includeDescendants !== false;
   const asOf = resolveAsOf(input.asOf);
   const temporal = { asOf, includeExpired: input.includeExpired === true };
   const allowedKinds = input.memoryKinds && input.memoryKinds.length > 0 ? new Set(input.memoryKinds) : null;
@@ -298,28 +285,39 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
 
   if (input.query?.trim() && !projectMissing) {
     const results = await searchHybrid(input.query, {
-      projectId,
-      includeDescendants,
+      // 邮箱版本中，具体工作的边界由邮件线程提供；原子记忆来自当前 Agent
+      // 可见的共享池。保留 projectId 只用于找到邮件和旧调用兼容，不再用它
+      // 排除已经从旧项目目录打散出来的通用事实、偏好和经验。
+      projectId: undefined,
+      includeDescendants: false,
       includeSuperseded: input.includeSuperseded,
       asOf,
       includeExpired: temporal.includeExpired,
       limit: maxItems * 3,
       agentSpaces: input.agentSpaces,
     });
-    for (const result of results) addCandidate(candidates, result.memory, result.score, accessibleSpaces, temporal);
+    for (const result of results) {
+      if (matchesSourceProject(result.memory, sourceProjectScope, includeSourceDescendants)) {
+        addCandidate(candidates, result.memory, result.score, accessibleSpaces, temporal);
+      }
+    }
   }
 
   if (!projectMissing) {
     const scoped = listMemories({
-      projectId,
-      includeDescendants,
+      projectId: undefined,
+      includeDescendants: false,
       status: 'active',
       asOf,
       includeExpired: temporal.includeExpired,
       limit: maxItems * 5,
       agentSpaces: input.agentSpaces,
     });
-    for (const memory of scoped) addCandidate(candidates, memory, 0, accessibleSpaces, temporal);
+    for (const memory of scoped) {
+      if (matchesSourceProject(memory, sourceProjectScope, includeSourceDescendants)) {
+        addCandidate(candidates, memory, 0, accessibleSpaces, temporal);
+      }
+    }
   }
 
   promoteSupersedingMemories(candidates, superseders, accessibleSpaces, temporal);
@@ -371,29 +369,37 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     sections,
   };
 
-  // 项目接龙：当 agent 命中某项目时，注入"上次工作日志"和"写日志指令"
-  // 设计目的：跨会话工作连续性。新窗口能从上次进展接力，并在结束时写新日志供下次接力。
-  // 注意：getPendingInjectionForProject 有副作用（pending→injected），且受冷却时间保护
-  let handoff: { instruction?: string; lastJournal?: { id: string; title: string; content: string; createdAt: string } | null } | undefined;
-  if (projectId) {
-    try {
-      const lastJournal = getLatestProjectJournal(projectId);
-      const injection = getPendingInjectionForProject(projectId);
-      if (lastJournal || injection) {
-        handoff = {
-          lastJournal,
-          instruction: injection?.instruction,
-        };
-      }
-    } catch (err) {
-      // 接龙机制失败不应阻塞 context pack 生成
-      console.error('[context-pack] Project journal handoff failed (non-fatal):', (err as Error).message);
+  // 邮箱优先：具体项目、任务或事件先恢复共享邮件线程，再补充原子记忆。
+  // 旧 Agent 继续调用 context_pack 也能自动获得新规则，无需依赖宿主先升级提示词。
+  let mailThread: MailThreadContext | undefined;
+  try {
+    let threadId: string | undefined;
+    if (projectId) {
+      const row = getDatabase().prepare(`
+        SELECT id FROM mail_threads
+        WHERE project_scope_id = ? OR legacy_project_id = ?
+        ORDER BY COALESCE(last_message_at, updated_at) DESC LIMIT 1
+      `).get(projectId, projectId) as { id: string } | undefined;
+      threadId = row?.id;
     }
+    if (!threadId) {
+      const needle = (input.project || input.query || '').trim();
+      if (needle.length >= 5) {
+        threadId = listMailThreads({ folder: 'all', query: needle, agentSpaces: input.agentSpaces, limit: 2 })[0]?.id;
+      }
+    }
+    if (threadId) {
+      const recipientId = input.agentSpaces?.find(space => space.startsWith('agent:')) ?? 'agent:context-pack';
+      mailThread = getMailThreadContext(threadId, recipientId, input.agentSpaces) ?? undefined;
+    }
+  } catch (err) {
+    console.error('[context-pack] Mailbox handoff failed (non-fatal):', (err as Error).message);
   }
 
   const result = {
     ...packBase,
-    markdown: formatMarkdown(packBase, handoff),
+    mailThread,
+    markdown: formatMarkdown({ ...packBase, mailThread }, mailThread),
   };
 
   // 记录 agent 活动到 loop_runs 表，让使用动态页能看到智能体何时访问了记忆库。

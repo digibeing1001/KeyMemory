@@ -11,10 +11,7 @@ import {
   getLLMStatus,
   getRelationReasoningStats,
   runRelationReasoning,
-  getProjectHandoffStats,
-  runProjectHandoff,
   type RelationReasoningStats,
-  type ProjectHandoffStats,
 } from '../lib/api';
 import {
   Brain,
@@ -56,9 +53,7 @@ export default function LLMConfigView() {
   const [saving, setSaving] = useState(false);
   const [verifyResult, setVerifyResult] = useState<LLMVerifyResult | null>(null);
   const [relationReasoningStats, setRelationReasoningStats] = useState<RelationReasoningStats | null>(null);
-  const [projectHandoffStats, setProjectHandoffStats] = useState<ProjectHandoffStats | null>(null);
   const [runningRelationReasoning, setRunningRelationReasoning] = useState(false);
-  const [runningProjectHandoff, setRunningProjectHandoff] = useState(false);
 
   async function loadConfig() {
     setLoading(true);
@@ -80,15 +75,14 @@ export default function LLMConfigView() {
     } finally {
       setLoading(false);
     }
-    // 并行加载关联推理与项目接龙统计（不阻塞主配置加载）
+    // 加载原子记忆之间的关联推理统计（不阻塞主配置加载）。
+    // 具体工作的接力已经统一由共同邮箱承担，不再展示旧项目接龙入口。
     loadFeatureStats();
   }
 
   async function loadFeatureStats() {
     try {
-      const [relationStats, handoffStats] = await Promise.all([getRelationReasoningStats(), getProjectHandoffStats()]);
-      setRelationReasoningStats(relationStats);
-      setProjectHandoffStats(handoffStats);
+      setRelationReasoningStats(await getRelationReasoningStats());
     } catch {
       // 静默失败，状态卡片不是核心功能
     }
@@ -114,22 +108,6 @@ export default function LLMConfigView() {
       toast((err as Error).message, 'error');
     } finally {
       setRunningRelationReasoning(false);
-    }
-  }
-
-  async function handleRunProjectHandoff() {
-    setRunningProjectHandoff(true);
-    try {
-      const report = await runProjectHandoff();
-      toast(
-        t('llm.projectHandoffSuccess', { marked: report.marked, ms: report.durationMs }),
-        report.marked > 0 ? 'success' : 'info'
-      );
-      await loadFeatureStats();
-    } catch (err) {
-      toast((err as Error).message, 'error');
-    } finally {
-      setRunningProjectHandoff(false);
     }
   }
 
@@ -549,7 +527,7 @@ export default function LLMConfigView() {
         </ul>
       </section>
 
-      {/* 功能状态卡片：让用户看到关联推理和项目接龙的运行情况 */}
+      {/* 原子记忆保留关联推理；具体工作接力统一在共同邮箱中完成。 */}
       <section
         style={{
           marginTop: 18,
@@ -564,7 +542,7 @@ export default function LLMConfigView() {
           <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{t('llm.featuresTitle')}</strong>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
           {/* 关联推理 */}
           <div
             style={{
@@ -603,40 +581,6 @@ export default function LLMConfigView() {
             </div>
           </div>
 
-          {/* 项目接龙 */}
-          <div
-            style={{
-              padding: '12px 14px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border)',
-              background: 'var(--bg-primary)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>{t('llm.projectHandoffTitle')}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.5 }}>{t('llm.projectHandoffDesc')}</div>
-              </div>
-              <button
-                className="btn"
-                onClick={handleRunProjectHandoff}
-                disabled={runningProjectHandoff}
-                style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
-              >
-                {runningProjectHandoff ? (
-                  <span className="animate-spin" style={{ width: 11, height: 11, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
-                ) : (
-                  <RefreshCw size={11} />
-                )}
-                {runningProjectHandoff ? t('llm.projectHandoffRunning') : t('llm.projectHandoffRun')}
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-secondary)' }}>
-              <span>{t('llm.projectHandoffPending')}: <strong style={{ color: 'var(--text-primary)' }}>{projectHandoffStats?.pending ?? 0}</strong></span>
-              <span>{t('llm.projectHandoffInjected')}: <strong style={{ color: 'var(--text-primary)' }}>{projectHandoffStats?.injected ?? 0}</strong></span>
-              <span>{t('llm.projectHandoffLogged')}: <strong style={{ color: 'var(--text-primary)' }}>{projectHandoffStats?.logged ?? 0}</strong></span>
-            </div>
-          </div>
         </div>
       </section>
     </main>

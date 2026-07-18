@@ -178,6 +178,22 @@ export const Inbox: FC<IconProps> = (p) => (
   <I {...p}><path d="M2 8l3-5h10l3 5v6a2 2 0 01-2 2H4a2 2 0 01-2-2V8z" /><path d="M10 13v-3M6 10h8" /></I>
 );
 
+export const Mail: FC<IconProps> = (p) => (
+  <I {...p}><rect x="2.5" y="4" width="15" height="12" rx="2" /><path d="M3 5l7 6 7-6" /></I>
+);
+
+export const Star: FC<IconProps> = (p) => (
+  <I {...p}><path d="M10 2.5l2.25 4.55 5.02.73-3.63 3.54.86 5-4.5-2.37-4.5 2.37.86-5-3.63-3.54 5.02-.73L10 2.5z" /></I>
+);
+
+export const Send: FC<IconProps> = (p) => (
+  <I {...p}><path d="M2.5 3.5l15 6.5-15 6.5 2-6.5-2-6.5zM4.5 10h13" /></I>
+);
+
+export const Paperclip: FC<IconProps> = (p) => (
+  <I {...p}><path d="M7 10.5l5.7-5.7a3 3 0 014.3 4.2l-7.8 7.8a4.5 4.5 0 01-6.4-6.3l7.5-7.5M6 11l6-6" /></I>
+);
+
 export const FileSearch: FC<IconProps> = (p) => (
   <I {...p}><path d="M11.5 1.5H5a1.5 1.5 0 00-1.5 1.5v14a1.5 1.5 0 001.5 1.5h10a1.5 1.5 0 001.5-1.5V7.5L11.5 1.5z" /><circle cx="10" cy="12" r="2.5" /><path d="M13.5 15.5l2 2" /></I>
 );

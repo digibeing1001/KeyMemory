@@ -32,6 +32,21 @@ import path from 'path';
 import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
 import { supersedeMemory } from '../core/supersession.js';
 import { connectAgentIntegration, discoverAgentIntegrations } from '../core/agent-discovery.js';
+import {
+  createMailThread,
+  getMailboxMigrationReport,
+  getMailboxStats,
+  getMailThreadContext,
+  getMailThreadDetail,
+  linkMemoryToThread,
+  listMailThreads,
+  replyToMailThread,
+  syncMailbox,
+  syncMailThread,
+  unlinkMemoryFromThread,
+  updateMailThread,
+} from '../core/mailbox.js';
+import type { MailSenderType, MailThreadFolder, MailThreadKind, MailThreadStatus } from '@keymemory/shared';
 
 /**
  * 校验导入路径安全性，防止 null byte 注入和明显的路径攻击
@@ -81,6 +96,16 @@ function getVisibleMemoryForRequest(request: FastifyRequest, id: string) {
   return visible.has(memory.agentSpace) ? memory : null;
 }
 
+function mailboxIdentityForRequest(request: FastifyRequest): { recipientId: string; agentSpaces?: string[] } {
+  const agentId = request.headers['x-agent-id'];
+  if (typeof agentId !== 'string' || !agentId.trim()) return { recipientId: 'human:local' };
+  const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode | undefined) ?? 'hybrid';
+  return {
+    recipientId: agentId.startsWith('agent:') ? agentId : `agent:${agentId}`,
+    agentSpaces: visibleSpacesFor(agentId.replace(/^agent:/, ''), isolationMode),
+  };
+}
+
 export function registerRoutes(app: FastifyInstance): void {
   const apiKey = process.env.KEYMEMORY_API_KEY;
 
@@ -127,6 +152,7 @@ export function registerRoutes(app: FastifyInstance): void {
     return searchHybrid(q, {
       layer: query.layer as Layer | undefined,
       projectId: query.projectId,
+      projectPath: query.projectPath,
       includeDescendants: query.includeDescendants !== 'false',
       includeSuperseded: query.includeSuperseded === 'true',
       asOf: query.asOf,
@@ -179,6 +205,169 @@ export function registerRoutes(app: FastifyInstance): void {
       LIMIT ?
     `).all(limit) as Record<string, unknown>[];
     return rows.map(rowToMemory);
+  });
+
+  // ===== Shared mailbox for humans and Agents =====
+
+  app.get('/api/mailbox/threads', async (request) => {
+    const query = request.query as Record<string, string>;
+    const identity = mailboxIdentityForRequest(request);
+    return listMailThreads({
+      folder: (query.folder as MailThreadFolder | 'all' | 'starred' | 'snoozed' | 'sent' | 'drafts' | 'scheduled') ?? 'inbox',
+      query: query.q,
+      recipientId: query.recipientId || identity.recipientId,
+      agentSpaces: identity.agentSpaces,
+      limit: query.limit ? Number(query.limit) : undefined,
+      offset: query.offset ? Number(query.offset) : undefined,
+    });
+  });
+
+  app.get('/api/mailbox/stats', async (request) => {
+    const identity = mailboxIdentityForRequest(request);
+    return getMailboxStats(identity.recipientId);
+  });
+
+  app.get('/api/mailbox/migration', async () => getMailboxMigrationReport());
+
+  app.post('/api/mailbox/threads', async (request, reply) => {
+    const body = request.body as {
+      subject?: string;
+      kind?: MailThreadKind;
+      body?: string;
+      senderType?: MailSenderType;
+      senderId?: string;
+      recipientIds?: string[];
+      agentSpace?: string;
+      memoryIds?: string[];
+      metadata?: Record<string, unknown>;
+    };
+    if (!body.subject || !body.body || !body.kind) {
+      reply.code(400);
+      return { error: 'subject, kind, and body are required' };
+    }
+    try {
+      const created = createMailThread({
+        subject: body.subject,
+        kind: body.kind,
+        body: body.body,
+        senderType: body.senderType ?? 'human',
+        senderId: body.senderId,
+        recipientIds: body.recipientIds,
+        agentSpace: body.agentSpace,
+        memoryIds: body.memoryIds,
+        metadata: body.metadata,
+      });
+      reply.code(201);
+      return created;
+    } catch (error) {
+      reply.code(400);
+      return { error: (error as Error).message };
+    }
+  });
+
+  app.get('/api/mailbox/threads/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const identity = mailboxIdentityForRequest(request);
+    const detail = getMailThreadDetail(id, identity.recipientId, identity.agentSpaces, true);
+    if (!detail) {
+      reply.code(404);
+      return { error: 'Mail thread not found' };
+    }
+    return detail;
+  });
+
+  app.get('/api/mailbox/threads/:id/context', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as Record<string, string>;
+    const identity = mailboxIdentityForRequest(request);
+    const context = getMailThreadContext(
+      id,
+      identity.recipientId,
+      identity.agentSpaces,
+      query.maxMessages ? Number(query.maxMessages) : undefined,
+      query.maxMemories ? Number(query.maxMemories) : undefined,
+    );
+    if (!context) {
+      reply.code(404);
+      return { error: 'Mail thread not found' };
+    }
+    return context;
+  });
+
+  app.patch('/api/mailbox/threads/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      subject?: string;
+      status?: MailThreadStatus;
+      folder?: MailThreadFolder;
+      starred?: boolean;
+      snoozedUntil?: string | null;
+    };
+    try {
+      const thread = updateMailThread(id, body);
+      if (!thread) {
+        reply.code(404);
+        return { error: 'Mail thread not found' };
+      }
+      return thread;
+    } catch (error) {
+      reply.code(400);
+      return { error: (error as Error).message };
+    }
+  });
+
+  app.post('/api/mailbox/threads/:id/reply', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as Parameters<typeof replyToMailThread>[1];
+    const identity = mailboxIdentityForRequest(request);
+    if (!body?.body || !body.senderType) {
+      reply.code(400);
+      return { error: 'body and senderType are required' };
+    }
+    try {
+      return replyToMailThread(id, { ...body, senderId: body.senderId ?? identity.recipientId }, identity.agentSpaces);
+    } catch (error) {
+      reply.code(400);
+      return { error: (error as Error).message };
+    }
+  });
+
+  app.post('/api/mailbox/threads/:id/memories', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { memoryId?: string; relationType?: Parameters<typeof linkMemoryToThread>[2] };
+    const identity = mailboxIdentityForRequest(request);
+    if (!body.memoryId) {
+      reply.code(400);
+      return { error: 'memoryId is required' };
+    }
+    try {
+      return linkMemoryToThread(id, body.memoryId, body.relationType, identity.agentSpaces);
+    } catch (error) {
+      reply.code(400);
+      return { error: (error as Error).message };
+    }
+  });
+
+  app.delete('/api/mailbox/threads/:id/memories/:memoryId', async (request) => {
+    const { id, memoryId } = request.params as { id: string; memoryId: string };
+    return { success: unlinkMemoryFromThread(id, memoryId) };
+  });
+
+  app.post('/api/mailbox/threads/:id/sync', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const identity = mailboxIdentityForRequest(request);
+    try {
+      const message = await syncMailThread(id, identity.agentSpaces);
+      return { sent: Boolean(message), message };
+    } catch (error) {
+      reply.code(400);
+      return { error: (error as Error).message };
+    }
+  });
+
+  app.post('/api/mailbox/sync', async (request) => {
+    const identity = mailboxIdentityForRequest(request);
+    return syncMailbox(identity.agentSpaces);
   });
 
   app.get('/api/memories/:id', async (request, reply) => {

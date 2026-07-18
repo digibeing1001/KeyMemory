@@ -352,24 +352,12 @@ if (!remSession || remSession.signals.relationsCreated < 1) {
   throw new Error(`expected dream REM relation signal, got ${JSON.stringify(dreamRelationReport.sessions)}`);
 }
 const pendingProjectSuggestions = await run(['project-suggestions', '--status', 'pending']);
-const clusterSuggestion = pendingProjectSuggestions.find(item =>
-  item.projectIds.includes(projectClusterA.projectId) &&
-  item.projectIds.includes(projectClusterB.projectId)
-);
-if (!clusterSuggestion) {
-  throw new Error(`expected dream project clustering suggestion, got ${JSON.stringify(pendingProjectSuggestions)}`);
+if (pendingProjectSuggestions.length !== 0) {
+  throw new Error(`expected mailbox architecture to stop dream project-folder suggestions, got ${JSON.stringify(pendingProjectSuggestions)}`);
 }
-const acceptedClusterSuggestion = await run(['project-suggestion-accept', clusterSuggestion.id, '--name', 'Agent Memory Cluster']);
-if (!acceptedClusterSuggestion.success || acceptedClusterSuggestion.project?.path !== 'Dream/ProjectCluster/Agent Memory Cluster') {
-  throw new Error(`expected project suggestion accept to create parent project, got ${JSON.stringify(acceptedClusterSuggestion)}`);
-}
-const acceptedProjectSuggestions = await run(['project-suggestions', '--status', 'accepted']);
-if (!acceptedProjectSuggestions.some(item => item.id === clusterSuggestion.id)) {
-  throw new Error(`expected accepted project suggestion to be listed, got ${JSON.stringify(acceptedProjectSuggestions)}`);
-}
-const clusteredProjectContext = await run(['context', 'shared project clustering', '--project', 'Dream/ProjectCluster/Agent Memory Cluster', '--max-items', '4']);
+const clusteredProjectContext = await run(['context', 'shared project clustering', '--project', 'Dream/ProjectCluster', '--max-items', '4']);
 if (clusteredProjectContext.totalItems < 2 || !clusteredProjectContext.markdown.includes('agentmemorycluster')) {
-  throw new Error(`expected accepted project suggestion to move child projects under new parent, got ${JSON.stringify(clusteredProjectContext)}`);
+  throw new Error(`expected flattened source hints to preserve legacy project-scoped context without creating folders, got ${JSON.stringify(clusteredProjectContext)}`);
 }
 
 const health = await run(['health']);
@@ -592,11 +580,11 @@ try {
     }
     const httpMcpSearchTool = acceptedMcp.json().result.tools.find(tool => tool.name === 'keymemory_search');
     if (
-      !httpMcpSearchTool?.inputSchema?.properties?.projectId ||
+      !httpMcpSearchTool?.inputSchema?.properties?.projectPath ||
       !httpMcpSearchTool?.inputSchema?.properties?.includeDescendants ||
       !httpMcpSearchTool?.inputSchema?.properties?.memoryKind
     ) {
-      throw new Error(`expected HTTP MCP memory_search schema to expose project and kind filters, got ${JSON.stringify(httpMcpSearchTool)}`);
+      throw new Error(`expected HTTP MCP memory_search schema to expose source-path and kind filters, got ${JSON.stringify(httpMcpSearchTool)}`);
     }
     const scopedNeedle = 'httpmcp scopedsearchneedle preference';
     const httpMcpScopedCreate = await authApp.inject({
@@ -651,7 +639,7 @@ try {
           name: 'keymemory_search',
           arguments: {
             query: scopedNeedle,
-            projectId: httpMcpScopedMemory.projectId,
+            projectPath: 'HTTP/MCP/SearchScoped',
             includeDescendants: false,
             memoryKind: 'preference',
             limit: 10,
@@ -665,9 +653,9 @@ try {
       !Array.isArray(httpMcpScopedResults) ||
       !httpMcpScopedResults.some(item => item.memory?.id === httpMcpScopedMemory.id) ||
       httpMcpScopedResults.some(item => item.memory?.id === httpMcpOtherMemory.id) ||
-      httpMcpScopedResults.some(item => item.memory?.projectId !== httpMcpScopedMemory.projectId)
+      httpMcpScopedResults.some(item => item.memory?.metadata?.sourceProjectPath !== 'HTTP/MCP/SearchScoped')
     ) {
-      throw new Error(`expected HTTP MCP memory_search to honor projectId and memoryKind filters, got ${JSON.stringify(httpMcpScopedResults)}`);
+      throw new Error(`expected HTTP MCP memory_search to honor projectPath and memoryKind filters, got ${JSON.stringify(httpMcpScopedResults)}`);
     }
     httpMcpProjectSearchScoped = true;
     const httpMcpBackup = await authApp.inject({
@@ -790,8 +778,8 @@ console.log(JSON.stringify({
   relationContextItems: relationContext.totalItems,
   dreamAssociations: dreamAssocRelated.length,
   dreamRelationMerged: dreamRelationReport.merged,
-  projectSuggestionsAccepted: acceptedProjectSuggestions.length,
-  projectSuggestionContextItems: clusteredProjectContext.totalItems,
+  projectSuggestionsPending: pendingProjectSuggestions.length,
+  flattenedSourceContextItems: clusteredProjectContext.totalItems,
   healthScore: health.score,
   privacyRedacted: health.privacyRedactedCount,
   backupTables: backup.includedTables.length,

@@ -15,6 +15,8 @@ type SearchOptions = {
   status?: MemoryStatus;
   agentSpaces?: string[];
   projectId?: string;
+  /** Mailbox-era source scope retained for legacy project-path retrieval. */
+  projectPath?: string;
   includeDescendants?: boolean;
   includeSuperseded?: boolean;
   asOf?: string;
@@ -70,6 +72,25 @@ function addSearchFilters(conditions: string[], params: Record<string, unknown>,
         WHERE child.id = root.id OR child.path LIKE root.path || '/%'
       )`);
     }
+  }
+
+  if (options?.projectPath) {
+    params.projectPath = options.projectPath;
+    params.projectPathPrefix = `${options.projectPath}/%`;
+    const sourcePath = `CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata)
+      THEN json_extract(m.metadata, '$.sourceProjectPath') END`;
+    const legacyPath = `CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata)
+      THEN json_extract(m.metadata, '$.legacyProject.path') END`;
+    const sourceMatch = options.includeDescendants === false
+      ? `(${sourcePath} = @projectPath
+          OR ${legacyPath} = @projectPath
+          OR m.project_id IN (SELECT id FROM projects WHERE path = @projectPath))`
+      : `(${sourcePath} = @projectPath
+          OR ${sourcePath} LIKE @projectPathPrefix
+          OR ${legacyPath} = @projectPath
+          OR ${legacyPath} LIKE @projectPathPrefix
+          OR m.project_id IN (SELECT id FROM projects WHERE path = @projectPath OR path LIKE @projectPathPrefix))`;
+    conditions.push(sourceMatch);
   }
 
   if (options?.memoryKind) {

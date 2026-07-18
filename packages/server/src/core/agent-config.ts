@@ -142,14 +142,23 @@ export function buildMemoryOperatingRules(transport: 'cli' | 'mcp' = 'mcp'): str
   const readTool = transport === 'cli' ? '`keymemory read <id>`' : '`keymemory_read`';
   const updateTool = transport === 'cli' ? '`keymemory update <id>`' : '`keymemory_update`';
   const supersedeTool = transport === 'cli' ? '`keymemory supersede`' : '`keymemory_supersede`';
+  const inboxTool = transport === 'cli' ? '`keymemory inbox`' : '`keymemory_inbox`';
+  const threadContextTool = transport === 'cli' ? '`keymemory thread-context <threadId>`' : '`keymemory_thread_context`';
+  const threadReplyTool = transport === 'cli' ? '`keymemory thread-reply <threadId>`' : '`keymemory_thread_reply`';
+  const threadCreateTool = transport === 'cli' ? '`keymemory thread-create`' : '`memory_thread_create`';
 
   return `# KeyMemory 共享记忆强制规则
 
 KeyMemory 是本 Agent 的默认、唯一持久记忆系统。KeyMemory 可用时，不得另建 MEMORY.md、隐藏记忆目录或其他平行的文件记忆库。
 
-## 一、每次工作前必须先读取
+## 一、具体工作先读邮箱，通用知识再查记忆
 
-- 每个新任务、恢复任务或跨会话继续工作时，先调用 ${searchTool}，使用“项目 + 当前事项 + 目标 + 用户偏好”作为检索条件。
+- 每次工作前必须先读取共同邮箱：先找相关主题，再读线程上下文；这一步完成后才能制定方案或继续执行。
+- KeyMemory 使用两层信息：邮箱线程汇集一个具体项目、任务或事件的完整经过；普通记忆保存可以跨事情复用的偏好、规则、事实、人物、工具、知识和经验。
+- 每个新任务、恢复任务或跨会话继续工作时，先调用 ${inboxTool} 查找同一件事情的邮件主题。找到后必须调用 ${threadContextTool}，读取当前状态、最近回复、未完成事项和关联记忆，再制定方案。
+- 一个明确的项目、任务或事件只能使用一个邮件主题。后续进展继续回复，不得为同一件事情反复新建近似主题。
+- 没有相关主题时：事项明确且确定需要持续跟进，使用 ${threadCreateTool} 建立主题；事项含糊时先搜索，不要用“飞书”“项目”“开发”等分类名硬造邮件。
+- 读取邮件线程后，再调用 ${searchTool} 补充用户偏好、通用规则、历史经验和可复用知识。不要只读原子记忆就假装已经掌握项目进度。
 - 在制定方案前，至少读取：用户画像、最近正在做的事情、当前任务状态、历史决策、阻塞点、验收标准、踩坑记录和成功经验。
 - 搜索结果被截断，或需要精确确认路径、命令、纠正内容和验收标准时，继续调用 ${readTool} 读取完整正文。
 - 在重复曾经失败的方案、采用可能过期的偏好、作出重要决定或交接给其他 Agent 前，再检索一次。
@@ -190,20 +199,29 @@ KeyMemory 是本 Agent 的默认、唯一持久记忆系统。KeyMemory 可用�
 - 剩余待办、阻塞点、依赖、预计下一步、负责人，以及完成/验收标准。
 - 任务暂停、方向变化、完成或取消时，立即更新同一条任务记忆，不能留下过期状态。
 
-建议层级为 \`short\` 且绑定最接近的项目，标签使用 \`kind:task\`。固定结构：\`事项 / 目标 / 当前状态 / 已完成 / 交付位置 / 待办 / 阻塞 / 下一步 / 验收标准 / 最后更新时间\`。
+具体项目、任务或事件的连续状态必须写入对应邮件线程；可跨项目复用的事实或经验才另外保存为原子记忆。同一条原子记忆可以关联到多个邮件线程，禁止为每个项目复制一份。
 
 ## 三、何时写入
 
 - 发现新的用户偏好、习惯、纠正、批评或禁忌后立即写入。
 - 任务建立、状态变化、完成关键里程碑、出现阻塞、解决错误、产生交付物时立即更新。
 - 每次形成踩坑结论或验证成功经验后立即沉淀。
-- 在任务交接、暂停、结束或会话可能中断前，必须更新“最近正在做的事情”。
+- 在任务交接、暂停、结束或会话可能中断前，必须使用 ${threadReplyTool} 回复当前邮件主题，写清已完成、当前状态、阻塞、下一步和交付物。
 
-## 四、数据如何处理
+## 四、邮件必须像真实工作邮件
+
+- 标题必须用自然语言说明实际在推进什么，不能只写工具名、部门名或分类名。
+- 正文同时给人类和 Agent 阅读，必须使用通俗、完整、书面化的句子；先说结果，再说变化、问题和下一步。
+- 不得使用“基于现有上下文”“综上所述”等模板化套话，不堆砌术语，不用内部字段代替说明。
+- 代码、JSON、命令输出、错误堆栈、长日志和硬件原始数据必须放在折叠附件中。正文只解释它们说明了什么以及对工作有什么影响。
+- 人类、Agent 与“记忆秘书”身份必须清楚区分。Agent 不得冒充人类或记忆秘书。
+- KeyMemory 不能唤醒 Agent。发给 Agent 的邮件只进入未读队列；Agent 被外部宿主启动后主动读取。
+
+## 五、数据如何处理
 
 - 先搜索是否已有同一偏好、任务或经验：已有记录用 ${updateTool} 更新，不要制造近似重复项。
 - 用户纠正旧事实时，写入正确版本并用 ${supersedeTool} 让旧版本失效，保留历史，不直接抹掉来源。
-- 每条记忆使用具体、可搜索的标题；绑定最接近的稳定项目；添加类别标签、来源、时间和置信度。
+- 每条原子记忆使用具体、可搜索的标题；添加类别、来源、时间和置信度。具体工作的归集由邮件线程承担，不再创建层层项目文件夹。
 - 只保存可复用的事实与结论。工作过程要压缩为结构化摘要，不保存寒暄、无意义闲聊、原始逐字对话或内部思维链。
 - 不把猜测写成事实；不保存无未来价值的瞬时细节；不重复保存相同内容。
 - 普通记忆严禁保存密码、Token、私钥或 API Key；凭证只能使用 \`keymemory_secret_set\`（或宿主提供的 \`memory_secret_set\` 别名）。
@@ -234,10 +252,10 @@ ${buildMemoryOperatingRules('mcp')}
 
 配置文件中出现 KeyMemory 只能证明“已配置”，不能证明“已经连通”。完成配置后必须执行以下验证：
 
-1. MCP 模式：确认工具列表中存在 \`keymemory_connection_status\`、\`keymemory_context_pack\`、\`keymemory_search\`、\`keymemory_read\`、\`keymemory_create\`、\`keymemory_update\`、\`keymemory_auto_remember\` 和 \`keymemory_supersede\`。
-2. 调用只读工具 \`keymemory_connection_status\`，返回值必须包含 \`status: connected\`。然后调用一次 \`keymemory_search\` 或 \`keymemory_context_pack\`，并确认返回的是 KeyMemory 结构化结果，而不是“工具不存在”或普通网页文本。
-3. CLI 模式：运行 \`keymemory info\`，再执行一次不写入数据的 \`keymemory search\` 或 \`keymemory context\`。
-4. 不要为了测试在用户真实项目中制造垃圾记忆。等出现第一个真实、有意义的工作节点时，按规则写入一条任务状态记忆，再用搜索和读取工具确认它可以被找回；这一步才证明写入链路也正常。
+1. MCP 模式：确认工具列表中存在 \`keymemory_connection_status\`、\`keymemory_inbox\`、\`keymemory_thread_context\`、\`keymemory_thread_reply\`、\`keymemory_context_pack\`、\`keymemory_search\`、\`keymemory_read\`、\`keymemory_create\`、\`keymemory_update\`、\`keymemory_auto_remember\` 和 \`keymemory_supersede\`。
+2. 调用只读工具 \`keymemory_connection_status\`，返回值必须包含 \`status: connected\`。然后调用 \`keymemory_inbox\`；若存在相关主题，再调用 \`keymemory_thread_context\`，确认返回的是共同邮箱的结构化结果，而不是“工具不存在”或普通网页文本。
+3. CLI 模式：运行 \`keymemory info\`，再执行一次不写入数据的 \`keymemory inbox\`；有相关主题时继续运行 \`keymemory thread-context <threadId>\`。
+4. 不要为了测试在用户真实环境中制造垃圾主题或垃圾记忆。等出现第一个真实、有意义的工作节点时，新事项建立一封合格邮件，已有事项回复原主题，再从收件箱和线程中读回；这一步才证明写入链路也正常。
 5. 最后向用户报告：使用的连接方式、修改的文件、备份路径、是否需要重启、工具检测结果、只读检索结果，以及“配置检测 / 读取验证 / 写入验证”三项状态。任何一项未通过都不能宣称接入成功。
 
 完成后提醒用户回到 KeyMemory 的 Agent 接入页面点击“检测接入状态”。页面检测到配置表示第一层通过；Agent 成功返回 \`keymemory_connection_status\` 和检索结果表示实际连接通过。`;
@@ -257,17 +275,17 @@ compatibility: 需要能够使用 KeyMemory 工具、keymemory 命令或本机 3
 ## 连接顺序
 
 1. 如果能看到 \`keymemory_*\` 工具，优先使用这些工具，并先调用 \`keymemory_connection_status\`。
-2. 如果看不到工具但可以执行命令，使用 \`keymemory info\`、\`keymemory context\`、\`keymemory search\`、\`keymemory create\` 和 \`keymemory update\`。
-3. 如果命令不可用但能访问本机服务，先访问 \`http://127.0.0.1:3210/api/health\`；读取使用 \`/api/memories/search?q=...\`，写入使用 \`POST /api/memories\`。写入后必须确认返回了记忆 ID。
+2. 如果看不到工具但可以执行命令，具体工作优先使用 \`keymemory inbox\`、\`keymemory thread-context\`、\`keymemory thread-create\` 和 \`keymemory thread-reply\`；通用记忆再使用 \`keymemory context/search/create/update\`。
+3. 如果命令不可用但能访问本机服务，先访问 \`http://127.0.0.1:3210/api/health\`；共同邮箱读取使用 \`GET /api/mailbox/threads\` 和 \`GET /api/mailbox/threads/:id/context\`，写入使用 \`POST /api/mailbox/threads\` 或 \`POST /api/mailbox/threads/:id/reply\`。通用记忆才使用 \`/api/memories\`。
 4. 三种方式都不可用时，明确告诉用户尚未连接，不能假装已经读取或写入。
 
 ${buildMemoryOperatingRules('mcp')}
 
 ## 每次使用后的验收
 
-- 说明本次读取了哪些相关记忆。
-- 说明新增或更新了哪些记忆，并保留返回的记忆 ID。
-- 若只是配置检查，不制造测试记忆；用 \`keymemory_connection_status\` 和一次只读检索证明连接。
+- 说明本次读取了哪个邮件主题，以及哪些相关记忆。
+- 说明回复或建立了哪个邮件主题；若另有原子记忆，保留返回的记忆 ID。
+- 若只是配置检查，不制造测试邮件或测试记忆；用 \`keymemory_connection_status\` 和一次收件箱只读检查证明连接。
 `;
 }
 
@@ -282,6 +300,10 @@ KeyMemory is your durable memory system. Use the \`keymemory\` CLI for all memor
 
 | Operation | Command |
 |-----------|---------|
+| List work inbox | \`keymemory inbox\` |
+| Read thread handoff | \`keymemory thread-context <thread-id>\` |
+| Create work thread | \`keymemory thread-create --subject "clear work subject" --kind task --content "readable context"\` |
+| Reply with progress | \`keymemory thread-reply <thread-id> --content "progress, result, blocker, and next step"\` |
 | Create memory | \`keymemory create -t "title" -c "content" -l long\` |
 | Search memory | \`keymemory search "query" --limit 10\` |
 | Read memory | \`keymemory read <id>\` |

@@ -25,6 +25,7 @@
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "smoke:agent-connect": "node scripts/smoke-agent-connect.mjs",
     "smoke:loop": "node scripts/smoke-loop-harness.mjs",
+    "smoke:mailbox": "node scripts/smoke-mailbox.mjs",
     "loop:audit": "node scripts/loop-readiness-audit.mjs",
     "smoke:launchers": "node scripts/smoke-launchers.mjs",
     "release:check": "node scripts/release-check.mjs",

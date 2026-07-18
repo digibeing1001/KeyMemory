@@ -27,6 +27,11 @@ const CORE_TABLES = [
   'loop_runs',
   'loop_checkpoints',
   'loop_events',
+  'mail_threads',
+  'mail_messages',
+  'mail_attachments',
+  'mail_thread_memories',
+  'mail_receipts',
 ] as const;
 
 const OPTIONAL_TABLES = ['embeddings', 'query_logs'] as const;
@@ -185,6 +190,11 @@ function restoreDeleteOrder(): string[] {
     'loop_events',
     'loop_checkpoints',
     'loop_runs',
+    'mail_receipts',
+    'mail_attachments',
+    'mail_thread_memories',
+    'mail_messages',
+    'mail_threads',
     'memory_entities',
     'versions',
     'dream_signals',
@@ -226,6 +236,11 @@ function restoreInsertOrder(includedTables: string[]): string[] {
     'loop_runs',
     'loop_checkpoints',
     'loop_events',
+    'mail_threads',
+    'mail_messages',
+    'mail_attachments',
+    'mail_thread_memories',
+    'mail_receipts',
     'query_logs',
   ];
   return order.filter(table => includedTables.includes(table));

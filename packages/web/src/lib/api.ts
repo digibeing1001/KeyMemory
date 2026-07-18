@@ -1,4 +1,4 @@
-import type { AgentContextPack, AgentContextPackRequest, Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version, SearchResult, Project, ProjectSuggestion, LoopRun, LLMProviderConfig, LLMVerifyResult } from '@keymemory/shared';
+import type { AgentContextPack, AgentContextPackRequest, Memory, Layer, CreateMemoryInput, UpdateMemoryInput, HealthReport, Version, SearchResult, Project, ProjectSuggestion, LoopRun, LLMProviderConfig, LLMVerifyResult, MailThread, MailThreadDetail, MailThreadContext, MailThreadFolder, MailThreadKind, MailThreadStatus, MailMessage, MailMessageType, MailboxMigrationReport } from '@keymemory/shared';
 
 const BASE = '/api';
 const API_KEY_STORAGE_KEY = 'keymemory_api_key';
@@ -107,6 +107,92 @@ export async function buildAgentContextPack(data: AgentContextPackRequest): Prom
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+export type MailboxFolder = MailThreadFolder | 'all' | 'starred' | 'snoozed' | 'sent' | 'drafts' | 'scheduled';
+
+export interface MailboxStats {
+  inbox: number;
+  unread: number;
+  starred: number;
+  snoozed: number;
+  sent: number;
+  drafts: number;
+  scheduled: number;
+  archive: number;
+  trash: number;
+  all: number;
+}
+
+export async function listMailboxThreads(folder: MailboxFolder = 'inbox', query?: string): Promise<MailThread[]> {
+  const sp = new URLSearchParams({ folder });
+  if (query?.trim()) sp.set('q', query.trim());
+  return request(`/mailbox/threads?${sp.toString()}`);
+}
+
+export async function getMailboxStats(): Promise<MailboxStats> {
+  return request('/mailbox/stats');
+}
+
+export async function getMailboxMigration(): Promise<MailboxMigrationReport> {
+  return request('/mailbox/migration');
+}
+
+export async function getMailboxThread(id: string): Promise<MailThreadDetail> {
+  return request(`/mailbox/threads/${encodeURIComponent(id)}`);
+}
+
+export async function getMailboxThreadContext(id: string): Promise<MailThreadContext> {
+  return request(`/mailbox/threads/${encodeURIComponent(id)}/context`);
+}
+
+export async function createMailboxThread(data: {
+  subject: string;
+  kind: MailThreadKind;
+  body: string;
+  memoryIds?: string[];
+}): Promise<MailThreadDetail> {
+  return request('/mailbox/threads', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateMailboxThread(id: string, data: {
+  subject?: string;
+  status?: MailThreadStatus;
+  folder?: MailThreadFolder;
+  starred?: boolean;
+  snoozedUntil?: string | null;
+}): Promise<MailThread> {
+  return request(`/mailbox/threads/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+export async function replyMailboxThread(id: string, data: {
+  body: string;
+  messageType?: MailMessageType;
+  memoryIds?: string[];
+}): Promise<MailMessage> {
+  return request(`/mailbox/threads/${encodeURIComponent(id)}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ ...data, senderType: 'human' }),
+  });
+}
+
+export async function linkMailboxMemory(threadId: string, memoryId: string): Promise<unknown> {
+  return request(`/mailbox/threads/${encodeURIComponent(threadId)}/memories`, {
+    method: 'POST',
+    body: JSON.stringify({ memoryId, relationType: 'reference' }),
+  });
+}
+
+export async function unlinkMailboxMemory(threadId: string, memoryId: string): Promise<{ success: boolean }> {
+  return request(`/mailbox/threads/${encodeURIComponent(threadId)}/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' });
+}
+
+export async function syncMailboxThread(id: string): Promise<{ sent: boolean; message?: MailMessage }> {
+  return request(`/mailbox/threads/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+}
+
+export async function syncMailbox(): Promise<{ checked: number; sent: number; messageIds: string[] }> {
+  return request('/mailbox/sync', { method: 'POST' });
 }
 
 // 近期工作集：让 UI 能直接展示"哪些记忆被实际命中/最近被写入"，

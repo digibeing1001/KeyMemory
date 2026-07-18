@@ -55,7 +55,8 @@ const zh: Record<string, string> = {
   'memoryState.allHelp': '查看所有仍在使用的记忆。',
   'memoryState.clear': '查看全部',
 
-  'nav.memories': '记忆',
+  'nav.mailbox': '共同邮箱',
+  'nav.memories': '记忆库',
   'nav.nebula': '关系图',
   'nav.tags': '标签',
   'nav.dream': '自动整理',
@@ -410,7 +411,8 @@ const en: Record<string, string> = {
   'memoryState.allHelp': 'Show every active memory.',
   'memoryState.clear': 'Show all',
 
-  'nav.memories': 'Memories',
+  'nav.mailbox': 'Shared mailbox',
+  'nav.memories': 'Memory library',
   'nav.nebula': 'Graph',
   'nav.tags': 'Tags',
   'nav.dream': 'Auto organize',
