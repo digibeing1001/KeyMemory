@@ -276,7 +276,8 @@ export async function chatWithLLM(request: LLMChatRequest): Promise<LLMChatRespo
   const start = Date.now();
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), request.maxTokens ? 60000 : LLM_PROVIDER_DEFAULTS.timeoutMs);
+  const timeoutMs = request.timeoutMs ?? (request.maxTokens ? 60000 : LLM_PROVIDER_DEFAULTS.timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -317,9 +318,9 @@ export async function chatWithLLM(request: LLMChatRequest): Promise<LLMChatRespo
         throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
       }
     }
-    clearTimeout(timeout);
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
+      clearTimeout(timeout);
       throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
     }
 
@@ -328,6 +329,9 @@ export async function chatWithLLM(request: LLMChatRequest): Promise<LLMChatRespo
       model?: string;
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
+    // fetch() 在收到响应头后就会完成；必须等正文完整读取后再取消超时，
+    // 否则分块响应可能让界面无限等待。
+    clearTimeout(timeout);
 
     const content = data.choices?.[0]?.message?.content;
     if (!content) {

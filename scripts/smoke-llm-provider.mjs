@@ -12,6 +12,7 @@ const {
   getLLMConfig,
   saveLLMConfig,
   verifyLLMConnection,
+  chatWithLLM,
 } = await import('../packages/server/dist/core/llm-provider.js');
 
 function startModelServer(expectedAuthorization) {
@@ -30,6 +31,13 @@ function startModelServer(expectedAuthorization) {
           message: 'invalid key',
         },
       }));
+      return;
+    }
+    if (request.url?.endsWith('/chat/completions')) {
+      // 先发送响应头和一部分正文，再故意拖住剩余正文。
+      // 超时必须覆盖完整正文读取，而不只是等待响应头。
+      response.write('{"model":"mock-model","choices":[{"message":{"content":"');
+      setTimeout(() => response.end('late"}}]}'), 250);
       return;
     }
     response.end(JSON.stringify({ data: [{ id: 'mock-model' }] }));
@@ -107,11 +115,20 @@ try {
   assert.equal(savedLocal.ok, true, 'saving a changed keyless provider should clear the old host credential');
   assert.equal(local.requests.at(-1)?.authorization, null);
 
+  const slowBodyStartedAt = Date.now();
+  await assert.rejects(
+    chatWithLLM({ systemPrompt: 'test', userMessage: 'test', maxTokens: 20, timeoutMs: 50 }),
+    /LLM 调用超时/,
+    'chat timeout must remain active until the complete response body is read',
+  );
+  assert.ok(Date.now() - slowBodyStartedAt < 220, 'slow response body must be interrupted before the server finishes it');
+
   console.log(JSON.stringify({
     ok: true,
     savedKeyReused: true,
     blankResavePreserved: true,
     crossHostCredentialBlocked: true,
+    responseBodyTimeoutEnforced: true,
     cloudRequests: cloud.requests.length,
     localRequests: local.requests.length,
   }, null, 2));

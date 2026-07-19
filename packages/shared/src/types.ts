@@ -773,6 +773,8 @@ export interface LLMChatRequest {
   temperature?: number;
   /** 最大输出 token */
   maxTokens?: number;
+  /** 完整读取响应正文的最长等待时间（毫秒） */
+  timeoutMs?: number;
 }
 
 /** LLM 推理响应 */

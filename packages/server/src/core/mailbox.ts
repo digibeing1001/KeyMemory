@@ -757,7 +757,7 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
   for (const memory of memories) {
     const scoped = bySpace.get(memory.agentSpace) ?? [];
     // 单次只交给模型一批可读的材料；其余记忆留到下一轮继续整理。
-    if (scoped.length < 24) bySpace.set(memory.agentSpace, [...scoped, memory]);
+    if (scoped.length < 12) bySpace.set(memory.agentSpace, [...scoped, memory]);
   }
   let createdThreads = 0;
   let linkedMemories = 0;
@@ -772,6 +772,7 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
         userMessage: `已有邮件主题：\n${existing.length ? existing.map(thread => `- ${thread.id}: ${thread.subject}`).join('\n') : '（暂无）'}\n\n待整理记忆：\n${source}`,
         temperature: 0.1,
         maxTokens: 1800,
+        timeoutMs: 45000,
       });
       plans = parseSecretaryPlans(response.content);
     } catch (error) {
