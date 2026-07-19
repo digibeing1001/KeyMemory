@@ -747,6 +747,8 @@ export interface LLMProviderConfig {
   model: string;
   /** 是否启用 LLM 关联推理（关闭则跳过关联推理阶段） */
   enabled: boolean;
+  /** 是否已保存 API Key；只暴露布尔状态，绝不返回密钥内容 */
+  hasApiKey?: boolean;
   /** 上次连通性检测通过的时间 */
   lastVerifiedAt?: string;
   /** 上次检测可用的模型列表（供下拉框使用） */

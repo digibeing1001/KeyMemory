@@ -5,8 +5,11 @@ import { execSync } from 'child_process';
 const root = path.resolve(import.meta.dirname, '..');
 
 function run(command) {
-  console.log(`\n[release-check] ${command}`);
-  execSync(command, { cwd: root, stdio: 'inherit' });
+  // Release verification must never mutate node_modules behind a running
+  // KeyMemory service. CI installs from the frozen lockfile before this step.
+  const executable = command.replace(/^pnpm\b/, 'pnpm --config.verify-deps-before-run=false');
+  console.log(`\n[release-check] ${executable}`);
+  execSync(executable, { cwd: root, stdio: 'inherit' });
 }
 
 function readJson(filePath) {
@@ -25,7 +28,7 @@ function assertFile(filePath, pattern, reason) {
 function auditManifest() {
   const pkg = readJson('package.json');
   const scripts = pkg.scripts ?? {};
-  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:agent-connect', 'smoke:loop', 'smoke:mailbox', 'smoke:launchers', 'release:check']) {
+  for (const scriptName of ['typecheck', 'build', 'eval:memory', 'perf:memory', 'smoke', 'smoke:mcp', 'smoke:agent-connect', 'smoke:loop', 'smoke:mailbox', 'smoke:llm', 'smoke:launchers', 'release:check']) {
     if (!scripts[scriptName]) throw new Error(`package.json missing script: ${scriptName}`);
   }
 }
@@ -76,6 +79,8 @@ function auditReleaseArtifacts() {
   assertFile('packages/server/src/core/mailbox.ts', /assertUsefulSubject[\s\S]*extractTechnicalAttachments[\s\S]*syncMailThread/, 'mail subject, readable body, collapsed attachment, and secretary digest contract');
   assertFile('packages/server/src/core/mcp-tools.ts', /memory_inbox_list[\s\S]*memory_thread_context[\s\S]*memory_thread_reply[\s\S]*memory_mailbox_sync/, 'Agent mailbox read and write tools');
   assertFile('scripts/smoke-mailbox.mjs', /(?=[\s\S]*duplicate subjects)(?=[\s\S]*collapsed attachments)(?=[\s\S]*one reusable memory may support multiple mail threads)/, 'mailbox handoff and many-to-many memory smoke coverage');
+  assertFile('scripts/smoke-llm-provider.mjs', /(?=[\s\S]*saved API key should be reused)(?=[\s\S]*saving with a blank hidden-key field should preserve)(?=[\s\S]*Never forward a saved cloud credential)/, 'LLM saved-key reuse and cross-host credential isolation coverage');
+  assertFile('packages/web/src/lib/api.ts', /(?=[\s\S]*fetchLLMModels)(?=[\s\S]*verifyLLMConnection)(?=[\s\S]*API Key)/, 'LLM model fetch keeps API keys out of URL query parameters');
   assertFile('packages/server/src/core/agent-discovery.ts', /workbuddy[\s\S]*trae[\s\S]*availableModes[\s\S]*buildKeyMemorySkill[\s\S]*buildUniversalOnboardingPrompt/, 'local Agent discovery, MCP CLI Skill connection, and onboarding prompt');
   assertFile('packages/server/src/core/agent-config.ts', /keymemory_connection_status[\s\S]*工作过程、踩坑与成功经验[\s\S]*用户画像、偏好与使用习惯[\s\S]*用户最近正在做的所有事情[\s\S]*配置检测 \/ 读取验证 \/ 写入验证[\s\S]*buildKeyMemorySkill/, 'Chinese automatic shared-memory operating rules and verification protocol');
   assertFile('packages/server/src/api/rest.ts', /integrations\/discover[\s\S]*discoverAgentIntegrations/, 'Agent integration discovery API');
@@ -122,6 +127,7 @@ run('pnpm smoke');
 run('pnpm smoke:mcp');
 run('pnpm smoke:loop');
 run('pnpm smoke:mailbox');
+run('pnpm smoke:llm');
 run('pnpm smoke:launchers');
 
 console.log('\n[release-check] ok');

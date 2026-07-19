@@ -126,7 +126,7 @@ export default function LLMConfigView() {
     try {
       const result = await verifyLLMConnection({
         baseUrl: config.baseUrl.trim(),
-        apiKey: config.apiKey.trim(),
+        apiKey: config.apiKey.trim() || undefined,
       });
       setVerifyResult(result);
       if (result.ok) {
@@ -155,7 +155,7 @@ export default function LLMConfigView() {
     }
     setFetchingModels(true);
     try {
-      const result = await fetchLLMModels(config.baseUrl.trim(), config.apiKey.trim());
+      const result = await fetchLLMModels(config.baseUrl.trim(), config.apiKey.trim() || undefined);
       setAvailableModels(result.models || []);
       if (result.models.length === 0) {
         toast(t('llm.noModels'), 'info');
@@ -185,7 +185,7 @@ export default function LLMConfigView() {
     try {
       const saved = await saveLLMConfig({
         baseUrl: config.baseUrl.trim(),
-        apiKey: config.apiKey.trim(),
+        apiKey: config.apiKey.trim() || undefined,
         model: config.model,
         enabled: config.enabled,
       });
@@ -383,7 +383,7 @@ export default function LLMConfigView() {
               type="password"
               value={config.apiKey}
               onChange={(e) => setConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
-              placeholder={savedConfig ? t('llm.apiKeyPlaceholderSaved') : t('llm.apiKeyPlaceholder')}
+              placeholder={savedConfig?.hasApiKey ? t('llm.apiKeyPlaceholderSaved') : t('llm.apiKeyPlaceholder')}
               style={{
                 width: '100%',
                 padding: '8px 12px',

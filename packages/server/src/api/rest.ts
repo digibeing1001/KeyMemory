@@ -1428,7 +1428,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/llm/config', async (request, reply) => {
-    const body = request.body as { baseUrl: string; apiKey: string; model: string; enabled: boolean };
+    const body = request.body as { baseUrl: string; apiKey?: string; model: string; enabled: boolean };
     if (!body.baseUrl) {
       reply.code(400);
       return { error: 'baseUrl is required' };
@@ -1437,7 +1437,7 @@ export function registerRoutes(app: FastifyInstance): void {
       baseUrl: body.baseUrl,
       model: body.model || '',
       enabled: body.enabled ?? true,
-    }, body.apiKey || '');
+    }, body.apiKey);
   });
 
   app.post('/api/llm/verify', async (request) => {
@@ -1452,8 +1452,9 @@ export function registerRoutes(app: FastifyInstance): void {
   app.get('/api/llm/models', async (request) => {
     const query = request.query as Record<string, string>;
     const baseUrl = query.baseUrl;
-    const apiKey = query.apiKey;
-    const result = await verifyLLMConnection(baseUrl, apiKey);
+    // API Key 不允许出现在 URL 查询参数中，避免被访问日志、历史记录或代理层保留。
+    // 此兼容读接口只能使用与 baseUrl 匹配的已保存密钥；新界面使用 POST /api/llm/verify。
+    const result = await verifyLLMConnection(baseUrl);
     return { ok: result.ok, models: result.models, error: result.error };
   });
 

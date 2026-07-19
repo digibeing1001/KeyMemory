@@ -47,6 +47,7 @@ export function getLLMConfig(): LLMProviderConfig | null {
     baseUrl: String(meta.baseUrl ?? LLM_PROVIDER_DEFAULTS.defaultBaseUrl),
     model: String(meta.model ?? ''),
     enabled: Boolean(meta.enabled ?? false),
+    hasApiKey: Boolean(secret.value && secret.value !== NO_API_KEY_SENTINEL),
     lastVerifiedAt: meta.lastVerifiedAt ? String(meta.lastVerifiedAt) : undefined,
     availableModels: Array.isArray(meta.availableModels) ? meta.availableModels.map(String) : undefined,
   };
@@ -62,36 +63,75 @@ function getLLMApiKey(): string | null {
   return val;
 }
 
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return trimmed;
+  }
+}
+
+function sameBaseUrl(left: string | undefined, right: string | undefined): boolean {
+  if (!left || !right) return false;
+  return normalizeBaseUrl(left) === normalizeBaseUrl(right);
+}
+
+/**
+ * 仅当请求仍指向保存密钥时使用的同一地址，才允许复用已保存密钥。
+ * 这既支持 Web UI 的安全空白占位，也避免用户改地址后把云端密钥发给新主机。
+ */
+function getSavedApiKeyForBaseUrl(baseUrl: string): string | null {
+  const secret = getToolSecret(LLM_TOOL, LLM_SECRET_NAME);
+  const savedBaseUrl = secret?.metadata?.baseUrl ? String(secret.metadata.baseUrl) : undefined;
+  if (!secret || !sameBaseUrl(savedBaseUrl, baseUrl)) return null;
+  if (!secret.value || secret.value === NO_API_KEY_SENTINEL) return null;
+  return secret.value;
+}
+
 /**
  * 保存 LLM 配置（不包含连通性检测，纯写入）。
  *
  * @param config 配置对象
- * @param apiKey API key（明文，会被 AES-256-GCM 加密后存储）
+ * @param apiKey 新 API key（明文，会被 AES-256-GCM 加密后存储）。留空且地址未变时保留已存密钥。
  */
-export function saveLLMConfig(config: Omit<LLMProviderConfig, 'lastVerifiedAt' | 'availableModels'>, apiKey: string): LLMProviderConfig {
+export function saveLLMConfig(config: Omit<LLMProviderConfig, 'lastVerifiedAt' | 'availableModels' | 'hasApiKey'>, apiKey?: string): LLMProviderConfig {
   const existing = getToolSecret(LLM_TOOL, LLM_SECRET_NAME);
   const previousMeta = existing?.metadata ?? {};
+  const baseUrl = normalizeBaseUrl(config.baseUrl);
+  const suppliedApiKey = apiKey?.trim();
+  const canReuseExistingKey = sameBaseUrl(previousMeta.baseUrl ? String(previousMeta.baseUrl) : undefined, baseUrl);
+  const preserveVerification = canReuseExistingKey
+    && (!suppliedApiKey || suppliedApiKey === existing?.value);
+  const secretValue = suppliedApiKey
+    || (canReuseExistingKey ? existing?.value : undefined)
+    || NO_API_KEY_SENTINEL;
 
-  const secret = setToolSecret({
+  setToolSecret({
     tool: LLM_TOOL,
     name: LLM_SECRET_NAME,
-    value: apiKey || NO_API_KEY_SENTINEL,
+    value: secretValue,
     metadata: {
-      baseUrl: config.baseUrl,
+      baseUrl,
       model: config.model,
       enabled: config.enabled,
-      // 保留上次检测结果（saveLLMConfig 不做检测，由 verifyLLMConnection 单独触发）
-      lastVerifiedAt: previousMeta.lastVerifiedAt,
-      availableModels: previousMeta.availableModels,
+      hasApiKey: secretValue !== NO_API_KEY_SENTINEL,
+      // 只有地址和密钥都没变时，上次检测结果才仍然可信。
+      lastVerifiedAt: preserveVerification ? previousMeta.lastVerifiedAt : undefined,
+      availableModels: preserveVerification ? previousMeta.availableModels : undefined,
     },
   });
 
   return {
-    baseUrl: config.baseUrl,
+    baseUrl,
     model: config.model,
     enabled: config.enabled,
-    lastVerifiedAt: previousMeta.lastVerifiedAt ? String(previousMeta.lastVerifiedAt) : undefined,
-    availableModels: Array.isArray(previousMeta.availableModels) ? previousMeta.availableModels.map(String) : undefined,
+    hasApiKey: secretValue !== NO_API_KEY_SENTINEL,
+    lastVerifiedAt: preserveVerification && previousMeta.lastVerifiedAt ? String(previousMeta.lastVerifiedAt) : undefined,
+    availableModels: preserveVerification && Array.isArray(previousMeta.availableModels) ? previousMeta.availableModels.map(String) : undefined,
   };
 }
 
@@ -106,16 +146,18 @@ export function saveLLMConfig(config: Omit<LLMProviderConfig, 'lastVerifiedAt' |
  * @returns 检测结果 + 可用模型列表
  */
 export async function verifyLLMConnection(baseUrl?: string, apiKey?: string): Promise<LLMVerifyResult> {
-  const url = baseUrl ?? getLLMConfig()?.baseUrl;
+  const requestedUrl = baseUrl?.trim() || getLLMConfig()?.baseUrl;
   // apiKey 可选：本地 Ollama 模型不需要 key
   // 如果调用方没传 apiKey，则尝试从已保存配置读取（可能是云端 API）；本地模型保存时 apiKey 为空字符串
-  const key = apiKey !== undefined ? apiKey : (getLLMApiKey() || '');
+  const suppliedApiKey = apiKey?.trim();
 
-  if (!url) {
+  if (!requestedUrl) {
     return { ok: false, models: [], error: 'baseUrl 未配置' };
   }
 
-  const modelsUrl = url.replace(/\/+$/, '') + LLM_PROVIDER_DEFAULTS.modelsEndpoint;
+  const url = normalizeBaseUrl(requestedUrl);
+  const key = suppliedApiKey || getSavedApiKeyForBaseUrl(url) || '';
+  const modelsUrl = url + LLM_PROVIDER_DEFAULTS.modelsEndpoint;
   const start = Date.now();
 
   const controller = new AbortController();
@@ -180,7 +222,7 @@ export function saveLLMVerifyResult(result: LLMVerifyResult): LLMProviderConfig 
   if (!existing) return null;
 
   const meta = existing.metadata ?? {};
-  const secret = setToolSecret({
+  setToolSecret({
     tool: LLM_TOOL,
     name: LLM_SECRET_NAME,
     value: existing.value, // 保留原 key
@@ -195,6 +237,7 @@ export function saveLLMVerifyResult(result: LLMVerifyResult): LLMProviderConfig 
     baseUrl: String(meta.baseUrl ?? LLM_PROVIDER_DEFAULTS.defaultBaseUrl),
     model: String(meta.model ?? ''),
     enabled: Boolean(meta.enabled ?? false),
+    hasApiKey: Boolean(existing.value && existing.value !== NO_API_KEY_SENTINEL),
     lastVerifiedAt: result.ok ? new Date().toISOString() : (meta.lastVerifiedAt ? String(meta.lastVerifiedAt) : undefined),
     availableModels: result.ok ? result.models : (Array.isArray(meta.availableModels) ? meta.availableModels.map(String) : undefined),
   };
@@ -314,6 +357,7 @@ export function listLLMConfigs(): LLMProviderConfig[] {
       baseUrl: String(meta.baseUrl ?? LLM_PROVIDER_DEFAULTS.defaultBaseUrl),
       model: String(meta.model ?? ''),
       enabled: Boolean(meta.enabled ?? false),
+      hasApiKey: typeof meta.hasApiKey === 'boolean' ? meta.hasApiKey : undefined,
       lastVerifiedAt: meta.lastVerifiedAt ? String(meta.lastVerifiedAt) : undefined,
       availableModels: Array.isArray(meta.availableModels) ? meta.availableModels.map(String) : undefined,
     } as LLMProviderConfig;

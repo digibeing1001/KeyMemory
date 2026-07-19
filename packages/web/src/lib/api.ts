@@ -602,7 +602,7 @@ export async function getLLMConfig(): Promise<LLMProviderConfig | null> {
 
 export async function saveLLMConfig(data: {
   baseUrl: string;
-  apiKey: string;
+  apiKey?: string;
   model: string;
   enabled: boolean;
 }): Promise<LLMProviderConfig> {
@@ -618,7 +618,7 @@ export async function clearLLMConfig(): Promise<{ success: boolean }> {
 
 export async function verifyLLMConnection(data: {
   baseUrl: string;
-  apiKey: string;
+  apiKey?: string;
 }): Promise<LLMVerifyResult> {
   return request('/llm/verify', {
     method: 'POST',
@@ -626,11 +626,11 @@ export async function verifyLLMConnection(data: {
   });
 }
 
-export async function fetchLLMModels(baseUrl: string, apiKey: string): Promise<{ models: string[] }> {
-  const sp = new URLSearchParams();
-  if (baseUrl) sp.set('baseUrl', baseUrl);
-  if (apiKey) sp.set('apiKey', apiKey);
-  return request(`/llm/models?${sp.toString()}`);
+export async function fetchLLMModels(baseUrl: string, apiKey?: string): Promise<{ models: string[] }> {
+  // 复用 POST 检测接口，避免把 API Key 放进 URL、访问日志或浏览器历史。
+  const result = await verifyLLMConnection({ baseUrl, apiKey });
+  if (!result.ok) throw new Error(result.error || 'LLM connection failed');
+  return { models: result.models };
 }
 
 export async function getLLMStatus(): Promise<{ available: boolean; config: LLMProviderConfig | null }> {
