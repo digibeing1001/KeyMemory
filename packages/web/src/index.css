@@ -2699,8 +2699,19 @@ label {
   .memory-valley-header dl { width: 100%; justify-content: space-between; gap: 12px; }
   .memory-valley-header dl > div { text-align: left; }
   .memory-valley-layout { grid-template-columns: 1fr; }
-  .memory-valley-overview { grid-template-columns: 1fr; }
-  .memory-valley-card { min-height: 158px; }
+  .memory-valley-overview {
+    display: flex;
+    overflow-x: auto;
+    gap: 10px;
+    padding: 1px 1px 7px;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-inline: contain;
+  }
+  .memory-valley-card {
+    flex: 0 0 min(86vw, 340px);
+    min-height: 158px;
+    scroll-snap-align: start;
+  }
   .memory-valley-detail { position: static; max-height: none; }
   .tag-cloud-heading { align-items: flex-start; flex-direction: column; }
   .tag-cloud-heading dl { width: 100%; justify-content: space-between; gap: 12px; }
