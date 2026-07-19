@@ -754,11 +754,15 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
     return { createdThreads: 0, linkedMemories: 0, skipped: ['尚有零散工作记忆，但 LLM 未启用，记忆秘书无法可靠判断邮件主题'] };
   }
   const bySpace = new Map<string, Memory[]>();
-  for (const memory of memories) bySpace.set(memory.agentSpace, [...(bySpace.get(memory.agentSpace) ?? []), memory]);
+  for (const memory of memories) {
+    const scoped = bySpace.get(memory.agentSpace) ?? [];
+    // 单次只交给模型一批可读的材料；其余记忆留到下一轮继续整理。
+    if (scoped.length < 24) bySpace.set(memory.agentSpace, [...scoped, memory]);
+  }
   let createdThreads = 0;
   let linkedMemories = 0;
 
-  for (const [agentSpace, scopedMemories] of bySpace) {
+  const organizeSpace = async ([agentSpace, scopedMemories]: [string, Memory[]]): Promise<void> => {
     const existing = listMailThreads({ folder: 'all', agentSpaces: [agentSpace], limit: 100 });
     const source = scopedMemories.map(memory => `- ID: ${memory.id}\n  标题: ${memory.title}\n  内容: ${firstReadableSentence(memory.content, 260)}`).join('\n');
     let plans: SecretaryThreadPlan[] | null = null;
@@ -772,11 +776,11 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
       plans = parseSecretaryPlans(response.content);
     } catch (error) {
       skipped.push(`记忆秘书整理失败：${(error as Error).message}`);
-      continue;
+      return;
     }
     if (plans === null) {
       skipped.push('记忆秘书返回的整理结果无法核验，本次没有改动记忆，稍后可以重试');
-      continue;
+      return;
     }
 
     const allowed = new Map(scopedMemories.map(memory => [memory.id, memory]));
@@ -821,7 +825,18 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
     db.transaction(() => {
       for (const memory of scopedMemories) writeLog.run(memory.id, used.has(memory.id) ? 'organized' : 'not_work_thread', memory.updatedAt, now);
     })();
-  }
+  };
+
+  // 不同 Agent 空间彼此独立，允许少量并行，避免多个模型超时被串行累加到一次点击上。
+  const spaces = Array.from(bySpace.entries());
+  let nextSpace = 0;
+  const workers = Array.from({ length: Math.min(3, spaces.length) }, async () => {
+    while (nextSpace < spaces.length) {
+      const index = nextSpace++;
+      await organizeSpace(spaces[index]);
+    }
+  });
+  await Promise.all(workers);
   return { createdThreads, linkedMemories, skipped };
 }
 
