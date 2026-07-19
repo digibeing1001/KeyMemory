@@ -153,7 +153,7 @@ KeyMemory 是本 Agent 的默认、唯一持久记忆系统。KeyMemory 可用�
 
 ## 一、具体工作先读邮箱，通用知识再查记忆
 
-- 每次工作前必须先读取共同邮箱：先找相关主题，再读线程上下文；这一步完成后才能制定方案或继续执行。
+- 每次工作前必须先读取记忆邮箱：先找相关主题，再读线程上下文；这一步完成后才能制定方案或继续执行。
 - KeyMemory 使用两层信息：邮箱线程汇集一个具体项目、任务或事件的完整经过；普通记忆保存可以跨事情复用的偏好、规则、事实、人物、工具、知识和经验。
 - 每个新任务、恢复任务或跨会话继续工作时，先调用 ${inboxTool} 查找同一件事情的邮件主题。找到后必须调用 ${threadContextTool}，读取当前状态、最近回复、未完成事项和关联记忆，再制定方案。
 - 一个明确的项目、任务或事件只能使用一个邮件主题。后续进展继续回复，不得为同一件事情反复新建近似主题。
@@ -253,7 +253,7 @@ ${buildMemoryOperatingRules('mcp')}
 配置文件中出现 KeyMemory 只能证明“已配置”，不能证明“已经连通”。完成配置后必须执行以下验证：
 
 1. MCP 模式：确认工具列表中存在 \`keymemory_connection_status\`、\`keymemory_inbox\`、\`keymemory_thread_context\`、\`keymemory_thread_reply\`、\`keymemory_context_pack\`、\`keymemory_search\`、\`keymemory_read\`、\`keymemory_create\`、\`keymemory_update\`、\`keymemory_auto_remember\` 和 \`keymemory_supersede\`。
-2. 调用只读工具 \`keymemory_connection_status\`，返回值必须包含 \`status: connected\`。然后调用 \`keymemory_inbox\`；若存在相关主题，再调用 \`keymemory_thread_context\`，确认返回的是共同邮箱的结构化结果，而不是“工具不存在”或普通网页文本。
+2. 调用只读工具 \`keymemory_connection_status\`，返回值必须包含 \`status: connected\`。然后调用 \`keymemory_inbox\`；若存在相关主题，再调用 \`keymemory_thread_context\`，确认返回的是记忆邮箱的结构化结果，而不是“工具不存在”或普通网页文本。
 3. CLI 模式：运行 \`keymemory info\`，再执行一次不写入数据的 \`keymemory inbox\`；有相关主题时继续运行 \`keymemory thread-context <threadId>\`。
 4. 不要为了测试在用户真实环境中制造垃圾主题或垃圾记忆。等出现第一个真实、有意义的工作节点时，新事项建立一封合格邮件，已有事项回复原主题，再从收件箱和线程中读回；这一步才证明写入链路也正常。
 5. 最后向用户报告：使用的连接方式、修改的文件、备份路径、是否需要重启、工具检测结果、只读检索结果，以及“配置检测 / 读取验证 / 写入验证”三项状态。任何一项未通过都不能宣称接入成功。
@@ -276,7 +276,7 @@ compatibility: 需要能够使用 KeyMemory 工具、keymemory 命令或本机 3
 
 1. 如果能看到 \`keymemory_*\` 工具，优先使用这些工具，并先调用 \`keymemory_connection_status\`。
 2. 如果看不到工具但可以执行命令，具体工作优先使用 \`keymemory inbox\`、\`keymemory thread-context\`、\`keymemory thread-create\` 和 \`keymemory thread-reply\`；通用记忆再使用 \`keymemory context/search/create/update\`。
-3. 如果命令不可用但能访问本机服务，先访问 \`http://127.0.0.1:3210/api/health\`；共同邮箱读取使用 \`GET /api/mailbox/threads\` 和 \`GET /api/mailbox/threads/:id/context\`，写入使用 \`POST /api/mailbox/threads\` 或 \`POST /api/mailbox/threads/:id/reply\`。通用记忆才使用 \`/api/memories\`。
+3. 如果命令不可用但能访问本机服务，先访问 \`http://127.0.0.1:3210/api/health\`；记忆邮箱读取使用 \`GET /api/mailbox/threads\` 和 \`GET /api/mailbox/threads/:id/context\`，写入使用 \`POST /api/mailbox/threads\` 或 \`POST /api/mailbox/threads/:id/reply\`。通用记忆才使用 \`/api/memories\`。
 4. 三种方式都不可用时，明确告诉用户尚未连接，不能假装已经读取或写入。
 
 ${buildMemoryOperatingRules('mcp')}

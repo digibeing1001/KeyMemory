@@ -320,7 +320,7 @@ const BASE_MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'memory_inbox_list',
-    description: '列出当前 Agent 的共同邮箱。开始或继续具体项目、任务、事件时，先读收件箱并找到唯一的相关邮件主题，再搜索零散记忆。 List the shared Agent inbox first and find the single related thread before raw memory search.',
+    description: '列出当前 Agent 的记忆邮箱。开始或继续具体项目、任务、事件时，先读收件箱并找到唯一的相关邮件主题，再搜索零散记忆。 List the memory mailbox first and find the single related thread before raw memory search.',
     inputSchema: mailboxListSchema,
     annotations: { readOnlyHint: true },
   },

@@ -350,8 +350,8 @@ function AppInner() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                 <Inbox size={17} style={{ color: 'var(--accent)' }} />
                 <div style={{ minWidth: 0 }}>
-                  <strong style={{ display: 'block', color: 'var(--text-primary)', fontSize: 13 }}>{language === 'zh' ? '共同工作邮箱' : 'Shared work mailbox'}</strong>
-                  <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{language === 'zh' ? '人类、Agent 与记忆秘书在同一主题中接力' : 'Human, Agents, and Memory Secretary hand off in one thread'}</span>
+                  <strong style={{ display: 'block', color: 'var(--text-primary)', fontSize: 13 }}>{language === 'zh' ? '记忆邮箱' : 'Memory mailbox'}</strong>
+                  <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{language === 'zh' ? '人类Agent与记忆在同一项目中' : 'Humans, Agents, and memory in one project'}</span>
                 </div>
               </div>
             )}

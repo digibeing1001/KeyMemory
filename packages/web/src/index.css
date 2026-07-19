@@ -2070,7 +2070,7 @@ label {
 
 /* === 响应式 === */
 
-/* === 共同工作邮箱 === */
+/* === 记忆邮箱 === */
 .mailbox-shell {
   display: grid;
   grid-template-columns: 196px minmax(310px, 390px) minmax(460px, 1fr);

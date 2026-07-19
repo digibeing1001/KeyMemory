@@ -94,7 +94,7 @@ function Composer({ onClose, onCreated, zh }: ComposerProps) {
       <form onSubmit={submit} className="mail-compose-form">
         <label className="mail-compose-field">
           <span>{zh ? '收件人' : 'To'}</span>
-          <input value={zh ? '共同工作邮箱（人类与已接入的 Agent）' : 'Shared work inbox (human and connected Agents)'} readOnly />
+          <input value={zh ? '记忆邮箱（人类与已接入的 Agent）' : 'Memory mailbox (human and connected Agents)'} readOnly />
         </label>
         <label className="mail-compose-field">
           <span>{zh ? '类型' : 'Type'}</span>
@@ -260,7 +260,7 @@ export default function MailboxView() {
         </div>
         <div className="mail-thread-list">
           {loading ? <div className="mail-empty">{zh ? '正在取信…' : 'Loading mail…'}</div> : threads.length === 0 ? (
-            <div className="mail-empty"><Mail size={30} /><strong>{search ? (zh ? '没有找到相关邮件' : 'No matching mail') : (zh ? '这里还没有邮件' : 'No mail here yet')}</strong><p>{zh ? '为一项具体工作写第一封邮件，后续人类、Agent 和记忆秘书都会在同一主题中回复。' : 'Write the first message for a concrete body of work.'}</p></div>
+            <div className="mail-empty"><Mail size={30} /><strong>{search ? (zh ? '没有找到相关邮件' : 'No matching mail') : (zh ? '这里还没有邮件' : 'No mail here yet')}</strong><p>{zh ? '为一项具体工作写第一封邮件，后续人类、Agent 与记忆会在同一项目中持续补充信息。' : 'Write the first message for a concrete body of work.'}</p></div>
           ) : threads.map((thread) => (
             <button type="button" key={thread.id} className={`mail-thread-row${thread.id === selectedId ? ' active' : ''}${thread.unreadCount > 0 ? ' unread' : ''}`} onClick={() => openThread(thread.id)}>
               <span className="mail-row-star" onClick={(event) => { event.stopPropagation(); void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh()); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></span>
@@ -285,7 +285,7 @@ export default function MailboxView() {
               <header className="mail-thread-header">
                 <div><span className="mail-kind-badge">{zh ? KIND_LABEL[detail.thread.kind].zh : KIND_LABEL[detail.thread.kind].en}</span><span className={`mail-status-badge status-${detail.thread.status}`}>{detail.thread.status === 'open' ? (zh ? '进行中' : 'Open') : detail.thread.status === 'waiting' ? (zh ? '等待中' : 'Waiting') : (zh ? '已完成' : 'Completed')}</span></div>
                 <h1>{detail.thread.subject}</h1>
-                <p>{zh ? `${detail.thread.messageCount} 封邮件 · 人类、Agent 与记忆秘书共同可读` : `${detail.thread.messageCount} messages · shared by human, Agents, and Memory Secretary`}</p>
+                <p>{zh ? `${detail.thread.messageCount} 封邮件 · 人类、Agent 与记忆共同可读` : `${detail.thread.messageCount} messages · shared by humans, Agents, and memory`}</p>
               </header>
               <div className="mail-message-stack">
                 {detail.messages.map((message, index) => (

@@ -597,7 +597,7 @@ function runDeepPhase(reportId: string, lightSession: DreamSession, remSession: 
 
   const candidatesProcessed = candidates.length + actions.length;
 
-  // 共同邮箱已替代自动项目归集：未进入具体邮件线程的内容就是正常的公共
+  // 记忆邮箱已替代自动项目归集：未进入具体邮件线程的内容就是正常的公共
   // 原子记忆，不再自动创建/选择项目目录，也不再生成“孤立记忆”文件夹待办。
   const autoRouted = 0;
   const orphans: DreamTodoItem[] = [];

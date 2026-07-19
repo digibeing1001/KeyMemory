@@ -55,7 +55,7 @@ const zh: Record<string, string> = {
   'memoryState.allHelp': '查看所有仍在使用的记忆。',
   'memoryState.clear': '查看全部',
 
-  'nav.mailbox': '共同邮箱',
+  'nav.mailbox': '记忆邮箱',
   'nav.memories': '记忆库',
   'nav.nebula': '关系图',
   'nav.tags': '标签',

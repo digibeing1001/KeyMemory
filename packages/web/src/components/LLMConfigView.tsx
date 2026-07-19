@@ -76,7 +76,7 @@ export default function LLMConfigView() {
       setLoading(false);
     }
     // 加载原子记忆之间的关联推理统计（不阻塞主配置加载）。
-    // 具体工作的接力已经统一由共同邮箱承担，不再展示旧项目接龙入口。
+    // 具体工作的接力已经统一由记忆邮箱承担，不再展示旧项目接龙入口。
     loadFeatureStats();
   }
 
@@ -527,7 +527,7 @@ export default function LLMConfigView() {
         </ul>
       </section>
 
-      {/* 原子记忆保留关联推理；具体工作接力统一在共同邮箱中完成。 */}
+      {/* 原子记忆保留关联推理；具体工作接力统一在记忆邮箱中完成。 */}
       <section
         style={{
           marginTop: 18,

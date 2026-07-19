@@ -31,7 +31,7 @@ const reusableMemory = atom.createMemory({
 const first = mailbox.createMailThread({
   subject: 'KeyMemory 邮箱功能进入可用性验收',
   kind: 'project',
-  body: '邮箱的核心流程已经进入验收阶段。接下来需要确认人类回复、Agent 接力和记忆秘书整理都在同一主题中完成。\n\n```log\nserver started\nstatus=ok\n```',
+  body: '记忆邮箱的核心流程已经进入验收阶段。接下来需要确认人类、Agent 与记忆能在同一项目中持续补充信息。\n\n```log\nserver started\nstatus=ok\n```',
   senderType: 'human',
   memoryIds: [reusableMemory.id],
 });

@@ -120,7 +120,7 @@ function VerifyPage() {
       <h3>看到三项通过，才算真正接好。</h3>
       <div className="guide-check-list">
         <div><b>1</b><div><strong>设置已经写入</strong><span>回到接入页面，点击“检测接入状态”，页面应显示“已检测到配置”。</span></div></div>
-        <div><b>2</b><div><strong>助手能读到收件箱</strong><span>让助手检查 KeyMemory 连接，再列出共同邮箱。它必须返回真实主题，不能只口头说成功。</span></div></div>
+        <div><b>2</b><div><strong>助手能读到收件箱</strong><span>让助手检查 KeyMemory 连接，再列出记忆邮箱。它必须返回真实主题，不能只口头说成功。</span></div></div>
         <div><b>3</b><div><strong>助手能回复并找回</strong><span>开始真实工作后，让助手把进度回复到邮件，再重新读取。不要专门制造无用测试内容。</span></div></div>
       </div>
       <div className="guide-callout"><RefreshCw size={18} /><div><strong>如果第一项通过、后两项失败</strong><span>通常只需要重启对应的 AI 助手，再让它重新检查一次。</span></div></div>
@@ -146,7 +146,7 @@ function CapturePage() {
 
 function FeaturesPage() {
   const items = [
-    ['共同邮箱', '一项工作一个主题；人类、Agent 和记忆秘书通过回复接力。'],
+    ['记忆邮箱', '一项工作一个主题；人类、Agent 与记忆在同一项目中持续补充信息。'],
     ['记忆库', '查看、搜索、修改可跨事情复用的偏好、规则、事实和经验。'],
     ['使用动态', '看看最近哪些记忆被读取、哪些事情正在继续。'],
     ['Agent 接入', '连接新的 AI 助手，复制中文接入提示词，检查连接状态。'],
@@ -160,9 +160,9 @@ function FeaturesPage() {
     <article>
       <div className="guide-page-number">05</div>
       <span className="guide-eyebrow">页面功能一览</span>
-      <h3>平时最常用的是“共同邮箱”和“Agent 接入”。</h3>
+      <h3>平时最常用的是“记忆邮箱”和“Agent 接入”。</h3>
       <div className="guide-feature-grid">
-        {items.map(([title, description]) => <div key={title}>{title === '共同邮箱' ? <Mail size={15} /> : <Layers size={15} />}<strong>{title}</strong><span>{description}</span></div>)}
+        {items.map(([title, description]) => <div key={title}>{title === '记忆邮箱' ? <Mail size={15} /> : <Layers size={15} />}<strong>{title}</strong><span>{description}</span></div>)}
       </div>
     </article>
   );
