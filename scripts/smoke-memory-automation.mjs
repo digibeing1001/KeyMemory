@@ -19,11 +19,19 @@ const [database, atom, llm, reasoner, mailbox, conflicts] = await Promise.all([
 database.initDatabase();
 let relationCandidateId = '';
 let mailboxMemoryIds = [];
+let temperatureCompatibilityRetries = 0;
 const server = http.createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const payload = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
   const system = payload.messages?.[0]?.content ?? '';
+  if (request.url?.endsWith('/chat/completions') && payload.temperature !== 1) {
+    temperatureCompatibilityRetries++;
+    response.statusCode = 400;
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ error: { message: 'invalid temperature: only 1 is allowed for this model', type: 'invalid_request_error' } }));
+    return;
+  }
   let content;
   if (system.includes('记忆关联推理')) {
     content = JSON.stringify({ judgments: [{
@@ -109,6 +117,7 @@ try {
   assert.equal(mailbox.listMailThreads({ folder: 'all', agentSpaces: ['global'] }).length, 1);
   const secondSync = await mailbox.syncMailbox(['global']);
   assert.equal(secondSync.createdThreads, 0, 'unchanged memories must not duplicate a work thread');
+  assert.ok(temperatureCompatibilityRetries >= 2, 'provider must retry relation and secretary calls when a compatible model only accepts temperature=1');
 
   console.log('[smoke:automation] ok');
 } finally {

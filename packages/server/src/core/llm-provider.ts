@@ -283,23 +283,41 @@ export async function chatWithLLM(request: LLMChatRequest): Promise<LLMChatRespo
     if (apiKey) {
       headers.Authorization = `Bearer ${apiKey}`;
     }
-    const resp = await fetch(chatUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
+    const buildBody = (temperature: number) => JSON.stringify({
         model: config.model,
         messages: [
           { role: 'system', content: request.systemPrompt },
           { role: 'user', content: request.userMessage },
         ],
-        temperature: request.temperature ?? 0.1,
+        temperature,
         max_tokens: request.maxTokens ?? 2000,
         stream: false,
-      }),
+      });
+    const requestedTemperature = request.temperature ?? 0.1;
+    let resp = await fetch(chatUrl, {
+      method: 'POST',
+      headers,
+      body: buildBody(requestedTemperature),
       signal: controller.signal,
     });
-    clearTimeout(timeout);
 
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      // 部分 OpenAI 兼容端点（如某些 Coding 模型）只允许 temperature=1。
+      // 仅在服务端明确返回这一限制时重试一次，不掩盖其他 400 配置错误。
+      if (resp.status === 400 && requestedTemperature !== 1 && /invalid temperature[\s\S]*only\s+1\s+is\s+allowed/i.test(text)) {
+        resp = await fetch(chatUrl, {
+          method: 'POST',
+          headers,
+          body: buildBody(1),
+          signal: controller.signal,
+        });
+      } else {
+        clearTimeout(timeout);
+        throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
+      }
+    }
+    clearTimeout(timeout);
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
