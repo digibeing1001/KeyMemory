@@ -30,8 +30,10 @@ import {
   getMemory,
   listProjects,
   resolveConflict,
+  listOrphanIssues,
+  markOrphanIndependent,
 } from '../lib/api';
-import type { DreamReport, DreamSignalEntry, SchedulerConfig, ConflictAction } from '../lib/api';
+import type { DreamReport, DreamSignalEntry, SchedulerConfig, ConflictAction, OrphanIssue } from '../lib/api';
 import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import { useI18n } from '../i18n';
@@ -41,6 +43,7 @@ import { formatDateTime, formatMemoryTitle, getMemoryKind, LAYER_COLORS, redactS
 
 interface DreamViewProps {
   onMemorySelect?: (id: string) => void;
+  onHealthChanged?: () => void;
 }
 
 function formatTime(iso: string | null | undefined, locale: string): string {
@@ -93,7 +96,7 @@ function StatCard({ label, value, hint, icon: Icon, accent }: {
   );
 }
 
-export default function DreamView({ onMemorySelect }: DreamViewProps) {
+export default function DreamView({ onMemorySelect, onHealthChanged }: DreamViewProps) {
   const { language, t } = useI18n();
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   const { toast } = useToast();
@@ -122,13 +125,19 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
     memoryId: string;
     targetId: string;
   } | null>(null);
+  const [orphanIssues, setOrphanIssues] = useState<OrphanIssue[]>([]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextReports, nextConfig] = await Promise.all([listDreamReports(20), getSchedulerConfig()]);
+      const [nextReports, nextConfig, nextOrphans] = await Promise.all([
+        listDreamReports(20),
+        getSchedulerConfig(),
+        listOrphanIssues(100),
+      ]);
       setReports(nextReports);
       setConfig(nextConfig);
+      setOrphanIssues(nextOrphans);
       if (nextReports[0]) {
         setSelectedReport((current) => nextReports.find((report) => report.id === current?.id) ?? nextReports[0]);
         getDreamSignals(nextReports[0].id).then(setSignals).catch(() => setSignals([]));
@@ -231,6 +240,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   const handleArchiveMemory = useCallback(async (memoryId: string) => {
     try {
       await forgetMemory(memoryId, 'archive');
+      setOrphanIssues((prev) => prev.filter((item) => item.memoryId !== memoryId));
       setSelectedReport((prev) => prev ? {
         ...prev,
         todoItems: prev.todoItems.filter((item) => item.memoryId !== memoryId),
@@ -240,10 +250,23 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
         todoItems: report.todoItems.filter((item) => item.memoryId !== memoryId),
       })));
       toast(language === 'zh' ? '记忆已归档' : 'Memory archived', 'success');
+      onHealthChanged?.();
     } catch {
       toast(language === 'zh' ? '归档失败' : 'Archive failed', 'error');
     }
-  }, [language, toast]);
+  }, [language, onHealthChanged, toast]);
+
+  const handleMarkIndependent = useCallback(async (memoryId: string) => {
+    try {
+      const result = await markOrphanIndependent(memoryId);
+      if (!result.success) throw new Error('Not found');
+      setOrphanIssues((prev) => prev.filter((item) => item.memoryId !== memoryId));
+      toast(language === 'zh' ? '已记住：这是一条独立记忆' : 'Marked as a standalone memory', 'success');
+      onHealthChanged?.();
+    } catch {
+      toast(language === 'zh' ? '处理线索失败' : 'Failed to update clue', 'error');
+    }
+  }, [language, onHealthChanged, toast]);
 
   const handlePreviewMemory = useCallback(async (memoryId: string) => {
     setPreviewLoadingId(memoryId);
@@ -271,13 +294,14 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
           ...report,
           todoItems: report.todoItems.filter((item) => !(item.type === 'conflict' && item.memoryId === memoryId && item.targetId === targetId)),
         })));
+        onHealthChanged?.();
       } else {
         toast(result.message || t('dream.conflict.failed'), 'error');
       }
     } catch {
       toast(t('dream.conflict.failed'), 'error');
     }
-  }, [t, toast]);
+  }, [onHealthChanged, t, toast]);
 
   const handleToggleDreaming = useCallback(async (enabled: boolean) => {
     if (!config) return;
@@ -312,6 +336,7 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
   // 未归入旧项目目录的记忆现在是正常的公共原子记忆，历史 orphan 建议
   // 不再显示成“请分配文件夹”的用户待办。
   const todoItems = (selectedReport?.todoItems ?? []).filter((item) => item.type !== 'orphan');
+  const pendingCount = todoItems.length + orphanIssues.length;
   const promoted = selectedReport?.details?.promoted ?? [];
   const archived = selectedReport?.details?.archived ?? [];
   const merged = selectedReport?.details?.merged ?? [];
@@ -495,18 +520,18 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
             <StatCard label={t('dream.checked')} value={selectedReport.totalCandidates} icon={Activity} />
             <StatCard label={t('dream.strengthened')} value={selectedReport.promoted} icon={CheckCircle} accent />
             <StatCard label={t('dream.merged')} value={selectedReport.merged} icon={GitMerge} />
-            <StatCard label={t('dream.needReview')} value={todoItems.length} icon={AlertTriangle} accent={todoItems.length > 0} />
+            <StatCard label={t('dream.needReview')} value={pendingCount} hint={orphanIssues.length > 0 ? (language === 'zh' ? `其中 ${orphanIssues.length} 条缺少关联` : `${orphanIssues.length} missing links`) : undefined} icon={AlertTriangle} accent={pendingCount > 0} />
           </div>
 
-          <section className="dream-next-action" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: todoItems.length > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(16, 185, 129, 0.08)', padding: 14, marginBottom: 14 }}>
+          <section className="dream-next-action" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: pendingCount > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(16, 185, 129, 0.08)', padding: 14, marginBottom: 14 }}>
             <div className="flex items-start gap-3">
-              <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: todoItems.length > 0 ? 'var(--warning)' : 'var(--success)', flexShrink: 0 }}>
-                {todoItems.length > 0 ? <AlertTriangle size={15} /> : <CheckCircle size={15} />}
+              <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: pendingCount > 0 ? 'var(--warning)' : 'var(--success)', flexShrink: 0 }}>
+                {pendingCount > 0 ? <AlertTriangle size={15} /> : <CheckCircle size={15} />}
               </span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 750, color: 'var(--text-primary)' }}>{t('dream.nextAction')}</div>
                 <p style={{ margin: '4px 0 0', fontSize: 13, lineHeight: 1.55, color: 'var(--text-secondary)' }}>
-                  {todoItems.length > 0 ? t('dream.nextActionTodo') : t('dream.nextActionDone')}
+                  {pendingCount > 0 ? t('dream.nextActionTodo') : t('dream.nextActionDone')}
                 </p>
               </div>
             </div>
@@ -536,10 +561,43 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
 
             <section className="dream-todo-list" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', padding: 16 }}>
               <h4 style={{ margin: '0 0 12px', color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }}>{t('dream.needsYou')}</h4>
-              {todoItems.length === 0 ? (
+              {pendingCount === 0 ? (
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>{t('dream.noTodo')}</p>
               ) : (
                 <div style={{ display: 'grid', gap: 10 }}>
+                  {orphanIssues.map((item) => (
+                    <article className="dream-todo-card" key={`orphan-${item.memoryId}`} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 12, background: 'var(--bg-main)' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <Link size={16} style={{ color: 'var(--accent)', marginTop: 2, flexShrink: 0 }} />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {language === 'zh' ? '缺少关联的线索' : 'Clue missing links'}
+                          </div>
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)', marginTop: 3, fontWeight: 650 }}>{redactSensitiveText(item.title)}</div>
+                          <p className="dream-clue-preview">{redactSensitiveText(item.content)}</p>
+                          <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                            {language === 'zh'
+                              ? '它目前没有人物、标签、记忆关系或项目邮件。你可以查看全文，也可以确认它本来就是一条独立记忆。'
+                              : 'It currently has no people, tags, memory relations, or project mail. Review it or confirm it is standalone.'}
+                          </p>
+                          <div className="dream-todo-actions flex items-center gap-2">
+                            <button className="btn" onClick={() => handlePreviewMemory(item.memoryId)}>
+                              <Eye size={12} />
+                              {t('common.view')}
+                            </button>
+                            <button className="btn" onClick={() => handleMarkIndependent(item.memoryId)}>
+                              <CheckCircle size={12} />
+                              {language === 'zh' ? '这是独立记忆' : 'This is standalone'}
+                            </button>
+                            <button className="btn" onClick={() => handleArchiveMemory(item.memoryId)}>
+                              <Archive size={12} />
+                              {t('common.archive')}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
                   {todoItems.slice(0, 8).map((item) => {
                     const isOrphan = item.type === 'orphan';
                     const Icon = isOrphan ? Inbox : AlertTriangle;
@@ -603,6 +661,47 @@ export default function DreamView({ onMemorySelect }: DreamViewProps) {
               )}
             </section>
           </div>
+
+          <section className="dream-result-receipt">
+            <div className="dream-result-heading">
+              <div>
+                <h4>{language === 'zh' ? '本次处理结果' : 'Results from this run'}</h4>
+                <p>{language === 'zh' ? '每一项都可以打开实际记忆，不再只显示一个没有解释的数字。' : 'Open the actual memory behind every result.'}</p>
+              </div>
+              <span>{promoted.length + merged.length + archived.length}</span>
+            </div>
+            {promoted.length + merged.length + archived.length === 0 ? (
+              <div className="dream-result-empty">
+                {language === 'zh'
+                  ? '本次没有增强、合并或归档任何记忆；系统只完成了检查与关系整理。'
+                  : 'No memories were strengthened, merged, or archived; this run only checked and organized relationships.'}
+              </div>
+            ) : (
+              <div className="dream-result-list">
+                {promoted.map((item) => (
+                  <button key={`promoted-${item.memoryId}`} onClick={() => handlePreviewMemory(item.memoryId)}>
+                    <CheckCircle size={15} />
+                    <span><strong>{redactSensitiveText(item.title)}</strong><small>{language === 'zh' ? `内容已增强 · 可信度 ${Math.round(item.score * 100)}%` : `Strengthened · confidence ${Math.round(item.score * 100)}%`}</small></span>
+                    <Eye size={14} />
+                  </button>
+                ))}
+                {merged.map((item) => (
+                  <button key={`merged-${item.memoryId}`} onClick={() => handlePreviewMemory(item.intoId)}>
+                    <GitMerge size={15} />
+                    <span><strong>{redactSensitiveText(item.intoTitle)}</strong><small>{language === 'zh' ? `已汇入：${redactSensitiveText(item.title)}` : `Merged from: ${redactSensitiveText(item.title)}`}</small></span>
+                    <Eye size={14} />
+                  </button>
+                ))}
+                {archived.map((item) => (
+                  <button key={`archived-${item.memoryId}`} onClick={() => handlePreviewMemory(item.memoryId)}>
+                    <Archive size={15} />
+                    <span><strong>{redactSensitiveText(item.title)}</strong><small>{redactSensitiveText(item.reason)}</small></span>
+                    <Eye size={14} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
 
           {(promoted.length > 0 || archived.length > 0 || merged.length > 0 || signals.length > 0) && (
             <section style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-card)', overflow: 'hidden' }}>
@@ -847,7 +946,7 @@ function ConflictResolveDialog({
   return (
     <>
       <button type="button" className="dream-preview-scrim" aria-label={t('common.close')} onClick={onClose} />
-      <aside className="dream-preview-drawer" role="dialog" aria-modal="true" aria-label={t('dream.conflict.title')} style={{ maxWidth: 720 }}>
+      <aside className="dream-preview-drawer dream-conflict-drawer" role="dialog" aria-modal="true" aria-label={t('dream.conflict.title')}>
         <div className="dream-preview-header">
           <div>
             <div className="dream-preview-eyebrow">{t('dream.todo.conflict')}</div>
@@ -866,7 +965,7 @@ function ConflictResolveDialog({
         )}
 
         {!loading && memA && memB && (
-          <>
+          <div className="dream-conflict-content">
             {/* 模式选择 tab */}
             <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
               {(['merge', 'keep', 'delete'] as const).map((m) => (
@@ -892,7 +991,7 @@ function ConflictResolveDialog({
             </div>
 
             {/* 两条记忆并排展示 */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <div className="dream-conflict-memory-grid">
               <MemoryCard mem={memA} label={t('dream.conflict.thisMemory')} side="a" />
               <MemoryCard mem={memB} label={t('dream.conflict.otherMemory')} side="b" />
             </div>
@@ -928,7 +1027,7 @@ function ConflictResolveDialog({
                     type="text"
                     value={mergedTitle}
                     onChange={(e) => setMergedTitle(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13, boxSizing: 'border-box', background: 'var(--bg-main)', color: 'var(--text-primary)' }}
                   />
                 </div>
 
@@ -940,7 +1039,7 @@ function ConflictResolveDialog({
                     value={mergedContent}
                     onChange={(e) => setMergedContent(e.target.value)}
                     rows={10}
-                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.65, resize: 'vertical', boxSizing: 'border-box', background: 'var(--bg-main)', color: 'var(--text-primary)' }}
                   />
                 </div>
 
@@ -953,7 +1052,7 @@ function ConflictResolveDialog({
                     value={mergedTags}
                     onChange={(e) => setMergedTags(e.target.value)}
                     placeholder="tag1, tag2, tag3"
-                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 13, boxSizing: 'border-box', background: 'var(--bg-main)', color: 'var(--text-primary)' }}
                   />
                 </div>
 
@@ -1006,7 +1105,7 @@ function ConflictResolveDialog({
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
       </aside>
     </>

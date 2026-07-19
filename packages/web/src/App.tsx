@@ -86,6 +86,12 @@ function AppInner() {
     return forced || localStorage.getItem('keymemory_onboarding_completed_v1') !== 'true';
   });
 
+  const dismissGuide = () => {
+    localStorage.setItem('keymemory_onboarding_completed_v1', 'true');
+    setGuideFirstRun(false);
+    setGuideOpen(false);
+  };
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
     localStorage.setItem('keymemory_theme', isDark ? 'dark' : 'light');
@@ -502,6 +508,7 @@ function AppInner() {
             <div className="flex-1 overflow-y-auto px-6 py-5">
               <TagCloud
                 tags={tagCloudData?.tags ?? []}
+                suspectTags={tagCloudData?.suspectTags ?? []}
                 projects={tagCloudData?.projects}
                 onTagClick={handleTagClick}
                 loading={!tagCloudData}
@@ -512,6 +519,9 @@ function AppInner() {
           {viewMode === 'dream' && (
             <div className="flex-1 overflow-y-auto">
               <DreamView
+                onHealthChanged={() => {
+                  getHealth().then((res) => setHealthReport(res as unknown as HealthReport)).catch(() => {});
+                }}
                 onMemorySelect={(id) => {
                   setViewMode('memories');
                   store.selectMemory(id);
@@ -620,10 +630,9 @@ function AppInner() {
       <UserGuide
         open={guideOpen}
         firstRun={guideFirstRun}
-        onClose={() => setGuideOpen(false)}
+        onClose={dismissGuide}
         onComplete={() => {
-          localStorage.setItem('keymemory_onboarding_completed_v1', 'true');
-          setGuideFirstRun(false);
+          dismissGuide();
         }}
         onOpenIntegrations={() => {
           setViewMode('integrations');

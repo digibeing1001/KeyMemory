@@ -7,13 +7,15 @@ import path from 'node:path';
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'keymemory-automation-smoke-'));
 process.env.KEYMEMORY_DATA_DIR = dataDir;
 
-const [database, atom, llm, reasoner, mailbox, conflicts] = await Promise.all([
+const [database, atom, llm, reasoner, mailbox, conflicts, dreaming, health] = await Promise.all([
   import('../packages/server/dist/db/sqlite.js'),
   import('../packages/server/dist/core/atom.js'),
   import('../packages/server/dist/core/llm-provider.js'),
   import('../packages/server/dist/core/relation-reasoner.js'),
   import('../packages/server/dist/core/mailbox.js'),
   import('../packages/server/dist/core/conflict-detector.js'),
+  import('../packages/server/dist/core/dreaming.js'),
+  import('../packages/server/dist/core/health.js'),
 ]);
 
 database.initDatabase();
@@ -95,6 +97,42 @@ try {
     layer: 'short',
     source: 'automation-smoke',
   });
+
+  const standaloneMemory = atom.createMemory({
+    title: '一条确认无需关联的独立记忆',
+    content: '这条内容用于验证缺少关联线索可以查看，也可以被用户确认成独立记忆。',
+    layer: 'long',
+    source: 'automation-smoke',
+  });
+  // Simulate a legacy/imported memory created before write-time tag cleanup existed.
+  database.getDatabase().prepare("UPDATE memories SET tags = '[]' WHERE id = ?").run(standaloneMemory.id);
+  database.getDatabase().prepare('DELETE FROM memory_entities WHERE memory_id = ?').run(standaloneMemory.id);
+  const orphanIssuesBefore = health.listOrphanIssues();
+  assert.ok(orphanIssuesBefore.some(issue => issue.memoryId === standaloneMemory.id), 'health counter must expose its concrete orphan memories');
+  const orphanCountBefore = (await health.getHealthReport()).orphanCount;
+  assert.equal(orphanCountBefore, orphanIssuesBefore.length, 'health orphan count and issue list must use the same rule');
+  assert.equal(health.markOrphanIndependent(standaloneMemory.id), true, 'standalone decision must be persisted');
+  assert.ok(!health.listOrphanIssues().some(issue => issue.memoryId === standaloneMemory.id), 'reviewed standalone memory must stay resolved after refresh');
+  assert.equal((await health.getHealthReport()).orphanCount, orphanCountBefore - 1, 'confirming a standalone memory must update health state');
+
+  const persistedTodoReportId = 'smoke-resolved-todo-report';
+  const reportCreatedAt = new Date().toISOString();
+  database.getDatabase().prepare(`
+    INSERT INTO dream_reports (id, status, total_candidates, promoted, archived, merged, sessions, todo_items, details, created_at, completed_at)
+    VALUES (?, 'completed', 2, 0, 0, 0, '[]', ?, ?, ?, ?)
+  `).run(
+    persistedTodoReportId,
+    JSON.stringify([
+      { type: 'archive', memoryId: oldMemory.id, title: oldMemory.title, reason: 'pending smoke item', status: 'pending' },
+      { type: 'archive', memoryId: newMemory.id, title: newMemory.title, reason: 'resolved smoke item', status: 'confirmed' },
+    ]),
+    JSON.stringify({ promoted: [], archived: [], merged: [] }),
+    reportCreatedAt,
+    reportCreatedAt,
+  );
+  const persistedReport = dreaming.listDreamReports(20).find(report => report.id === persistedTodoReportId);
+  assert.ok(persistedReport, 'persisted dream report must be readable');
+  assert.deepEqual(persistedReport.todoItems.map(item => item.memoryId), [oldMemory.id], 'resolved report items must not reappear after refresh');
 
   const relationResult = await reasoner.reasonRelationsForMemory(newMemory.id);
   assert.ok(relationResult, 'relation reasoning must work without a local embedding model');

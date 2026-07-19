@@ -2,7 +2,7 @@ import type { HealthReport, Layer, Memory } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
-import { listMemories } from './atom.js';
+import { getMemory, listMemories, updateMemory } from './atom.js';
 import { findProjectRef } from './project.js';
 import { searchHybrid } from './query.js';
 import { findConflictMatch } from './conflict-detector.js';
@@ -121,17 +121,74 @@ async function countDuplicates(): Promise<number> {
   return count;
 }
 
+export interface OrphanIssue {
+  memoryId: string;
+  title: string;
+  content: string;
+  layer: Layer;
+  tags: string[];
+  updatedAt: string;
+  missing: Array<'entity' | 'tag' | 'relation' | 'mail_thread'>;
+}
+
+const ORPHAN_WHERE = `
+  m.status = 'active'
+  AND m.id NOT IN (SELECT memory_id FROM memory_entities)
+  AND m.layer != 'flash'
+  AND (m.tags IS NULL OR m.tags = '[]')
+  AND NOT EXISTS (SELECT 1 FROM memory_relations r WHERE r.source_memory_id = m.id OR r.target_memory_id = m.id)
+  AND NOT EXISTS (SELECT 1 FROM mail_thread_memories tm WHERE tm.memory_id = m.id)
+  AND COALESCE(json_extract(m.metadata, '$.associationStatus'), '') != 'independent'
+`;
+
 function countOrphans(): number {
   const db = getDatabase();
   return (db.prepare(`
     SELECT COUNT(*) as cnt FROM memories m
-    WHERE m.status = 'active'
-      AND m.id NOT IN (SELECT memory_id FROM memory_entities)
-      AND m.layer != 'flash'
-      AND (m.tags IS NULL OR m.tags = '[]')
-      AND NOT EXISTS (SELECT 1 FROM memory_relations r WHERE r.source_memory_id = m.id OR r.target_memory_id = m.id)
-      AND NOT EXISTS (SELECT 1 FROM mail_thread_memories tm WHERE tm.memory_id = m.id)
+    WHERE ${ORPHAN_WHERE}
   `).get() as { cnt: number }).cnt;
+}
+
+/** Return the actual memories behind the health counter so the UI never shows an unexplained number. */
+export function listOrphanIssues(limit: number = 100): OrphanIssue[] {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT m.id, m.title, m.content, m.layer, m.tags, m.updated_at
+    FROM memories m
+    WHERE ${ORPHAN_WHERE}
+    ORDER BY m.updated_at DESC
+    LIMIT ?
+  `).all(Math.max(1, Math.min(limit, 200))) as Array<{
+    id: string;
+    title: string;
+    content: string;
+    layer: Layer;
+    tags: string | null;
+    updated_at: string;
+  }>;
+
+  return rows.map(row => ({
+    memoryId: row.id,
+    title: row.title,
+    content: row.content,
+    layer: row.layer,
+    tags: row.tags ? JSON.parse(row.tags) as string[] : [],
+    updatedAt: row.updated_at,
+    missing: ['entity', 'tag', 'relation', 'mail_thread'],
+  }));
+}
+
+/** A reviewed standalone memory is valid; remember that decision instead of surfacing it after every refresh. */
+export function markOrphanIndependent(memoryId: string): boolean {
+  const memory = getMemory(memoryId);
+  if (!memory || memory.status !== 'active') return false;
+  return Boolean(updateMemory(memoryId, {
+    metadata: {
+      ...(memory.metadata ?? {}),
+      associationStatus: 'independent',
+      associationReviewedAt: new Date().toISOString(),
+    },
+  }, 'health:confirmed-independent-memory'));
 }
 
 function countConflicts(): number {

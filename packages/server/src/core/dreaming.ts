@@ -1137,7 +1137,11 @@ function currentTodoItems(db: ReturnType<typeof getDatabase>, raw: unknown): Dre
   } catch {
     items = [];
   }
-  return items.filter(item => isTodoItemStillActionable(db, item));
+  return items.filter(item => {
+    const status = item.status ?? 'pending';
+    if (status !== 'pending' && status !== 'auto_execute_failed') return false;
+    return isTodoItemStillActionable(db, item);
+  });
 }
 
 // buildExcludeClause 已移至 ./consolidation-detectors.ts

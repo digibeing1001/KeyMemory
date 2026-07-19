@@ -53,6 +53,24 @@ export async function getHealth(): Promise<HealthReport & { status: string; time
   return request('/health/report');
 }
 
+export interface OrphanIssue {
+  memoryId: string;
+  title: string;
+  content: string;
+  layer: Layer;
+  tags: string[];
+  updatedAt: string;
+  missing: Array<'entity' | 'tag' | 'relation' | 'mail_thread'>;
+}
+
+export async function listOrphanIssues(limit: number = 100): Promise<OrphanIssue[]> {
+  return request(`/health/issues?type=orphan&limit=${limit}`);
+}
+
+export async function markOrphanIndependent(memoryId: string): Promise<{ success: boolean }> {
+  return request(`/health/orphans/${memoryId}/independent`, { method: 'POST' });
+}
+
 export async function listMemories(params?: {
   layer?: Layer;
   projectId?: string;
@@ -252,9 +270,13 @@ export async function forgetMemory(id: string, method: 'archive' | 'decay' | 'de
 export interface GraphNode {
   id: string;
   title: string;
+  summary?: string;
   layer: string;
   tags?: string[];
-  projectId?: string;
+  project?: string;
+  valley?: string;
+  updatedAt?: string;
+  mailThreadId?: string;
 }
 
 export interface GraphEdge {
@@ -278,10 +300,19 @@ export interface TagItem {
   name: string;
   count: number;
   layers?: Record<string, number>;
+  lastUsedAt?: string;
+  aliases?: string[];
+}
+
+export interface SuspectTagItem {
+  name: string;
+  count: number;
+  reason: string;
 }
 
 export interface TagCloudData {
   tags: TagItem[];
+  suspectTags: SuspectTagItem[];
   projects: Array<{ name: string; count: number }>;
   totalMemories: number;
 }

@@ -9,7 +9,8 @@ import { listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemory
 import { getVersions, diffVersions, rollbackToVersion } from '../core/provenance.js';
 import { forgetMemory, restoreMemory, getDecayingMemories, applyDecay as runDecay } from '../core/forgetting.js';
 import { compressProjectMemories, compressEntityMemories, listCompressibleProjects } from '../core/compression.js';
-import { getHealthReport, injectContext } from '../core/health.js';
+import { getHealthReport, injectContext, listOrphanIssues, markOrphanIndependent } from '../core/health.js';
+import { cleanTag, isMeaningfulTag } from '../core/memory-schema.js';
 import { buildAgentContextPack } from '../core/context-pack.js';
 import { planConsolidation, executeConsolidation, rollbackConsolidation, getConsolidationPlan, listConsolidationPlans, getConsolidationSnapshots, runAutoConsolidation } from '../core/consolidation.js';
 import { runDreamCycleAsync, getDreamReport, listDreamReports, getDreamSignalsForReport, rollbackDream, deleteDreamReport, getPendingTodosForContext, resolveConflict } from '../core/dreaming.js';
@@ -536,6 +537,19 @@ export function registerRoutes(app: FastifyInstance): void {
     return getHealthReport();
   });
 
+  app.get('/api/health/issues', async (request) => {
+    const query = request.query as { type?: string; limit?: string };
+    if (query.type && query.type !== 'orphan') return [];
+    return listOrphanIssues(query.limit ? Number.parseInt(query.limit, 10) : 100);
+  });
+
+  app.post('/api/health/orphans/:id/independent', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const success = markOrphanIndependent(id);
+    if (!success) reply.code(404);
+    return { success };
+  });
+
   app.post('/api/context/inject', async (request) => {
     const { project, query, limit, includeSuperseded } = request.body as {
       project?: string;
@@ -935,11 +949,32 @@ export function registerRoutes(app: FastifyInstance): void {
     const db = getDatabase();
 
     const rows = db.prepare(`
-      SELECT m.id, m.title, m.layer, m.tags, p.name as project_name
+      SELECT m.id, m.title, m.content, m.layer, m.tags, m.updated_at, p.name as project_name,
+        (SELECT mt.id
+         FROM mail_thread_memories mtm
+         JOIN mail_threads mt ON mt.id = mtm.thread_id
+         WHERE mtm.memory_id = m.id
+         ORDER BY mt.updated_at DESC LIMIT 1) as mail_thread_id,
+        (SELECT mt.subject
+         FROM mail_thread_memories mtm
+         JOIN mail_threads mt ON mt.id = mtm.thread_id
+         WHERE mtm.memory_id = m.id
+         ORDER BY mt.updated_at DESC LIMIT 1) as mail_subject
       FROM memories m
       LEFT JOIN projects p ON m.project_id = p.id
       WHERE m.status = 'active'
-    `).all() as { id: string; title: string; layer: string; tags: string | null; project_name: string | null }[];
+      ORDER BY m.updated_at DESC
+    `).all() as Array<{
+      id: string;
+      title: string;
+      content: string;
+      layer: string;
+      tags: string | null;
+      updated_at: string;
+      project_name: string | null;
+      mail_thread_id: string | null;
+      mail_subject: string | null;
+    }>;
 
     const entityRows = db.prepare(`
       SELECT me.memory_id, me.entity_id, e.name as entity_name
@@ -948,22 +983,29 @@ export function registerRoutes(app: FastifyInstance): void {
       JOIN memories m ON m.id = me.memory_id AND m.status = 'active'
     `).all() as { memory_id: string; entity_id: string; entity_name: string }[];
 
-    const nodes = rows.map(r => ({
-      id: r.id,
-      title: r.title,
-      layer: r.layer,
-      tags: safeParseTags(r.tags),
-      project: r.project_name,
-    }));
+    const usableTags = (raw: string | null) => safeParseTags(raw)
+      .filter((tag): tag is string => typeof tag === 'string')
+      .map(tag => cleanTag(tag.normalize('NFKC')))
+      .filter(tag => isMeaningfulTag(tag) && !/^sensitivity:/i.test(tag));
 
-    const memoryMap = new Map<string, typeof nodes[0]>();
-    for (const n of nodes) {
-      memoryMap.set(n.id, n);
-    }
+    const nodes = rows.map(r => {
+      const tags = usableTags(r.tags);
+      return {
+        id: r.id,
+        title: r.title,
+        summary: r.content.slice(0, 180),
+        layer: r.layer,
+        tags,
+        project: r.project_name ?? undefined,
+        valley: r.mail_subject || r.project_name || tags[0] || '独立记忆',
+        updatedAt: r.updated_at,
+        mailThreadId: r.mail_thread_id ?? undefined,
+      };
+    });
 
     const tagToMemories = new Map<string, string[]>();
     for (const r of rows) {
-      const tags: string[] = safeParseTags(r.tags);
+      const tags = usableTags(r.tags);
       for (const tag of tags) {
         if (!tagToMemories.has(tag)) tagToMemories.set(tag, []);
         tagToMemories.get(tag)!.push(r.id);
@@ -1001,29 +1043,39 @@ export function registerRoutes(app: FastifyInstance): void {
       }
     };
 
-    for (const [tag, memIds] of tagToMemories) {
-      for (let i = 0; i < memIds.length; i++) {
-        for (let j = i + 1; j < memIds.length; j++) {
-          addEdge(memIds[i], memIds[j], 'shared_tag', tag);
-        }
-      }
-    }
+    // A valley needs a readable trail, not every possible pair. One hub per group
+    // keeps the graph O(n) and stable while preserving navigation between memories.
+    const connectGroup = (memoryIds: string[], type: string, label: string) => {
+      const unique = [...new Set(memoryIds)].slice(0, 40);
+      if (unique.length < 2) return;
+      const hub = unique[0];
+      for (const memoryId of unique.slice(1)) addEdge(hub, memoryId, type, label);
+    };
+    for (const [tag, memoryIds] of tagToMemories) connectGroup(memoryIds, 'shared_tag', tag);
+    for (const [project, memoryIds] of projectToMemories) connectGroup(memoryIds, 'shared_project', project);
+    for (const [, info] of entityToMemories) connectGroup(info.memoryIds, 'shared_entity', info.name);
 
-    for (const [project, memIds] of projectToMemories) {
-      for (let i = 0; i < memIds.length; i++) {
-        for (let j = i + 1; j < memIds.length; j++) {
-          addEdge(memIds[i], memIds[j], 'shared_project', project);
-        }
-      }
-    }
-
-    for (const [, info] of entityToMemories) {
-      const memIds = info.memoryIds;
-      for (let i = 0; i < memIds.length; i++) {
-        for (let j = i + 1; j < memIds.length; j++) {
-          addEdge(memIds[i], memIds[j], 'shared_entity', info.name);
-        }
-      }
+    const explicitRows = db.prepare(`
+      SELECT r.source_memory_id, r.target_memory_id, r.relation_type, r.strength, r.reason
+      FROM memory_relations r
+      JOIN memories source ON source.id = r.source_memory_id AND source.status = 'active'
+      JOIN memories target ON target.id = r.target_memory_id AND target.status = 'active'
+      ORDER BY r.created_at DESC
+      LIMIT 400
+    `).all() as Array<{
+      source_memory_id: string;
+      target_memory_id: string;
+      relation_type: string;
+      strength: number;
+      reason: string | null;
+    }>;
+    for (const relation of explicitRows) {
+      addEdge(
+        relation.source_memory_id,
+        relation.target_memory_id,
+        relation.relation_type,
+        relation.reason || relation.relation_type,
+      );
     }
 
     const edges = Array.from(edgeMap.values()).map(e => ({
@@ -1031,7 +1083,7 @@ export function registerRoutes(app: FastifyInstance): void {
       target: e.target,
       type: e.type,
       weight: e.weight,
-      label: e.labels.join(', '),
+      label: [...new Set(e.labels)].slice(0, 3).join('、'),
     }));
 
     return { nodes, edges };
@@ -1041,31 +1093,54 @@ export function registerRoutes(app: FastifyInstance): void {
     const db = getDatabase();
 
     const rows = db.prepare(`
-      SELECT m.tags, m.layer, p.name as project_name
+      SELECT m.tags, m.layer, m.updated_at, p.name as project_name
       FROM memories m
       LEFT JOIN projects p ON m.project_id = p.id
       WHERE m.status = 'active'
-    `).all() as { tags: string | null; layer: string; project_name: string | null }[];
+      ORDER BY m.updated_at DESC
+    `).all() as { tags: string | null; layer: string; updated_at: string; project_name: string | null }[];
 
     const totalMemories = rows.length;
 
-    const tagData = new Map<string, { count: number; layers: Record<string, number> }>();
+    const tagData = new Map<string, { name: string; count: number; layers: Record<string, number>; lastUsedAt: string; aliases: Set<string> }>();
+    const suspectData = new Map<string, { name: string; count: number; reason: string }>();
     for (const r of rows) {
       const tags: string[] = safeParseTags(r.tags);
-      for (const tag of tags) {
-        const existing = tagData.get(tag);
+      for (const rawTag of tags) {
+        if (typeof rawTag !== 'string') continue;
+        const tag = cleanTag(rawTag.normalize('NFKC')).replace(/\s+/g, ' ');
+        const looksCorrupted = /[�]|锟斤拷|ï¿½|Ã.|Â./i.test(tag);
+        const isSystemTag = /^sensitivity:/i.test(tag);
+        if (!tag || looksCorrupted || isSystemTag || !isMeaningfulTag(tag)) {
+          const reason = looksCorrupted
+            ? '疑似乱码'
+            : isSystemTag
+              ? '系统内部标签'
+              : '不符合标签规则';
+          const key = tag.toLocaleLowerCase() || rawTag;
+          const suspect = suspectData.get(key);
+          if (suspect) suspect.count += 1;
+          else suspectData.set(key, { name: tag || rawTag, count: 1, reason });
+          continue;
+        }
+
+        const key = tag.toLocaleLowerCase();
+        const existing = tagData.get(key);
         if (existing) {
           existing.count += 1;
           existing.layers[r.layer] = (existing.layers[r.layer] || 0) + 1;
+          existing.aliases.add(tag);
         } else {
-          tagData.set(tag, { count: 1, layers: { [r.layer]: 1 } });
+          tagData.set(key, { name: tag, count: 1, layers: { [r.layer]: 1 }, lastUsedAt: r.updated_at, aliases: new Set([tag]) });
         }
       }
     }
 
-    const tags = Array.from(tagData.entries())
-      .map(([name, data]) => ({ name, count: data.count, layers: data.layers }))
+    const tags = Array.from(tagData.values())
+      .map(data => ({ name: data.name, count: data.count, layers: data.layers, lastUsedAt: data.lastUsedAt, aliases: [...data.aliases] }))
       .sort((a, b) => b.count - a.count);
+
+    const suspectTags = Array.from(suspectData.values()).sort((a, b) => b.count - a.count);
 
     const projectData = new Map<string, number>();
     for (const r of rows) {
@@ -1078,7 +1153,7 @@ export function registerRoutes(app: FastifyInstance): void {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
 
-    return { tags, projects, totalMemories };
+    return { tags, suspectTags, projects, totalMemories };
   });
 
   app.get('/api/memories/:id/versions', async (request) => {
