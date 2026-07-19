@@ -74,6 +74,11 @@ function safeParseTags(tags: string | null): string[] {
   }
 }
 
+function isPlaceholderProjectName(name: string | null): boolean {
+  if (!name) return true;
+  return /^(未分类|未归类|默认|公共记忆|uncategorized|unclassified|default|inbox)$/i.test(name.trim());
+}
+
 function createMigrationBackup(shouldCreate: boolean | undefined, dryRun: boolean | undefined): BackupSummary | undefined {
   if (!shouldCreate || dryRun) return undefined;
   return createBackupFile();
@@ -990,14 +995,15 @@ export function registerRoutes(app: FastifyInstance): void {
 
     const nodes = rows.map(r => {
       const tags = usableTags(r.tags);
+      const project = isPlaceholderProjectName(r.project_name) ? undefined : r.project_name ?? undefined;
       return {
         id: r.id,
         title: r.title,
         summary: r.content.slice(0, 180),
         layer: r.layer,
         tags,
-        project: r.project_name ?? undefined,
-        valley: r.mail_subject || r.project_name || tags[0] || '独立记忆',
+        project,
+        valley: r.mail_subject || project || tags[0] || '独立记忆',
         updatedAt: r.updated_at,
         mailThreadId: r.mail_thread_id ?? undefined,
       };
@@ -1014,7 +1020,7 @@ export function registerRoutes(app: FastifyInstance): void {
 
     const projectToMemories = new Map<string, string[]>();
     for (const r of rows) {
-      if (r.project_name) {
+      if (r.project_name && !isPlaceholderProjectName(r.project_name)) {
         if (!projectToMemories.has(r.project_name)) projectToMemories.set(r.project_name, []);
         projectToMemories.get(r.project_name)!.push(r.id);
       }
@@ -1144,7 +1150,7 @@ export function registerRoutes(app: FastifyInstance): void {
 
     const projectData = new Map<string, number>();
     for (const r of rows) {
-      if (r.project_name) {
+      if (r.project_name && !isPlaceholderProjectName(r.project_name)) {
         projectData.set(r.project_name, (projectData.get(r.project_name) || 0) + 1);
       }
     }
