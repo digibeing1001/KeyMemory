@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, DreamReportDetails, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality, isSpecificProjectName, CONFLICT_PATTERNS } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality, isSpecificProjectName } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
@@ -10,6 +10,7 @@ import { createMemoryRelation } from '../graph/entity.js';
 import { detectDuplicateActions, detectStaleActions, detectOldFlashActions, computeTextSimilarity } from './consolidation-detectors.js';
 import { runRelationReasonerBatch } from './relation-reasoner.js';
 import { syncMailbox } from './mailbox.js';
+import { findConflictMatch } from './conflict-detector.js';
 
 type ScoredDreamCandidate = DreamCandidate & {
   qualityScore: number;
@@ -1051,23 +1052,24 @@ function detectOrphanMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem
     LEFT JOIN projects p ON p.id = m.project_id
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
+      AND (m.tags IS NULL OR m.tags = '[]')
+      AND NOT EXISTS (SELECT 1 FROM memory_relations r WHERE r.source_memory_id = m.id OR r.target_memory_id = m.id)
+      AND NOT EXISTS (SELECT 1 FROM mail_thread_memories tm WHERE tm.memory_id = m.id)
     ORDER BY m.updated_at DESC
     LIMIT 100
   `).all() as DreamOrphanCandidateRow[];
 
-  return rows.filter(row => !hasConcreteProject(row)).slice(0, 20).map(r => ({
+  return rows.slice(0, 20).map(r => ({
     type: 'orphan' as const,
     memoryId: r.id,
     title: r.title,
     reason: r.layer === 'flash'
-      ? '该闪念未关联任何实体、未归属项目，易被遗忘'
-      : '该记忆未关联任何实体、未归属项目，无法被有效检索',
+      ? '该闪念缺少实体、标签、记忆关系或邮件主题等关联线索，易被遗忘'
+      : '该记忆缺少实体、标签、记忆关系或邮件主题等关联线索',
   }));
 }
 
 function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoItem[] {
-  // 冲突词表统一从 shared 导入，避免与 evolution.ts 重复维护
-  const conflictPairs = CONFLICT_PATTERNS;
   const items: DreamTodoItem[] = [];
 
   const entities = db.prepare(`
@@ -1088,22 +1090,15 @@ function detectConflictMemories(db: ReturnType<typeof getDatabase>): DreamTodoIt
 
     if (mems.length < 2) continue;
 
-    // 检查是否同一实体下存在成对冲突
-    for (const [posSet, negSet] of conflictPairs) {
-      const posMem = mems.find(m => posSet.some(p => m.content.includes(p)));
-      const negMem = mems.find(m => negSet.some(n => m.content.includes(n)));
-      if (posMem && negMem && posMem.id !== negMem.id) {
-        items.push({
-          type: 'conflict' as const,
-          memoryId: negMem.id,
-          title: negMem.title,
-          targetId: posMem.id,
-          description: posMem.title,
-          reason: `实体「${entity.name}」存在矛盾表述：「${posMem.title}」称「${posSet.find(p => posMem.content.includes(p))}」，而此记忆称「${negSet.find(n => negMem.content.includes(n))}」`,
-        });
-        break; // 每个实体只报一个冲突
-      }
-    }
+    const match = findConflictMatch(entity.name, mems);
+    if (match) items.push({
+      type: 'conflict' as const,
+      memoryId: match.negative.id,
+      title: match.negative.title,
+      targetId: match.positive.id,
+      description: match.positive.title,
+      reason: `实体「${entity.name}」在同一事项中存在相反表述：「${match.positive.title}」称“${match.positiveWord}”，而此记忆称“${match.negativeWord}”`,
+    });
   }
 
   return items.slice(0, 20);

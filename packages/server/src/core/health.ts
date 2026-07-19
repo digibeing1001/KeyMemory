@@ -1,10 +1,11 @@
 import type { HealthReport, Layer, Memory } from '@keymemory/shared';
-import { LAYERS, isSpecificProjectName } from '@keymemory/shared';
+import { LAYERS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { listMemories } from './atom.js';
 import { findProjectRef } from './project.js';
 import { searchHybrid } from './query.js';
+import { findConflictMatch } from './conflict-detector.js';
 
 export async function getHealthReport(): Promise<HealthReport> {
   const db = getDatabase();
@@ -40,9 +41,9 @@ export async function getHealthReport(): Promise<HealthReport> {
   let dreamEffectiveness = 0;
   try {
     const dreamRow = db.prepare(`
-      SELECT
-        COALESCE(SUM(promoted), 0) + COALESCE(SUM(archived), 0) + COALESCE(SUM(merged), 0) as total
-      FROM (SELECT promoted, archived, merged FROM dream_reports ORDER BY created_at DESC LIMIT 10)
+      SELECT COALESCE(SUM(promoted), 0) + COALESCE(SUM(archived), 0) + COALESCE(SUM(merged), 0)
+        + COALESCE(SUM(COALESCE(json_array_length(json_extract(details, '$.relationReasoned')), 0)), 0) as total
+      FROM (SELECT promoted, archived, merged, details FROM dream_reports ORDER BY created_at DESC LIMIT 10)
     `).get() as { total: number } | undefined;
     dreamEffectiveness = dreamRow?.total ?? 0;
   } catch {
@@ -122,27 +123,19 @@ async function countDuplicates(): Promise<number> {
 
 function countOrphans(): number {
   const db = getDatabase();
-  const rows = db.prepare(`
-    SELECT m.project_id as projectId, p.name as projectName, p.path as projectPath
-    FROM memories m
-    LEFT JOIN projects p ON p.id = m.project_id
+  return (db.prepare(`
+    SELECT COUNT(*) as cnt FROM memories m
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
-      AND m.layer NOT IN ('flash')
-  `).all() as { projectId: string | null; projectName: string | null; projectPath: string | null }[];
-
-  return rows.filter(row => !hasConcreteProject(row)).length;
-}
-
-function hasConcreteProject(row: { projectId: string | null; projectName: string | null; projectPath: string | null }): boolean {
-  if (!row.projectId || !row.projectName || !row.projectPath) return false;
-  return isSpecificProjectName(row.projectName) || isSpecificProjectName(row.projectPath);
+      AND m.layer != 'flash'
+      AND (m.tags IS NULL OR m.tags = '[]')
+      AND NOT EXISTS (SELECT 1 FROM memory_relations r WHERE r.source_memory_id = m.id OR r.target_memory_id = m.id)
+      AND NOT EXISTS (SELECT 1 FROM mail_thread_memories tm WHERE tm.memory_id = m.id)
+  `).get() as { cnt: number }).cnt;
 }
 
 function countConflicts(): number {
   const db = getDatabase();
-  const contradictionPatterns = ['不是', '错误', '相反', '否定', 'not', 'wrong', 'opposite'];
-
   let count = 0;
   const entities = db.prepare(`
     SELECT e.id FROM entities e
@@ -154,17 +147,12 @@ function countConflicts(): number {
 
   for (const entity of entities) {
     const mems = db.prepare(`
-      SELECT content FROM memories m
+      SELECT m.id, m.title, m.content FROM memories m
       JOIN memory_entities me ON me.memory_id = m.id
       WHERE me.entity_id = ? AND m.status = 'active'
-    `).all(entity.id) as { content: string }[];
-
-    for (const m of mems) {
-      if (contradictionPatterns.some(p => m.content.toLowerCase().includes(p))) {
-        count++;
-        break;
-      }
-    }
+    `).all(entity.id) as { id: string; title: string; content: string }[];
+    const name = (db.prepare('SELECT name FROM entities WHERE id = ?').get(entity.id) as { name: string }).name;
+    if (findConflictMatch(name, mems)) count++;
   }
 
   return count;

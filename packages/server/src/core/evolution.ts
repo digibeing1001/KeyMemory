@@ -1,8 +1,9 @@
 import { v4 as uuid } from 'uuid';
 import type { EvolutionTask, EvolutionTaskType } from '@keymemory/shared';
-import { EVOLUTION_THRESHOLDS, CONFLICT_PATTERNS } from '@keymemory/shared';
+import { EVOLUTION_THRESHOLDS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, embed, bufferToEmbedding } from '../embed/onnx.js';
+import { findConflictMatch } from './conflict-detector.js';
 
 export async function runDailyInspection(): Promise<EvolutionTask[]> {
   const tasks: EvolutionTask[] = [];
@@ -102,11 +103,14 @@ async function detectOrphans(): Promise<EvolutionTask[]> {
     WHERE m.status = 'active'
       AND m.id NOT IN (SELECT memory_id FROM memory_entities)
       AND m.layer NOT IN ('flash')
+      AND (m.tags IS NULL OR m.tags = '[]')
+      AND NOT EXISTS (SELECT 1 FROM memory_relations r WHERE r.source_memory_id = m.id OR r.target_memory_id = m.id)
+      AND NOT EXISTS (SELECT 1 FROM mail_thread_memories tm WHERE tm.memory_id = m.id)
   `).all() as { id: string; title: string }[];
 
   const tasks: EvolutionTask[] = [];
   for (const o of orphans) {
-    const task = createTask('orphan', [o.id], `「${o.title}」无实体关联、无项目归属，建议补充关联或归档`);
+    const task = createTask('orphan', [o.id], `「${o.title}」缺少实体、标签、记忆关系或邮件主题等关联线索，建议补充线索或归档`);
     tasks.push(task);
   }
   return tasks;
@@ -125,8 +129,6 @@ async function detectConflicts(): Promise<EvolutionTask[]> {
   `).all() as { id: string; name: string; mem_count: number }[];
 
   const tasks: EvolutionTask[] = [];
-  // 冲突词表统一从 shared 导入（与 dreaming.ts 共用同一份），避免重复维护
-  // 之前用简单词表 ['不是', '错误', '相反'...] 误报率高，升级为成对检测
   for (const entity of entities) {
     const mems = db.prepare(`
       SELECT m.id, m.title, m.content FROM memories m
@@ -136,19 +138,8 @@ async function detectConflicts(): Promise<EvolutionTask[]> {
 
     if (mems.length < 2) continue;
 
-    for (const [posSet, negSet] of CONFLICT_PATTERNS) {
-      const posMem = mems.find(m => posSet.some(p => m.content.includes(p)));
-      const negMem = mems.find(m => negSet.some(n => m.content.includes(n)));
-      if (posMem && negMem && posMem.id !== negMem.id) {
-        const task = createTask(
-          'conflict',
-          [posMem.id, negMem.id],
-          `实体「${entity.name}」存在矛盾表述：「${posMem.title}」称「${posSet.find(p => posMem.content.includes(p))}」，而「${negMem.title}」称「${negSet.find(n => negMem.content.includes(n))}」`
-        );
-        tasks.push(task);
-        break; // 每个实体只报一个冲突，避免任务泛滥
-      }
-    }
+    const match = findConflictMatch(entity.name, mems);
+    if (match) tasks.push(createTask('conflict', [match.positive.id, match.negative.id], `实体「${entity.name}」在同一事项中存在相反表述：「${match.positive.title}」称“${match.positiveWord}”，而「${match.negative.title}」称“${match.negativeWord}”`));
   }
 
   return tasks;

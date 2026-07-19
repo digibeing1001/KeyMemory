@@ -27,6 +27,7 @@
     "smoke:loop": "node scripts/smoke-loop-harness.mjs",
     "smoke:mailbox": "node scripts/smoke-mailbox.mjs",
     "smoke:llm": "node scripts/smoke-llm-provider.mjs",
+    "smoke:automation": "node scripts/smoke-memory-automation.mjs",
     "loop:audit": "node scripts/loop-readiness-audit.mjs",
     "smoke:launchers": "node scripts/smoke-launchers.mjs",
     "release:check": "node scripts/release-check.mjs",

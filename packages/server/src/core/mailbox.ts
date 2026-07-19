@@ -37,6 +37,8 @@ export interface CreateMailThreadInput {
   agentSpace?: string;
   memoryIds?: string[];
   metadata?: JsonObject;
+  messageType?: MailMessageType;
+  attachments?: ReplyMailThreadInput['attachments'];
 }
 
 export interface ReplyMailThreadInput {
@@ -375,7 +377,8 @@ export function createMailThread(input: CreateMailThreadInput): MailThreadDetail
       senderType: input.senderType,
       senderId,
       recipientIds: input.recipientIds,
-      messageType: 'reply',
+      messageType: input.messageType ?? 'reply',
+      attachments: input.attachments,
       metadata: { ...(input.metadata ?? {}), initialMessage: true },
     });
     for (const memoryId of input.memoryIds ?? []) linkMemoryToThread(id, memoryId, 'source');
@@ -662,14 +665,182 @@ export async function syncMailThread(threadId: string, agentSpaces?: string[]): 
   })();
 }
 
-export async function syncMailbox(agentSpaces?: string[]): Promise<{ checked: number; sent: number; messageIds: string[] }> {
+export interface MailboxSyncReport {
+  checked: number;
+  sent: number;
+  messageIds: string[];
+  createdThreads: number;
+  linkedMemories: number;
+  skipped: string[];
+}
+
+type SecretaryThreadPlan = {
+  thread_id?: string;
+  subject: string;
+  kind: MailThreadKind;
+  memory_ids: string[];
+  confidence: number;
+  body: string;
+};
+
+function initMailboxOrganizationLog(): void {
+  getDatabase().exec(`
+    CREATE TABLE IF NOT EXISTS mailbox_organization_log (
+      memory_id TEXT PRIMARY KEY,
+      decision TEXT NOT NULL,
+      source_updated_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+}
+
+function parseSecretaryPlans(raw: string): SecretaryThreadPlan[] | null {
+  let text = raw.trim();
+  const block = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (block) text = block[1].trim();
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) text = text.slice(first, last + 1);
+  try {
+    const parsed = JSON.parse(text) as { threads?: unknown };
+    if (!Array.isArray(parsed.threads)) return null;
+    return parsed.threads.filter((item): item is SecretaryThreadPlan => {
+      if (!item || typeof item !== 'object') return false;
+      const value = item as Record<string, unknown>;
+      return typeof value.subject === 'string'
+        && ['project', 'task', 'event'].includes(String(value.kind))
+        && Array.isArray(value.memory_ids)
+        && typeof value.confidence === 'number'
+        && typeof value.body === 'string';
+    });
+  } catch {
+    return null;
+  }
+}
+
+function unorganizedWorkMemories(agentSpaces?: string[]): Memory[] {
+  initMailboxOrganizationLog();
+  const db = getDatabase();
+  const params: Record<string, unknown> = {};
+  const scope = agentSpaces && agentSpaces.length > 0
+    ? `AND m.agent_space IN (${agentSpaces.map((_, index) => `@space${index}`).join(', ')})`
+    : '';
+  agentSpaces?.forEach((space, index) => { params[`space${index}`] = space; });
+  const rows = db.prepare(`
+    SELECT m.* FROM memories m
+    LEFT JOIN mailbox_organization_log ol ON ol.memory_id = m.id
+    WHERE m.status = 'active'
+      AND (ol.memory_id IS NULL OR ol.source_updated_at < m.updated_at)
+      AND NOT EXISTS (SELECT 1 FROM mail_thread_memories tm WHERE tm.memory_id = m.id)
+      AND COALESCE(m.source, '') NOT IN ('mailbox', 'memory-secretary', 'system')
+      ${scope}
+    ORDER BY m.updated_at DESC
+    LIMIT 250
+  `).all(params) as Record<string, unknown>[];
+  return rows.map(rowToMemory).filter(memory => {
+    const text = `${memory.title} ${memory.content}`;
+    const kind = memory.tags?.some(tag => ['kind:task', 'kind:project_fact', 'kind:decision', 'kind:event', 'kind:project_journal'].includes(tag));
+    const action = /(完成|推进|修复|发布|上线|迁移|验收|实现|开发|设计|调查|跟进|待确认|需要|正在|已经|计划|准备|问题|进展|决定)/u.test(text);
+    return Boolean(kind || action);
+  }).slice(0, 60);
+}
+
+async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ createdThreads: number; linkedMemories: number; skipped: string[] }> {
+  const memories = unorganizedWorkMemories(agentSpaces);
+  if (memories.length === 0) return { createdThreads: 0, linkedMemories: 0, skipped: [] };
+  const db = getDatabase();
+  const skipped: string[] = [];
+  if (!isLLMAvailable()) {
+    return { createdThreads: 0, linkedMemories: 0, skipped: ['尚有零散工作记忆，但 LLM 未启用，记忆秘书无法可靠判断邮件主题'] };
+  }
+  const bySpace = new Map<string, Memory[]>();
+  for (const memory of memories) bySpace.set(memory.agentSpace, [...(bySpace.get(memory.agentSpace) ?? []), memory]);
+  let createdThreads = 0;
+  let linkedMemories = 0;
+
+  for (const [agentSpace, scopedMemories] of bySpace) {
+    const existing = listMailThreads({ folder: 'all', agentSpaces: [agentSpace], limit: 100 });
+    const source = scopedMemories.map(memory => `- ID: ${memory.id}\n  标题: ${memory.title}\n  内容: ${firstReadableSentence(memory.content, 260)}`).join('\n');
+    let plans: SecretaryThreadPlan[] | null = null;
+    try {
+      const response = await chatWithLLM({
+        systemPrompt: `你是 KeyMemory 的“记忆秘书”，正在执行工作主题整理：把零散记忆整理成真实、可持续回复的工作邮件主题。\n\n只整理具体项目、任务或事件；通用知识、偏好、规则、概念和仅有一个名词的分类不得建成邮件。优先归入已有主题，只有明确是一项独立工作时才新建。标题必须像工作邮件，清楚说明正在推进什么，不能只写“飞书”“项目”“开发”之类分类词。正文使用自然、通俗的中文书面语，不使用代码、日志、内部编号或 AI 套话。不要把推断写成事实。置信度不足时不要输出。\n\n严格输出 JSON：{"threads":[{"thread_id":"已有主题ID或省略","subject":"清楚的工作邮件标题","kind":"project|task|event","memory_ids":["来源记忆ID"],"confidence":0.0,"body":"第一封邮件正文"}]}`,
+        userMessage: `已有邮件主题：\n${existing.length ? existing.map(thread => `- ${thread.id}: ${thread.subject}`).join('\n') : '（暂无）'}\n\n待整理记忆：\n${source}`,
+        temperature: 0.1,
+        maxTokens: 1800,
+      });
+      plans = parseSecretaryPlans(response.content);
+    } catch (error) {
+      skipped.push(`记忆秘书整理失败：${(error as Error).message}`);
+      continue;
+    }
+    if (plans === null) {
+      skipped.push('记忆秘书返回的整理结果无法核验，本次没有改动记忆，稍后可以重试');
+      continue;
+    }
+
+    const allowed = new Map(scopedMemories.map(memory => [memory.id, memory]));
+    const used = new Set<string>();
+    for (const plan of plans.slice(0, 6)) {
+      const ids = Array.from(new Set(plan.memory_ids.map(String))).filter(id => allowed.has(id) && !used.has(id));
+      if (plan.confidence < 0.82 || ids.length === 0 || readableBodyIssues(plan.body).length > 0) continue;
+      try {
+        assertUsefulSubject(plan.subject);
+        const targetThread = plan.thread_id
+          ? existing.find(item => item.id === plan.thread_id)
+          : existing.find(item => normalizeSubject(item.subject) === normalizeSubject(plan.subject));
+        if (targetThread) {
+          for (const id of ids) linkMemoryToThread(targetThread.id, id, 'source', [agentSpace]);
+          linkedMemories += ids.length;
+        } else {
+          const selected = ids.map(id => allowed.get(id)!);
+          const coverageThrough = selected.reduce((latest, memory) => memory.updatedAt > latest ? memory.updatedAt : latest, '');
+          createMailThread({
+            subject: plan.subject,
+            kind: plan.kind,
+            body: cleanPlainText(plan.body),
+            senderType: 'secretary',
+            senderId: SECRETARY_ID,
+            recipientIds: DEFAULT_RECIPIENTS,
+            agentSpace,
+            memoryIds: ids,
+            messageType: 'digest',
+            attachments: selected.map(memory => ({ kind: 'memory', title: memory.title, content: firstReadableSentence(memory.content, 500), memoryId: memory.id, collapsed: true })),
+            metadata: { coverageThrough, sourceMemoryIds: ids, organizedBy: 'memory-secretary' },
+          });
+          createdThreads++;
+          linkedMemories += ids.length;
+        }
+        ids.forEach(id => used.add(id));
+      } catch (error) {
+        skipped.push(`“${plan.subject}”未建立：${(error as Error).message}`);
+      }
+    }
+    const writeLog = db.prepare('INSERT OR REPLACE INTO mailbox_organization_log (memory_id, decision, source_updated_at, created_at) VALUES (?, ?, ?, ?)');
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      for (const memory of scopedMemories) writeLog.run(memory.id, used.has(memory.id) ? 'organized' : 'not_work_thread', memory.updatedAt, now);
+    })();
+  }
+  return { createdThreads, linkedMemories, skipped };
+}
+
+export async function syncMailbox(agentSpaces?: string[]): Promise<MailboxSyncReport> {
+  const organized = await organizeUnlinkedMemories(agentSpaces);
   const threads = listMailThreads({ folder: 'all', agentSpaces, limit: 250 });
   const messageIds: string[] = [];
   for (const thread of threads) {
     const message = await syncMailThread(thread.id, agentSpaces);
     if (message) messageIds.push(message.id);
   }
-  return { checked: threads.length, sent: messageIds.length, messageIds };
+  return {
+    checked: threads.length,
+    sent: messageIds.length,
+    messageIds,
+    createdThreads: organized.createdThreads,
+    linkedMemories: organized.linkedMemories,
+    skipped: organized.skipped,
+  };
 }
 
 export function getMailboxMigrationReport(): MailboxMigrationReport {

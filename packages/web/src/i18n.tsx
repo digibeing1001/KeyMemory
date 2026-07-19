@@ -144,7 +144,7 @@ const zh: Record<string, string> = {
   'sidebar.healthGood': '无需处理',
   'sidebar.healthNeedsReview': '{count} 项待处理',
   'sidebar.healthScore': '健康度 {score}',
-  'sidebar.healthOrphans': '{count} 个缺少归类',
+  'sidebar.healthOrphans': '{count} 个缺少关联线索',
   'sidebar.healthConflicts': '{count} 个冲突',
   'sidebar.healthDuplicates': '{count} 个重复',
   'sidebar.healthDecaying': '{count} 个衰减',
@@ -338,7 +338,7 @@ const zh: Record<string, string> = {
   'recycle.permanentDelete': '永久删除',
 
   'workingSet.title': '使用动态',
-  'workingSet.subtitle': '展示被实际用到的记忆、最近写入的内容和智能体活动情况。当记忆被检索或写入时，这里会实时反映系统的使用状态。',
+  'workingSet.subtitle': '展示被实际用到的记忆、最近写入的内容和智能体活动情况。这里仅用于观察使用状态，不会触发整理，也不会改变任何记忆。',
   'workingSet.statHits': '近期被命中',
   'workingSet.statHitsHint': '被检索/调用过的记忆数',
   'workingSet.statCreated': '近期写入',

@@ -162,6 +162,10 @@ export const Eye: FC<IconProps> = (p) => (
   <I {...p}><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" /><circle cx="10" cy="10" r="2.5" /></I>
 );
 
+export const EyeOff: FC<IconProps> = (p) => (
+  <I {...p}><path d="M3 3l14 14M8.2 4.3A8.8 8.8 0 0110 4c5 0 8 6 8 6a12 12 0 01-2.1 3M12.4 15.7A8.6 8.6 0 0110 16c-5 0-8-6-8-6a12 12 0 012.2-3.1M8.3 8.3a2.5 2.5 0 003.4 3.4" /></I>
+);
+
 export const CheckCircle: FC<IconProps> = (p) => (
   <I {...p}><circle cx="10" cy="10" r="7.5" /><path d="M6.5 10l2.5 2.5 4-4.5" /></I>
 );

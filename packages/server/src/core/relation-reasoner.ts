@@ -36,7 +36,7 @@ import { isLLMAvailable, chatWithLLM } from './llm-provider.js';
 export interface RelationReasonerReport {
   /** 本次扫描的锚记忆数 */
   scanned: number;
-  /** 建立的演化关系数（含双向回填） */
+  /** 实际建立的演化关系数（反向索引不重复计数） */
   relationsCreated: number;
   /** 每条锚记忆的扫描明细 */
   details: { memoryId: string; title: string; relationsCreated: number; latencyMs: number }[];
@@ -106,18 +106,24 @@ export function findUnscannedMemories(limit: number = RELATION_REASONER_CONFIG.b
  *
  * @returns 候选记忆列表（含 ID/title/content/similarity）
  */
-function findTopKCandidates(anchorId: string, anchorVec: Float32Array): { id: string; title: string; content: string; similarity: number }[] {
-  const db = getDatabase();
+type RelationCandidate = { id: string; title: string; content: string; similarity: number };
+type RelationAnchor = { id: string; title: string; content: string; status: string; agentSpace: string; createdAt: string };
 
-  // 候选池：所有活跃记忆（排除自己），按 last_hit_at 优先取近期 500 条
-  // 不限制在同 project，因为演化关系可能跨项目
-  const candidates = db.prepare(`
+function candidateRows(anchor: RelationAnchor): Array<{ id: string; title: string; content: string }> {
+  const db = getDatabase();
+  return db.prepare(`
     SELECT m.id, m.title, m.content
     FROM memories m
     WHERE m.status = 'active' AND m.id != ?
+      AND m.agent_space = ?
+      AND (m.created_at < ? OR (m.created_at = ? AND m.rowid < (SELECT rowid FROM memories WHERE id = ?)))
     ORDER BY m.last_hit_at DESC NULLS LAST, m.updated_at DESC
     LIMIT 500
-  `).all(anchorId) as { id: string; title: string; content: string }[];
+  `).all(anchor.id, anchor.agentSpace, anchor.createdAt, anchor.createdAt, anchor.id) as Array<{ id: string; title: string; content: string }>;
+}
+
+function findTopKCandidates(anchor: RelationAnchor, anchorVec: Float32Array): RelationCandidate[] {
+  const candidates = candidateRows(anchor);
 
   const scored: { id: string; title: string; content: string; similarity: number }[] = [];
   for (const cand of candidates) {
@@ -131,6 +137,45 @@ function findTopKCandidates(anchorId: string, anchorVec: Float32Array): { id: st
 
   scored.sort((a, b) => b.similarity - a.similarity);
   return scored.slice(0, RELATION_REASONER_CONFIG.topK);
+}
+
+const LEXICAL_STOPWORDS = new Set(['记忆', '内容', '系统', '功能', '这个', '一个', '已经', '需要', '进行', '相关', '可以', '目前', '工作', '项目', '任务', '今天', 'the', 'and', 'for', 'with', 'this', 'that']);
+
+function lexicalTokens(value: string): Set<string> {
+  const normalized = value.toLocaleLowerCase();
+  const tokens = new Set<string>();
+  for (const word of normalized.match(/[a-z][a-z0-9._-]{2,}|\d{3,}/g) ?? []) {
+    if (!LEXICAL_STOPWORDS.has(word)) tokens.add(word);
+  }
+  for (const chunk of normalized.match(/[\u4e00-\u9fff]{2,}/g) ?? []) {
+    if (!LEXICAL_STOPWORDS.has(chunk) && chunk.length <= 8) tokens.add(chunk);
+    for (let index = 0; index < chunk.length - 1; index++) {
+      const pair = chunk.slice(index, index + 2);
+      if (!LEXICAL_STOPWORDS.has(pair)) tokens.add(pair);
+    }
+  }
+  return tokens;
+}
+
+function overlapScore(anchor: RelationAnchor, candidate: { title: string; content: string }): number {
+  const anchorTitle = lexicalTokens(anchor.title);
+  const candidateTitle = lexicalTokens(candidate.title);
+  const anchorAll = lexicalTokens(`${anchor.title} ${anchor.content}`);
+  const candidateAll = lexicalTokens(`${candidate.title} ${candidate.content}`);
+  const intersect = (left: Set<string>, right: Set<string>) => [...left].filter(item => right.has(item)).length;
+  const titleMatches = intersect(anchorTitle, candidateTitle);
+  const allMatches = intersect(anchorAll, candidateAll);
+  if (allMatches < 2 && titleMatches === 0) return 0;
+  return Math.min(0.99, (titleMatches * 3 + allMatches) / Math.max(8, Math.min(anchorAll.size, candidateAll.size)));
+}
+
+/** Embedding 不可用时的保守候选回退；LLM 仍负责最终确认。 */
+function findLexicalCandidates(anchor: RelationAnchor): RelationCandidate[] {
+  return candidateRows(anchor)
+    .map(candidate => ({ ...candidate, similarity: overlapScore(anchor, candidate) }))
+    .filter(candidate => candidate.similarity >= 0.18)
+    .sort((left, right) => right.similarity - left.similarity)
+    .slice(0, Math.min(RELATION_REASONER_CONFIG.topK, 12));
 }
 
 /**
@@ -210,7 +255,7 @@ function buildReasoningPrompt(
     return `### 候选 ${i + 1}
 - ID: ${c.id}
 - 标题: ${c.title}
-- 语义相似度: ${c.similarity.toFixed(2)}
+- 候选相关度: ${c.similarity.toFixed(2)}
 - 内容: ${truncatedContent}`;
   }).join('\n\n');
 
@@ -281,26 +326,23 @@ function parseJudgments(rawContent: string): LLMRelationJudgment[] {
  * @returns 推理结果（含判定和耗时）；null 表示无法处理（无 embedding / 无候选 / LLM 失败）
  */
 export async function reasonRelationsForMemory(anchorId: string): Promise<LLMRelationReasoningResult | null> {
+  initRelationReasoningLog();
   const db = getDatabase();
 
   // 1. 读取锚记忆
-  const anchor = db.prepare('SELECT id, title, content, status FROM memories WHERE id = ?').get(anchorId) as { id: string; title: string; content: string; status: string } | undefined;
+  const anchor = db.prepare(`SELECT id, title, content, status, agent_space as agentSpace, created_at as createdAt FROM memories WHERE id = ?`).get(anchorId) as RelationAnchor | undefined;
   if (!anchor || anchor.status !== 'active') return null;
 
   // 2. 检查 LLM 是否可用
   if (!isLLMAvailable()) return null;
 
-  // 3. 获取锚记忆的 embedding
-  if (!isEmbeddingAvailable()) return null;
-  const anchorVec = getCachedEmbedding(anchorId);
-  if (!anchorVec) return null;
-
-  // 4. ONNX top-K 预筛候选
-  const candidates = findTopKCandidates(anchorId, anchorVec);
+  // 3. 优先使用本地语义向量；模型未安装或向量尚未生成时，回退到保守文本重合候选。
+  const anchorVec = isEmbeddingAvailable() ? getCachedEmbedding(anchorId) : null;
+  const candidates = anchorVec ? findTopKCandidates(anchor, anchorVec) : findLexicalCandidates(anchor);
   if (candidates.length === 0) {
     // 无候选也标记为已扫描（避免重复扫描）
     recordScanResult(anchorId, 0, null, 0);
-    return { anchorId, judgments: [], latencyMs: 0 };
+    return { anchorId, judgments: [], relationsCreated: 0, latencyMs: 0 };
   }
 
   // 5. 构造提示词并调用 LLM
@@ -328,9 +370,21 @@ export async function reasonRelationsForMemory(anchorId: string): Promise<LLMRel
 
   // 7. 对判定为演化关系的，建立双向关联（事务保护：单条锚记忆的所有关系原子性）
   // 之前无事务，中途失败会导致部分关系建立、部分丢失，造成记忆图不一致
-  const validJudgments = judgments.filter(j =>
-    j.relation !== 'none' && j.strength >= RELATION_REASONER_CONFIG.minRelationStrength
-  );
+  const candidatesById = new Map(candidates.map(candidate => [candidate.id, candidate]));
+  let validJudgments = judgments.filter(j => {
+    const candidate = candidatesById.get(j.target_id);
+    return Boolean(candidate)
+      && j.relation !== 'none'
+      && Number.isFinite(j.strength)
+      && j.strength >= RELATION_REASONER_CONFIG.minRelationStrength
+      && j.strength <= 1
+      && j.evidence_quote.trim().length >= 2
+      && candidate!.content.includes(j.evidence_quote.trim());
+  });
+  // 桥接的含义是同时连接至少两个旧上下文；单条 bridges 判定没有可验证的桥。
+  if (validJudgments.filter(j => j.relation === 'bridges').length < 2) {
+    validJudgments = validJudgments.filter(j => j.relation !== 'bridges');
+  }
 
   let relationsCreated = 0;
   if (validJudgments.length > 0) {
@@ -364,6 +418,7 @@ export async function reasonRelationsForMemory(anchorId: string): Promise<LLMRel
   return {
     anchorId,
     judgments,
+    relationsCreated,
     latencyMs,
     usage: llmResp.usage,
   };
@@ -412,13 +467,7 @@ export async function runRelationReasonerBatch(): Promise<RelationReasonerReport
     return { scanned: 0, relationsCreated: 0, details: [], skipped, durationMs: Date.now() - start };
   }
 
-  // 2. 检查 embedding 是否可用
-  if (!isEmbeddingAvailable()) {
-    skipped.push('Embedding 未就绪，关联推理跳过');
-    return { scanned: 0, relationsCreated: 0, details: [], skipped, durationMs: Date.now() - start };
-  }
-
-  // 3. 找出未扫描存量
+  // 2. 找出未扫描存量。Embedding 不可用时会自动使用文本候选，不再整批停摆。
   const unscanned = findUnscannedMemories(RELATION_REASONER_CONFIG.batchSize);
   if (unscanned.length === 0) {
     return { scanned: 0, relationsCreated: 0, details: [], skipped, durationMs: Date.now() - start };
@@ -432,12 +481,11 @@ export async function runRelationReasonerBatch(): Promise<RelationReasonerReport
     try {
       const result = await reasonRelationsForMemory(mem.id);
       if (result) {
-        // 统计建立的关系数（排除 none 判定）
-        const created = result.judgments.filter(j => j.relation !== 'none' && j.strength >= RELATION_REASONER_CONFIG.minRelationStrength).length;
+        const created = result.relationsCreated;
         totalRelations += created;
         details.push({ memoryId: mem.id, title: mem.title, relationsCreated: created, latencyMs: result.latencyMs });
       } else {
-        skipped.push(`${mem.title} (${mem.id}): 无 embedding 或 LLM 失败`);
+        skipped.push(`${mem.title} (${mem.id}): 没有可核实的候选，或 LLM 调用失败`);
       }
     } catch (err) {
       skipped.push(`${mem.title} (${mem.id}): ${(err as Error).message}`);

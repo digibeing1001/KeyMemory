@@ -9,6 +9,7 @@ process.env.KEYMEMORY_DATA_DIR = dataDir;
 
 const { initDatabase, closeDatabase } = await import('../packages/server/dist/db/sqlite.js');
 const {
+  getLLMConfig,
   saveLLMConfig,
   verifyLLMConnection,
 } = await import('../packages/server/dist/core/llm-provider.js');
@@ -47,10 +48,10 @@ function startModelServer(expectedAuthorization) {
 }
 
 async function stopServer(server) {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
   await new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
-    server.closeIdleConnections?.();
-    server.closeAllConnections?.();
   });
 }
 
@@ -59,6 +60,15 @@ const cloud = await startModelServer('Bearer test-secret');
 const local = await startModelServer(null);
 
 try {
+  const firstVerification = await verifyLLMConnection(cloud.baseUrl, 'test-secret');
+  assert.equal(firstVerification.ok, true);
+  saveLLMConfig({
+    baseUrl: cloud.baseUrl,
+    model: 'mock-model',
+    enabled: true,
+  }, 'test-secret', firstVerification.models);
+  assert.deepEqual(getLLMConfig()?.availableModels, ['mock-model'], 'models fetched before the first save must remain selectable after reload');
+
   saveLLMConfig({
     baseUrl: cloud.baseUrl,
     model: 'mock-model',

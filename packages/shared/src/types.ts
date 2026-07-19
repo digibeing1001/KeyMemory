@@ -808,6 +808,8 @@ export interface LLMRelationReasoningResult {
   anchorId: string;
   /** 对每条候选的判定 */
   judgments: LLMRelationJudgment[];
+  /** 实际成功写入的单向语义关系数（反向索引不重复计数） */
+  relationsCreated: number;
   /** LLM 推理耗时 ms */
   latencyMs: number;
   /** token 用量 */

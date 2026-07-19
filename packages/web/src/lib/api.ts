@@ -29,8 +29,9 @@ export function clearStoredApiKey(): void {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body != null;
-  const isMutating = options?.method === 'POST' || options?.method === 'PUT' || options?.method === 'PATCH';
-  const headers: Record<string, string> = (hasBody || isMutating) ? { 'Content-Type': 'application/json' } : {};
+  // Fastify 会把“声明为 JSON、实际却没有正文”的请求视为格式错误。
+  // 只有真正携带正文时才声明 Content-Type；这也让所有无正文操作保持一致。
+  const headers: Record<string, string> = hasBody ? { 'Content-Type': 'application/json' } : {};
   const apiKey = getStoredApiKey();
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const res = await fetch(`${BASE}${path}`, {
@@ -191,7 +192,7 @@ export async function syncMailboxThread(id: string): Promise<{ sent: boolean; me
   return request(`/mailbox/threads/${encodeURIComponent(id)}/sync`, { method: 'POST' });
 }
 
-export async function syncMailbox(): Promise<{ checked: number; sent: number; messageIds: string[] }> {
+export async function syncMailbox(): Promise<{ checked: number; sent: number; messageIds: string[]; createdThreads: number; linkedMemories: number; skipped: string[] }> {
   return request('/mailbox/sync', { method: 'POST' });
 }
 
@@ -605,6 +606,7 @@ export async function saveLLMConfig(data: {
   apiKey?: string;
   model: string;
   enabled: boolean;
+  availableModels?: string[];
 }): Promise<LLMProviderConfig> {
   return request('/llm/config', {
     method: 'POST',

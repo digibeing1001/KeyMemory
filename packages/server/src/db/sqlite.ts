@@ -856,8 +856,42 @@ function migrateMemoryRelationData(db: Database.Database): void {
 
 function ensureWelcomeMemory(db: Database.Database): void {
   const WELCOME_SOURCE_ID = 'keymemory-welcome';
-  const existing = db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active'").get(WELCOME_SOURCE_ID);
-  if (existing) return;
+  const title = '欢迎使用 KeyMemory';
+  const content = `## 关于 KeyMemory
+
+KeyMemory 是一个本地优先的 Agent 记忆系统。通用事实、偏好、规则和经验保存在记忆库；具体项目、任务和事件则通过“记忆邮箱”持续汇集上下文。
+
+### 一事一主题
+
+- 一项具体工作只建立一个清楚的邮件主题；
+- 人类可以回复补充背景、决定和更正；
+- Agent 会把进度、结果、阻碍和下一步写回原主题；
+- 记忆秘书会检查零散工作记忆，去重后建立主题或补充新变化；
+- 代码、日志和技术详情放入折叠附件，邮件正文保持自然、通俗、可读。
+
+### 记忆的四个层次
+
+| 层级 | 名称 | 用途 |
+|------|------|------|
+| 闪念 | flash | 灵感、想法、临时笔记 |
+| 短期 | short | 近期会使用的上下文 |
+| 长期 | long | 稳定知识、经验、偏好和规则 |
+| 人事物 | entity | 人物、组织、工具和关键对象 |
+
+### 使用顺序
+
+开始具体工作时，先阅读记忆邮箱中的相关主题，再用记忆搜索补充通用信息。工作产生重要变化后，回复原主题；只有确认没有相关主题时才建立新邮件。
+
+> 这是一条系统介绍记忆，安装后自动创建。`;
+  const existing = db.prepare("SELECT id, content FROM memories WHERE source_id = ? AND status = 'active'").get(WELCOME_SOURCE_ID) as { id: string; content: string } | undefined;
+  if (existing) {
+    if (existing.content !== content) {
+      const now = new Date().toISOString();
+      db.prepare('UPDATE memories SET title = ?, content = ?, updated_at = ? WHERE id = ?').run(title, content, now, existing.id);
+      db.prepare('UPDATE memories_fts SET title = ?, content = ? WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)').run(title, content, existing.id);
+    }
+    return;
+  }
 
   // Get or create default root project
   let rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
@@ -873,41 +907,6 @@ function ensureWelcomeMemory(db: Database.Database): void {
 
   const id = uuidv4();
   const now = new Date().toISOString();
-  const title = '欢迎使用 KeyMemory';
-  const content = `## 关于 KeyMemory
-
-KeyMemory 是一个以项目为核心的记忆系统，帮助 AI Agent 拥有持久化的记忆能力。
-
-### 项目化记忆架构
-
-以项目为纲，记忆归于具体项目之下。项目可嵌套层级，如：
-
-- 事业
-  - 创业
-    - 门店A
-    - 门店B
-  - 职场
-- 家庭
-  - 恋爱
-
-每个项目下分四层记忆：
-
-| 层级 | 名称 | 用途 |
-|------|------|------|
-| 闪念 | flash | 灵感、想法、临时笔记 |
-| 短期 | short | 近期任务、待办事项 |
-| 长期 | long | 知识、经验、学习笔记 |
-| 人事物 | entity | 人物、组织、关键对象 |
-
-### 核心功能
-
-- **项目树**：以项目为核心组织记忆，支持父子层级
-- **语义搜索**：基于内容相似度搜索相关记忆
-- **星云图**：可视化记忆之间的关联网络
-- **项目整理建议**：系统自动识别项目关联，建议上层聚类
-- **MCP 接口**：AI Agent 通过标准协议读写记忆
-
-> 这是一条系统介绍记忆，安装后自动创建。`;
   const tags = JSON.stringify(['KeyMemory', '介绍', '使用指南']);
 
   db.transaction(() => {

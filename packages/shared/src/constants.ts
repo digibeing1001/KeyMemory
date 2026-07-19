@@ -70,13 +70,9 @@ export const DECAY_CONFIG = {
  */
 export const CONFLICT_PATTERNS: ReadonlyArray<readonly [readonly string[], readonly string[]]> = [
   [['喜欢', '喜爱', '爱'], ['讨厌', '厌恶', '恨', '不喜欢']],
-  [['支持', '赞成', '同意'], ['反对', '否定', '拒绝']],
-  [['成功', '完成', '达成'], ['失败', '落空', '未达成']],
-  [['是', '属于', '为'], ['不是', '非', '不属于', '不为']],
-  [['有', '拥有', '具备'], ['没有', '无', '缺乏', '不具备']],
+  [['支持', '赞成', '同意'], ['反对', '否定', '拒绝', '不支持']],
   [['正确', '准确', '无误'], ['错误', '有误', '不正确']],
   [['开启', '打开', '启用'], ['关闭', '停用', '禁用']],
-  [['增加', '上升', '提升'], ['减少', '下降', '降低']],
 ] as const;
 
 export const SEARCH_WEIGHTS = {
@@ -165,9 +161,9 @@ export const DREAM_AUTONOMY = {
  */
 export const RELATION_REASONER_CONFIG = {
   /** 每条锚记忆的候选旧记忆数量（top-K，放大以保证召回） */
-  topK: 25,
+  topK: 12,
   /** 一次 Dream 周期最多处理多少条未扫描记忆（防止首次运行爆炸） */
-  batchSize: 50,
+  batchSize: 12,
   /** 语义相似度预筛阈值（低于此值不送 LLM，省 token 但不漏） */
   prefilterThreshold: 0.55,
   /** 关系强度阈值，低于此值的关系不建立 */

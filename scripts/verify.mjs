@@ -10,6 +10,7 @@ const commands = [
   `${pnpm} smoke:loop`,
   `${pnpm} smoke:mailbox`,
   `${pnpm} smoke:llm`,
+  `${pnpm} smoke:automation`,
   `${pnpm} loop:audit`,
 ];
 

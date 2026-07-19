@@ -98,7 +98,11 @@ function getSavedApiKeyForBaseUrl(baseUrl: string): string | null {
  * @param config 配置对象
  * @param apiKey 新 API key（明文，会被 AES-256-GCM 加密后存储）。留空且地址未变时保留已存密钥。
  */
-export function saveLLMConfig(config: Omit<LLMProviderConfig, 'lastVerifiedAt' | 'availableModels' | 'hasApiKey'>, apiKey?: string): LLMProviderConfig {
+export function saveLLMConfig(
+  config: Omit<LLMProviderConfig, 'lastVerifiedAt' | 'availableModels' | 'hasApiKey'>,
+  apiKey?: string,
+  availableModels?: string[],
+): LLMProviderConfig {
   const existing = getToolSecret(LLM_TOOL, LLM_SECRET_NAME);
   const previousMeta = existing?.metadata ?? {};
   const baseUrl = normalizeBaseUrl(config.baseUrl);
@@ -106,6 +110,7 @@ export function saveLLMConfig(config: Omit<LLMProviderConfig, 'lastVerifiedAt' |
   const canReuseExistingKey = sameBaseUrl(previousMeta.baseUrl ? String(previousMeta.baseUrl) : undefined, baseUrl);
   const preserveVerification = canReuseExistingKey
     && (!suppliedApiKey || suppliedApiKey === existing?.value);
+  const verifiedModels = Array.from(new Set((availableModels ?? []).map(String).map(item => item.trim()).filter(Boolean)));
   const secretValue = suppliedApiKey
     || (canReuseExistingKey ? existing?.value : undefined)
     || NO_API_KEY_SENTINEL;
@@ -121,7 +126,7 @@ export function saveLLMConfig(config: Omit<LLMProviderConfig, 'lastVerifiedAt' |
       hasApiKey: secretValue !== NO_API_KEY_SENTINEL,
       // 只有地址和密钥都没变时，上次检测结果才仍然可信。
       lastVerifiedAt: preserveVerification ? previousMeta.lastVerifiedAt : undefined,
-      availableModels: preserveVerification ? previousMeta.availableModels : undefined,
+      availableModels: verifiedModels.length > 0 ? verifiedModels : (preserveVerification ? previousMeta.availableModels : undefined),
     },
   });
 
@@ -131,7 +136,9 @@ export function saveLLMConfig(config: Omit<LLMProviderConfig, 'lastVerifiedAt' |
     enabled: config.enabled,
     hasApiKey: secretValue !== NO_API_KEY_SENTINEL,
     lastVerifiedAt: preserveVerification && previousMeta.lastVerifiedAt ? String(previousMeta.lastVerifiedAt) : undefined,
-    availableModels: preserveVerification && Array.isArray(previousMeta.availableModels) ? previousMeta.availableModels.map(String) : undefined,
+    availableModels: verifiedModels.length > 0
+      ? verifiedModels
+      : (preserveVerification && Array.isArray(previousMeta.availableModels) ? previousMeta.availableModels.map(String) : undefined),
   };
 }
 

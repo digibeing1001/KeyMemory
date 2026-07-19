@@ -23,6 +23,8 @@ import {
   Trash,
   Zap,
   Activity,
+  Eye,
+  EyeOff,
 } from './Icons';
 
 interface ConfigState {
@@ -54,6 +56,7 @@ export default function LLMConfigView() {
   const [verifyResult, setVerifyResult] = useState<LLMVerifyResult | null>(null);
   const [relationReasoningStats, setRelationReasoningStats] = useState<RelationReasoningStats | null>(null);
   const [runningRelationReasoning, setRunningRelationReasoning] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   async function loadConfig() {
     setLoading(true);
@@ -97,12 +100,14 @@ export default function LLMConfigView() {
     try {
       const report = await runRelationReasoning();
       if (report.skipped.length > 0) {
-        toast(t('llm.relationReasoningSkipped', { count: report.skipped.length }), 'info');
+        toast(report.skipped[0], report.scanned > 0 ? 'info' : 'error');
       }
-      toast(
-        t('llm.relationReasoningSuccess', { scanned: report.scanned, relations: report.relationsCreated, ms: report.durationMs }),
-        report.scanned > 0 ? 'success' : 'info'
-      );
+      if (report.scanned > 0 || report.skipped.length === 0) {
+        toast(
+          t('llm.relationReasoningSuccess', { scanned: report.scanned, relations: report.relationsCreated, ms: report.durationMs }),
+          report.scanned > 0 ? 'success' : 'info'
+        );
+      }
       await loadFeatureStats();
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -188,6 +193,7 @@ export default function LLMConfigView() {
         apiKey: config.apiKey.trim() || undefined,
         model: config.model,
         enabled: config.enabled,
+        availableModels,
       });
       setSavedConfig(saved);
       setAvailable(saved.enabled && !!saved.model);
@@ -379,22 +385,36 @@ export default function LLMConfigView() {
               {t('llm.apiKey')}
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('llm.apiKeyHint')}</span>
             </label>
-            <input
-              type="password"
-              value={config.apiKey}
-              onChange={(e) => setConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
-              placeholder={savedConfig?.hasApiKey ? t('llm.apiKeyPlaceholderSaved') : t('llm.apiKeyPlaceholder')}
-              style={{
-                width: '100%',
+            <div style={{ display: 'flex', alignItems: 'stretch' }}>
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={config.apiKey}
+                onChange={(e) => setConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
+                placeholder={savedConfig?.hasApiKey ? t('llm.apiKeyPlaceholderSaved') : t('llm.apiKeyPlaceholder')}
+                autoComplete="off"
+                style={{
+                flex: 1,
+                minWidth: 0,
                 padding: '8px 12px',
-                borderRadius: 'var(--radius-md)',
+                borderRadius: 'var(--radius-md) 0 0 var(--radius-md)',
                 border: '1px solid var(--border)',
                 background: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
                 fontSize: 13,
                 fontFamily: 'monospace',
               }}
-            />
+              />
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowApiKey(value => !value)}
+                aria-label={showApiKey ? '隐藏 API Key' : '显示 API Key'}
+                title={showApiKey ? '隐藏本次输入的 API Key' : '显示本次输入的 API Key'}
+                style={{ borderRadius: '0 var(--radius-md) var(--radius-md) 0', borderLeft: 0 }}
+              >
+                {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
           </div>
 
           {/* Model 选择 + 拉取按钮 */}
@@ -407,13 +427,12 @@ export default function LLMConfigView() {
               </span>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                type="text"
-                value={config.model}
-                onChange={(e) => setConfig((prev) => ({ ...prev, model: e.target.value }))}
-                placeholder={t('llm.modelPlaceholder')}
-                list="llm-model-options"
-                style={{
+              {availableModels.length > 0 ? (
+                <select
+                  value={config.model}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, model: e.target.value }))}
+                  aria-label={t('llm.model')}
+                  style={{
                   flex: 1,
                   padding: '8px 12px',
                   borderRadius: 'var(--radius-md)',
@@ -423,7 +442,18 @@ export default function LLMConfigView() {
                   fontSize: 13,
                   fontFamily: 'monospace',
                 }}
-              />
+                >
+                  {availableModels.map(model => <option key={model} value={model}>{model}</option>)}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={config.model}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, model: e.target.value }))}
+                  placeholder={t('llm.modelPlaceholder')}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, fontFamily: 'monospace' }}
+                />
+              )}
               <button className="btn" onClick={handleFetchModels} disabled={fetchingModels} title={t('llm.fetchModels')}>
                 {fetchingModels ? (
                   <span className="animate-spin" style={{ width: 13, height: 13, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%' }} />
@@ -433,11 +463,6 @@ export default function LLMConfigView() {
                 {t('llm.fetchModels')}
               </button>
             </div>
-            <datalist id="llm-model-options">
-              {availableModels.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
           </div>
 
           {/* Enabled 复选框 */}

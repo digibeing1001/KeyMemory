@@ -1428,7 +1428,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/llm/config', async (request, reply) => {
-    const body = request.body as { baseUrl: string; apiKey?: string; model: string; enabled: boolean };
+    const body = request.body as { baseUrl: string; apiKey?: string; model: string; enabled: boolean; availableModels?: string[] };
     if (!body.baseUrl) {
       reply.code(400);
       return { error: 'baseUrl is required' };
@@ -1437,7 +1437,7 @@ export function registerRoutes(app: FastifyInstance): void {
       baseUrl: body.baseUrl,
       model: body.model || '',
       enabled: body.enabled ?? true,
-    }, body.apiKey);
+    }, body.apiKey, body.availableModels);
   });
 
   app.post('/api/llm/verify', async (request) => {

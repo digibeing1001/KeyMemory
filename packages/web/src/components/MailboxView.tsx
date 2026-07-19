@@ -220,7 +220,16 @@ export default function MailboxView() {
       await refresh();
       if (selectedId) setDetail(await getMailboxThread(selectedId));
       const sent = 'sent' in result ? (typeof result.sent === 'number' ? result.sent : Number(result.sent)) : 0;
-      setNotice({ text: sent > 0 ? (zh ? '记忆秘书已补充一封新邮件' : 'Memory Secretary added an update') : (zh ? '已检查，目前没有需要补充的新变化' : 'Checked; there are no new changes'), tone: 'success' });
+      const created = 'createdThreads' in result ? Number(result.createdThreads) : 0;
+      const skipped = 'skipped' in result && Array.isArray(result.skipped) ? result.skipped : [];
+      const text = created > 0
+        ? (zh ? `记忆秘书已建立 ${created} 个工作主题` : `Memory Secretary created ${created} work thread(s)`)
+        : sent > 0
+          ? (zh ? '记忆秘书已补充一封新邮件' : 'Memory Secretary added an update')
+          : skipped.length > 0
+            ? String(skipped[0])
+            : (zh ? '已检查，目前没有需要补充的新变化' : 'Checked; there are no new changes');
+      setNotice({ text, tone: skipped.length > 0 && created === 0 && sent === 0 ? 'error' : 'success' });
     } catch (cause) {
       setNotice({ text: cause instanceof Error ? cause.message : (zh ? '整理失败' : 'Sync failed'), tone: 'error' });
     } finally {
