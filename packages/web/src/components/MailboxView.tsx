@@ -213,12 +213,12 @@ export default function MailboxView() {
     }
   };
 
-  const runSync = async () => {
+  const runSync = async (threadId?: string) => {
     setSyncing(true);
     try {
-      const result = selectedId ? await syncMailboxThread(selectedId) : await syncMailbox();
+      const result = threadId ? await syncMailboxThread(threadId) : await syncMailbox();
       await refresh();
-      if (selectedId) setDetail(await getMailboxThread(selectedId));
+      if (threadId) setDetail(await getMailboxThread(threadId));
       const sent = 'sent' in result ? (typeof result.sent === 'number' ? result.sent : Number(result.sent)) : 0;
       const created = 'createdThreads' in result ? Number(result.createdThreads) : 0;
       const skipped = 'skipped' in result && Array.isArray(result.skipped) ? result.skipped : [];
@@ -265,7 +265,7 @@ export default function MailboxView() {
         </div>
         <div className="mailbox-list-heading">
           <div><h2>{zh ? FOLDERS.find((item) => item.key === folder)?.zh : FOLDERS.find((item) => item.key === folder)?.en}</h2><span>{threads.length} {zh ? '个工作主题' : 'threads'}</span></div>
-          <button type="button" className="btn" onClick={runSync} disabled={syncing}><RefreshCw size={14} />{syncing ? (zh ? '整理中…' : 'Syncing…') : (zh ? '记忆秘书整理' : 'Secretary sync')}</button>
+          <button type="button" className="btn" onClick={() => void runSync()} disabled={syncing}><RefreshCw size={14} />{syncing ? (zh ? '整理中…' : 'Syncing…') : (zh ? '记忆秘书整理' : 'Secretary sync')}</button>
         </div>
         <div className="mail-thread-list">
           {loading ? <div className="mail-empty">{zh ? '正在取信…' : 'Loading mail…'}</div> : threads.length === 0 ? (
@@ -288,7 +288,7 @@ export default function MailboxView() {
               <button type="button" className="mail-icon-button" onClick={() => patchThread({ folder: 'trash' }, zh ? '已移到垃圾箱' : 'Moved to trash')} title={zh ? '移到垃圾箱' : 'Move to trash'}><Trash size={17} /></button>
               <button type="button" className="mail-icon-button" onClick={() => patchThread({ starred: !detail.thread.starred })} title={zh ? '星标' : 'Star'}><Star size={17} style={{ fill: detail.thread.starred ? 'var(--warning)' : 'none', color: detail.thread.starred ? 'var(--warning)' : undefined }} /></button>
               <span className="mail-toolbar-spacer" />
-              <button type="button" className="btn" onClick={runSync} disabled={syncing}><RefreshCw size={14} />{zh ? '检查新变化' : 'Check changes'}</button>
+              <button type="button" className="btn" onClick={() => void runSync(selectedId)} disabled={syncing}><RefreshCw size={14} />{zh ? '检查新变化' : 'Check changes'}</button>
             </div>
             <article className="mail-reader-scroll">
               <header className="mail-thread-header">
