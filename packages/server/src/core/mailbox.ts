@@ -793,16 +793,32 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
         const targetThread = plan.thread_id
           ? existing.find(item => item.id === plan.thread_id)
           : existing.find(item => normalizeSubject(item.subject) === normalizeSubject(plan.subject));
+        const selected = ids.map(id => allowed.get(id)!);
+        const coverageThrough = selected.reduce((latest, memory) => memory.updatedAt > latest ? memory.updatedAt : latest, '');
+        const body = cleanPlainText(plan.body);
         if (targetThread) {
-          for (const id of ids) linkMemoryToThread(targetThread.id, id, 'source', [agentSpace]);
+          // 归类模型已经生成并通过了正文校验，直接作为已有主题的新回复；
+          // 避免随后再次调用模型重写同一批资料，让一次点击最多等待一轮推理。
+          db.transaction(() => {
+            for (const id of ids) linkMemoryToThread(targetThread.id, id, 'source', [agentSpace]);
+            insertMessage(targetThread, {
+              body,
+              senderType: 'secretary',
+              senderId: SECRETARY_ID,
+              recipientIds: DEFAULT_RECIPIENTS,
+              messageType: 'digest',
+              attachments: selected.map(memory => ({ kind: 'memory', title: memory.title, content: firstReadableSentence(memory.content, 500), memoryId: memory.id, collapsed: true })),
+              metadata: { coverageThrough, sourceMemoryIds: ids, organizedBy: 'memory-secretary' },
+            });
+            db.prepare('UPDATE mail_threads SET current_summary = ?, updated_at = ? WHERE id = ?')
+              .run(firstReadableSentence(body, 500), new Date().toISOString(), targetThread.id);
+          })();
           linkedMemories += ids.length;
         } else {
-          const selected = ids.map(id => allowed.get(id)!);
-          const coverageThrough = selected.reduce((latest, memory) => memory.updatedAt > latest ? memory.updatedAt : latest, '');
           createMailThread({
             subject: plan.subject,
             kind: plan.kind,
-            body: cleanPlainText(plan.body),
+            body,
             senderType: 'secretary',
             senderId: SECRETARY_ID,
             recipientIds: DEFAULT_RECIPIENTS,

@@ -19,7 +19,9 @@ const [database, atom, llm, reasoner, mailbox, conflicts] = await Promise.all([
 database.initDatabase();
 let relationCandidateId = '';
 let mailboxMemoryIds = [];
+let mailboxTargetThreadId = '';
 let temperatureCompatibilityRetries = 0;
+let successfulLlmCalls = 0;
 const server = http.createServer(async (request, response) => {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
@@ -43,6 +45,7 @@ const server = http.createServer(async (request, response) => {
     }] });
   } else if (system.includes('工作主题整理')) {
     content = JSON.stringify({ threads: [{
+      ...(mailboxTargetThreadId ? { thread_id: mailboxTargetThreadId } : {}),
       subject: 'KeyMemory 记忆邮箱进入发布前验收',
       kind: 'project',
       memory_ids: mailboxMemoryIds,
@@ -52,6 +55,7 @@ const server = http.createServer(async (request, response) => {
   } else {
     content = '记忆邮箱已进入发布前验收。目前新增信息已经整理到同一个工作主题中。';
   }
+  successfulLlmCalls++;
   response.setHeader('content-type', 'application/json');
   response.end(JSON.stringify({ model: 'mock-model', choices: [{ message: { content } }] }));
 });
@@ -117,6 +121,23 @@ try {
   assert.equal(mailbox.listMailThreads({ folder: 'all', agentSpaces: ['global'] }).length, 1);
   const secondSync = await mailbox.syncMailbox(['global']);
   assert.equal(secondSync.createdThreads, 0, 'unchanged memories must not duplicate a work thread');
+
+  const existingThread = mailbox.listMailThreads({ folder: 'all', agentSpaces: ['global'] })[0];
+  mailboxTargetThreadId = existingThread.id;
+  const mailC = atom.createMemory({
+    title: '记忆邮箱验收新增结果',
+    content: '记忆邮箱验收已经补充完成，需要把这一进展回复到原有邮件主题。',
+    layer: 'short',
+    source: 'mailbox-bootstrap-smoke',
+  });
+  mailboxMemoryIds = [mailC.id];
+  const messagesBefore = mailbox.getMailThreadDetail(existingThread.id, 'human:owner', ['global'], true).messages.length;
+  const callsBefore = successfulLlmCalls;
+  const updateSync = await mailbox.syncMailbox(['global']);
+  const messagesAfter = mailbox.getMailThreadDetail(existingThread.id, 'human:owner', ['global'], true).messages.length;
+  assert.equal(updateSync.linkedMemories, 1, 'new work memory must be linked into the existing thread');
+  assert.equal(messagesAfter, messagesBefore + 1, 'secretary plan must become a reply in the existing thread');
+  assert.equal(successfulLlmCalls - callsBefore, 1, 'existing-thread organization must reuse the validated secretary body without a second LLM call');
   assert.ok(temperatureCompatibilityRetries >= 2, 'provider must retry relation and secretary calls when a compatible model only accepts temperature=1');
 
   console.log('[smoke:automation] ok');
