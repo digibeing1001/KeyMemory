@@ -473,24 +473,29 @@ export async function runRelationReasonerBatch(): Promise<RelationReasonerReport
     return { scanned: 0, relationsCreated: 0, details: [], skipped, durationMs: Date.now() - start };
   }
 
-  // 4. 逐条扫描
+  // 4. 有界并发扫描。单个供应商请求可能需要几十秒；完全串行会让“立即扫描”
+  // 看起来像没有反应，而无限并发又容易触发限流。固定最多 3 个 worker。
   const details: { memoryId: string; title: string; relationsCreated: number; latencyMs: number }[] = [];
   let totalRelations = 0;
-
-  for (const mem of unscanned) {
-    try {
-      const result = await reasonRelationsForMemory(mem.id);
-      if (result) {
-        const created = result.relationsCreated;
-        totalRelations += created;
-        details.push({ memoryId: mem.id, title: mem.title, relationsCreated: created, latencyMs: result.latencyMs });
-      } else {
-        skipped.push(`${mem.title} (${mem.id}): 没有可核实的候选，或 LLM 调用失败`);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < unscanned.length) {
+      const mem = unscanned[cursor++];
+      try {
+        const result = await reasonRelationsForMemory(mem.id);
+        if (result) {
+          const created = result.relationsCreated;
+          totalRelations += created;
+          details.push({ memoryId: mem.id, title: mem.title, relationsCreated: created, latencyMs: result.latencyMs });
+        } else {
+          skipped.push(`${mem.title} (${mem.id}): 没有可核实的候选，或 LLM 调用失败`);
+        }
+      } catch (err) {
+        skipped.push(`${mem.title} (${mem.id}): ${(err as Error).message}`);
       }
-    } catch (err) {
-      skipped.push(`${mem.title} (${mem.id}): ${(err as Error).message}`);
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, unscanned.length) }, () => worker()));
 
   return {
     scanned: details.length,

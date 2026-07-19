@@ -163,7 +163,7 @@ export const RELATION_REASONER_CONFIG = {
   /** 每条锚记忆的候选旧记忆数量（top-K，放大以保证召回） */
   topK: 12,
   /** 一次 Dream 周期最多处理多少条未扫描记忆（防止首次运行爆炸） */
-  batchSize: 12,
+  batchSize: 8,
   /** 语义相似度预筛阈值（低于此值不送 LLM，省 token 但不漏） */
   prefilterThreshold: 0.55,
   /** 关系强度阈值，低于此值的关系不建立 */
