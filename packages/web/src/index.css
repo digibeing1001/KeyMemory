@@ -886,15 +886,48 @@ textarea:focus-visible,
 .agent-mark {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  background: var(--bg-main);
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  padding: 5px;
+  border: 1px solid var(--border-light);
+  border-radius: 9px;
+  background: var(--surface-raised);
   color: var(--text-secondary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset, 0 1px 2px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+}
+.agent-mark > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 24px;
+  max-height: 24px;
+}
+.agent-mark-fallback {
   font-family: var(--font-mono);
   font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.agent-integration-card:hover .agent-mark {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset, 0 2px 6px rgba(36, 121, 143, 0.12);
+}
+.agent-integration-card.is-selected .agent-mark {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 56%, var(--surface-raised));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset, 0 2px 8px rgba(36, 121, 143, 0.18);
+}
+[data-theme="dark"] .agent-mark {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 1px 2px rgba(0, 0, 0, 0.32);
+}
+[data-theme="dark"] .agent-integration-card:hover .agent-mark {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 2px 6px rgba(0, 0, 0, 0.42);
+}
+[data-theme="dark"] .agent-integration-card.is-selected .agent-mark {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 .agent-card-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
 .agent-card-copy strong { overflow: hidden; color: var(--text-primary); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }

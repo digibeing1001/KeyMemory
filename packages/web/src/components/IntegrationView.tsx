@@ -9,7 +9,9 @@ import {
   type AgentIntegrationStatus,
 } from '../lib/api';
 import { useI18n } from '../i18n';
+import { AGENT_LOGOS } from './BrandLogos';
 
+/* 兜底用的 2 字母缩写，仅在缺少真实 logo 时使用 */
 const AGENT_MARKS: Record<string, string> = {
   'claude-desktop': 'CL',
   'claude-code': 'CC',
@@ -111,13 +113,18 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 }
 
 function AgentCard({ agent, selected, onSelect }: { agent: AgentIntegrationStatus; selected: boolean; onSelect: () => void }) {
+  const Logo = AGENT_LOGOS[agent.id];
   return (
     <button
       type="button"
       className={`agent-integration-card${selected ? ' is-selected' : ''}${!agent.detected ? ' is-undetected' : ''}`}
       onClick={onSelect}
     >
-      <span className="agent-mark" aria-hidden="true">{AGENT_MARKS[agent.id] ?? 'AI'}</span>
+      <span className="agent-mark" aria-hidden="true">
+        {Logo
+          ? <Logo size={22} />
+          : <span className="agent-mark-fallback">{AGENT_MARKS[agent.id] ?? 'AI'}</span>}
+      </span>
       <span className="agent-card-copy">
         <strong>{agent.label}</strong>
         <span>{agent.connected ? 'KeyMemory online' : agent.detected ? 'Ready to connect' : 'Can connect manually'}</span>
