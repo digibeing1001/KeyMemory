@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
-import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, MailThreadContext, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
-import { getMemory, listMemories } from './atom.js';
+import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, HistoricalReference, MailThreadContext, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
+import { getMemory, listMemories, updateMemoryConfidence } from './atom.js';
 import { searchHybrid } from './query.js';
 import { findProjectRef, getProject } from './project.js';
 import { getDatabase } from '../db/sqlite.js';
@@ -210,7 +210,7 @@ function formatItem(item: AgentContextItem): string {
   return `- [${item.layer}, ${shortId}${source}${validity}] ${item.title}: ${item.content}${relationLine(item)}`;
 }
 
-function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: MailThreadContext): string {
+function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: MailThreadContext, historicalReferences?: HistoricalReference[]): string {
   const lines = ['# KeyMemory Context'];
   if (pack.project) lines.push(`Project: ${pack.project}`);
   if (pack.query) lines.push(`Query: ${pack.query}`);
@@ -239,6 +239,17 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: M
   lines.push(MAILBOX_OPERATING_GUIDE);
   lines.push('');
 
+  // 注入历史相关记忆：帮助 Agent 获取与当前线程相关的历史经验
+  if (historicalReferences && historicalReferences.length > 0) {
+    lines.push('## Historical References');
+    lines.push('The following historical memories are relevant to the current thread, provided for reference:');
+    for (const ref of historicalReferences) {
+      const shortId = ref.id.slice(0, 8);
+      lines.push(`- [${ref.layer}, ${shortId}] ${ref.title}: ${ref.content}`);
+    }
+    lines.push('');
+  }
+
   // 注入待确认项：让 Agent 在对话中自然地提醒用户
   const pendingTodos = getPendingTodosForContext(undefined, pack.projectId);
   if (pendingTodos.length > 0) {
@@ -252,6 +263,46 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: M
   }
 
   return lines.join('\n').trimEnd();
+}
+
+/**
+ * 基于当前邮件线程主题搜索 top-5 相关历史记忆，注入 Context Pack 帮助 Agent 获取历史经验。
+ * 非阻塞：任何异常只记录日志，不向上抛出，确保不影响主流程。
+ */
+async function injectHistoricalContext(
+  threadSubject: string,
+  existingMemoryIds: Set<string>,
+  accessibleSpaces: Set<string> | undefined,
+  temporal: { asOf: string; includeExpired: boolean },
+): Promise<HistoricalReference[] | undefined> {
+  if (!threadSubject || threadSubject.trim().length < 5) return undefined;
+
+  try {
+    const results = await searchHybrid(threadSubject, {
+      projectId: undefined,
+      includeDescendants: false,
+      asOf: temporal.asOf,
+      includeExpired: temporal.includeExpired,
+      limit: 12, // 多取一些，过滤掉已关联的之后仍够 5 条
+      agentSpaces: accessibleSpaces ? Array.from(accessibleSpaces) : undefined,
+    });
+
+    const filtered = results.filter(r => !existingMemoryIds.has(r.memory.id));
+    const top5 = filtered.slice(0, 5);
+
+    if (top5.length === 0) return undefined;
+
+    return top5.map(r => ({
+      id: r.memory.id,
+      title: r.memory.title,
+      content: truncate(r.memory.content, 300),
+      relevanceScore: Number(r.score.toFixed(4)),
+      layer: r.memory.layer,
+    }));
+  } catch (err) {
+    console.error('[ContextPack] Historical context injection failed:', (err as Error).message);
+    return undefined;
+  }
 }
 
 export async function buildAgentContextPack(input: AgentContextPackRequest = {}): Promise<AgentContextPack> {
@@ -349,6 +400,20 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     usedChars = estimateChars(selected);
   }
 
+  // 非阻塞：对被选入 Context Pack 的记忆增加 confidence（+0.01，上限 1.0）
+  // 失败不影响返回结果
+  try {
+    for (const item of selected) {
+      const current = getMemory(item.id);
+      if (current) {
+        const newConfidence = Math.min(1.0, (current.confidence ?? 0.8) + 0.01);
+        updateMemoryConfidence(item.id, newConfidence);
+      }
+    }
+  } catch (err) {
+    console.error('[context-pack] confidence boost failed (non-fatal):', (err as Error).message);
+  }
+
   const sections = KIND_ORDER
     .map(kind => ({
       kind,
@@ -396,10 +461,23 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     console.error('[context-pack] Mailbox handoff failed (non-fatal):', (err as Error).message);
   }
 
+  // 历史记忆注入：基于当前邮件线程主题搜索 top-5 相关历史记忆作为参考上下文。
+  // 非阻塞：搜索失败不影响主流程返回。
+  let historicalReferences: HistoricalReference[] | undefined;
+  if (mailThread) {
+    historicalReferences = await injectHistoricalContext(
+      mailThread.thread.subject,
+      new Set(mailThread.linkedMemories.map(m => m.id)),
+      accessibleSpaces,
+      temporal,
+    );
+  }
+
   const result = {
     ...packBase,
     mailThread,
-    markdown: formatMarkdown({ ...packBase, mailThread }, mailThread),
+    historicalReferences,
+    markdown: formatMarkdown({ ...packBase, mailThread, historicalReferences }, mailThread, historicalReferences),
   };
 
   // 记录 agent 活动到 loop_runs 表，让使用动态页能看到智能体何时访问了记忆库。

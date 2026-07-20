@@ -4,6 +4,7 @@ import { EVOLUTION_THRESHOLDS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, embed, bufferToEmbedding } from '../embed/onnx.js';
 import { findConflictMatch } from './conflict-detector.js';
+import { createMemoryRelation } from '../graph/entity.js';
 
 export async function runDailyInspection(): Promise<EvolutionTask[]> {
   const tasks: EvolutionTask[] = [];
@@ -139,7 +140,22 @@ async function detectConflicts(): Promise<EvolutionTask[]> {
     if (mems.length < 2) continue;
 
     const match = findConflictMatch(entity.name, mems);
-    if (match) tasks.push(createTask('conflict', [match.positive.id, match.negative.id], `实体「${entity.name}」在同一事项中存在相反表述：「${match.positive.title}」称“${match.positiveWord}”，而「${match.negative.title}」称“${match.negativeWord}”`));
+    if (match) {
+      tasks.push(createTask('conflict', [match.positive.id, match.negative.id], `实体「${entity.name}」在同一事项中存在相反表述：「${match.positive.title}」称“${match.positiveWord}”，而「${match.negative.title}」称“${match.negativeWord}”`));
+
+      // 自动建立 contradicts 关系
+      try {
+        createMemoryRelation(
+          match.positive.id,
+          match.negative.id,
+          'contradicts',
+          0.85,
+          `Auto-detected conflict on entity "${entity.name}": "${match.positiveWord}" vs "${match.negativeWord}"`
+        );
+      } catch {
+        // 关系已存在或记忆不可见时忽略
+      }
+    }
   }
 
   return tasks;

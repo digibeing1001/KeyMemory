@@ -249,7 +249,7 @@ export function registerRoutes(app: FastifyInstance): void {
     };
     if (!body.subject || !body.body || !body.kind) {
       reply.code(400);
-      return { error: 'subject, kind, and body are required' };
+      return { error: 'subject, kind, and body are required', code: 'MISSING_REQUIRED_FIELDS' };
     }
     try {
       const created = createMailThread({
@@ -266,8 +266,13 @@ export function registerRoutes(app: FastifyInstance): void {
       reply.code(201);
       return created;
     } catch (error) {
+      const err = error as Error;
+      const code = err.message.includes('标题') ? 'INVALID_SUBJECT'
+        : err.message.includes('已经存在') ? 'DUPLICATE_THREAD'
+        : err.message.includes('正文') ? 'INVALID_BODY'
+        : 'THREAD_CREATE_FAILED';
       reply.code(400);
-      return { error: (error as Error).message };
+      return { error: err.message, code };
     }
   });
 
@@ -313,12 +318,16 @@ export function registerRoutes(app: FastifyInstance): void {
       const thread = updateMailThread(id, body);
       if (!thread) {
         reply.code(404);
-        return { error: 'Mail thread not found' };
+        return { error: 'Mail thread not found', code: 'THREAD_NOT_FOUND' };
       }
       return thread;
     } catch (error) {
+      const err = error as Error;
+      const code = err.message.includes('标题') ? 'INVALID_SUBJECT'
+        : err.message.includes('已经使用') ? 'DUPLICATE_THREAD'
+        : 'THREAD_UPDATE_FAILED';
       reply.code(400);
-      return { error: (error as Error).message };
+      return { error: err.message, code };
     }
   });
 
@@ -328,13 +337,17 @@ export function registerRoutes(app: FastifyInstance): void {
     const identity = mailboxIdentityForRequest(request);
     if (!body?.body || !body.senderType) {
       reply.code(400);
-      return { error: 'body and senderType are required' };
+      return { error: 'body and senderType are required', code: 'MISSING_REQUIRED_FIELDS' };
     }
     try {
       return replyToMailThread(id, { ...body, senderId: body.senderId ?? identity.recipientId }, identity.agentSpaces);
     } catch (error) {
+      const err = error as Error;
+      const code = err.message.includes('可读性') ? 'BODY_READABILITY_FAILED'
+        : err.message.includes('找不到') ? 'THREAD_NOT_FOUND'
+        : 'REPLY_FAILED';
       reply.code(400);
-      return { error: (error as Error).message };
+      return { error: err.message, code };
     }
   });
 
@@ -344,13 +357,17 @@ export function registerRoutes(app: FastifyInstance): void {
     const identity = mailboxIdentityForRequest(request);
     if (!body.memoryId) {
       reply.code(400);
-      return { error: 'memoryId is required' };
+      return { error: 'memoryId is required', code: 'MISSING_REQUIRED_FIELDS' };
     }
     try {
       return linkMemoryToThread(id, body.memoryId, body.relationType, identity.agentSpaces);
     } catch (error) {
+      const err = error as Error;
+      const code = err.message.includes('找不到') ? 'MEMORY_NOT_FOUND'
+        : err.message.includes('私有空间') ? 'ACCESS_DENIED'
+        : 'LINK_FAILED';
       reply.code(400);
-      return { error: (error as Error).message };
+      return { error: err.message, code };
     }
   });
 
@@ -366,8 +383,10 @@ export function registerRoutes(app: FastifyInstance): void {
       const message = await syncMailThread(id, identity.agentSpaces);
       return { sent: Boolean(message), message };
     } catch (error) {
+      const err = error as Error;
+      const code = err.message.includes('找不到') ? 'THREAD_NOT_FOUND' : 'SYNC_FAILED';
       reply.code(400);
-      return { error: (error as Error).message };
+      return { error: err.message, code };
     }
   });
 
@@ -981,12 +1000,31 @@ export function registerRoutes(app: FastifyInstance): void {
       mail_subject: string | null;
     }>;
 
-    const entityRows = db.prepare(`
-      SELECT me.memory_id, me.entity_id, e.name as entity_name
-      FROM memory_entities me
-      JOIN entities e ON e.id = me.entity_id
-      JOIN memories m ON m.id = me.memory_id AND m.status = 'active'
-    `).all() as { memory_id: string; entity_id: string; entity_name: string }[];
+    // 查询记忆关系（边的唯一来源）
+    const explicitRows = db.prepare(`
+      SELECT r.source_memory_id, r.target_memory_id, r.relation_type, r.strength, r.reason
+      FROM memory_relations r
+      JOIN memories source ON source.id = r.source_memory_id AND source.status = 'active'
+      JOIN memories target ON target.id = r.target_memory_id AND target.status = 'active'
+      WHERE r.source_memory_id != r.target_memory_id
+      ORDER BY r.created_at DESC
+      LIMIT 1000
+    `).all() as Array<{
+      source_memory_id: string;
+      target_memory_id: string;
+      relation_type: string;
+      strength: number;
+      reason: string | null;
+    }>;
+
+    // 构建关系映射：每个记忆的直属关联记忆 ID 列表
+    const relationsMap = new Map<string, string[]>();
+    for (const rel of explicitRows) {
+      if (!relationsMap.has(rel.source_memory_id)) relationsMap.set(rel.source_memory_id, []);
+      if (!relationsMap.has(rel.target_memory_id)) relationsMap.set(rel.target_memory_id, []);
+      relationsMap.get(rel.source_memory_id)!.push(rel.target_memory_id);
+      relationsMap.get(rel.target_memory_id)!.push(rel.source_memory_id);
+    }
 
     const usableTags = (raw: string | null) => safeParseTags(raw)
       .filter((tag): tag is string => typeof tag === 'string')
@@ -995,7 +1033,7 @@ export function registerRoutes(app: FastifyInstance): void {
 
     const nodes = rows.map(r => {
       const tags = usableTags(r.tags);
-      const project = isPlaceholderProjectName(r.project_name) ? undefined : r.project_name ?? undefined;
+      const project = r.project_name?.trim() || undefined;
       return {
         id: r.id,
         title: r.title,
@@ -1006,93 +1044,63 @@ export function registerRoutes(app: FastifyInstance): void {
         valley: r.mail_subject || project || tags[0] || '独立记忆',
         updatedAt: r.updated_at,
         mailThreadId: r.mail_thread_id ?? undefined,
+        relations: [...new Set(relationsMap.get(r.id) ?? [])],
       };
     });
 
-    const tagToMemories = new Map<string, string[]>();
-    for (const r of rows) {
-      const tags = usableTags(r.tags);
-      for (const tag of tags) {
-        if (!tagToMemories.has(tag)) tagToMemories.set(tag, []);
-        tagToMemories.get(tag)!.push(r.id);
-      }
-    }
+    // 按节点对分组边，合并同一对节点间的多条关系
+    const edgeMap = new Map<string, {
+      source: string;
+      target: string;
+      relations: Array<{ type: string; strength: number; reason: string | null; direction: 'outgoing' | 'incoming' }>;
+    }>();
 
-    const projectToMemories = new Map<string, string[]>();
-    for (const r of rows) {
-      if (r.project_name && !isPlaceholderProjectName(r.project_name)) {
-        if (!projectToMemories.has(r.project_name)) projectToMemories.set(r.project_name, []);
-        projectToMemories.get(r.project_name)!.push(r.id);
-      }
-    }
-
-    const entityToMemories = new Map<string, { name: string; memoryIds: string[] }>();
-    for (const er of entityRows) {
-      if (!entityToMemories.has(er.entity_id)) {
-        entityToMemories.set(er.entity_id, { name: er.entity_name, memoryIds: [] });
-      }
-      entityToMemories.get(er.entity_id)!.memoryIds.push(er.memory_id);
-    }
-
-    type EdgeKey = string;
-    const edgeMap = new Map<EdgeKey, { source: string; target: string; type: string; weight: number; labels: string[] }>();
-
-    const addEdge = (source: string, target: string, type: string, label: string) => {
+    for (const rel of explicitRows) {
+      const source = rel.source_memory_id;
+      const target = rel.target_memory_id;
+      // 用字典序键去重，确保同一对节点合并为一条边
       const [a, b] = source < target ? [source, target] : [target, source];
-      const key = `${a}::${b}::${type}`;
+      const key = `${a}::${b}`;
+      // direction: source_memory_id 是发起方 = outgoing
+      const direction: 'outgoing' | 'incoming' = source === a ? 'outgoing' : 'incoming';
       const existing = edgeMap.get(key);
       if (existing) {
-        existing.weight += 1;
-        existing.labels.push(label);
+        existing.relations.push({ type: rel.relation_type, strength: rel.strength, reason: rel.reason, direction });
       } else {
-        edgeMap.set(key, { source: a, target: b, type, weight: 1, labels: [label] });
+        edgeMap.set(key, {
+          source: a,
+          target: b,
+          relations: [{ type: rel.relation_type, strength: rel.strength, reason: rel.reason, direction }],
+        });
       }
-    };
-
-    // A valley needs a readable trail, not every possible pair. One hub per group
-    // keeps the graph O(n) and stable while preserving navigation between memories.
-    const connectGroup = (memoryIds: string[], type: string, label: string) => {
-      const unique = [...new Set(memoryIds)].slice(0, 40);
-      if (unique.length < 2) return;
-      const hub = unique[0];
-      for (const memoryId of unique.slice(1)) addEdge(hub, memoryId, type, label);
-    };
-    for (const [tag, memoryIds] of tagToMemories) connectGroup(memoryIds, 'shared_tag', tag);
-    for (const [project, memoryIds] of projectToMemories) connectGroup(memoryIds, 'shared_project', project);
-    for (const [, info] of entityToMemories) connectGroup(info.memoryIds, 'shared_entity', info.name);
-
-    const explicitRows = db.prepare(`
-      SELECT r.source_memory_id, r.target_memory_id, r.relation_type, r.strength, r.reason
-      FROM memory_relations r
-      JOIN memories source ON source.id = r.source_memory_id AND source.status = 'active'
-      JOIN memories target ON target.id = r.target_memory_id AND target.status = 'active'
-      ORDER BY r.created_at DESC
-      LIMIT 400
-    `).all() as Array<{
-      source_memory_id: string;
-      target_memory_id: string;
-      relation_type: string;
-      strength: number;
-      reason: string | null;
-    }>;
-    for (const relation of explicitRows) {
-      addEdge(
-        relation.source_memory_id,
-        relation.target_memory_id,
-        relation.relation_type,
-        relation.reason || relation.relation_type,
-      );
     }
 
-    const edges = Array.from(edgeMap.values()).map(e => ({
-      source: e.source,
-      target: e.target,
-      type: e.type,
-      weight: e.weight,
-      label: [...new Set(e.labels)].slice(0, 3).join('、'),
-    }));
+    // 计算每条边的聚合字段
+    const edges = Array.from(edgeMap.values()).map(e => {
+      const typeCounts = new Map<string, number>();
+      let totalStrength = 0;
+      for (const r of e.relations) {
+        typeCounts.set(r.type, (typeCounts.get(r.type) ?? 0) + 1);
+        totalStrength += r.strength;
+      }
+      let mostCommonType = e.relations[0].type;
+      let maxCount = 0;
+      for (const [type, count] of typeCounts) {
+        if (count > maxCount) { mostCommonType = type; maxCount = count; }
+      }
+      return {
+        source: e.source,
+        target: e.target,
+        type: mostCommonType,
+        weight: e.relations.length,
+        label: mostCommonType,
+        strength: totalStrength / e.relations.length,
+        direction: e.relations[0].direction,
+        relations: e.relations,
+      };
+    });
 
-    return { nodes, edges };
+    return { nodes, edges, nodesCount: nodes.length };
   });
 
   app.get('/api/graph/tag-cloud', async () => {

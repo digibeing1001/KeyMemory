@@ -88,8 +88,8 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex h-full flex-col">
-      <div style={{ padding: '22px 28px', width: '100%' }}>
+    <form onSubmit={handleSubmit} className="flex h-full flex-col" style={{ overflowY: 'auto' }}>
+      <div style={{ padding: '22px 28px', width: '100%', flexShrink: 0 }}>
         <div style={{ marginBottom: 18 }}>
           <label style={labelStyle}>{t('editor.title')}</label>
           <input
@@ -195,7 +195,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 260, padding: '0 28px 22px', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 200, padding: '0 28px 22px', display: 'flex', flexDirection: 'column' }}>
         <label style={labelStyle}>{t('editor.content')}</label>
         <textarea
           value={content}
@@ -213,7 +213,7 @@ export default function MarkdownEditor({ memory, onSave, onCancel, loading }: Ma
 
       <div
         className="shrink-0 flex items-center justify-end gap-3"
-        style={{ padding: '14px 28px', borderTop: '1px solid var(--border)' }}
+        style={{ padding: '14px 28px', borderTop: '1px solid var(--border)', flexShrink: 0 }}
       >
         <button type="button" onClick={onCancel} className="btn">
           {t('common.cancel')}

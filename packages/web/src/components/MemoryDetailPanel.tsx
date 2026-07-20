@@ -97,15 +97,17 @@ export default function MemoryDetailPanel({
             <Close size={14} />
           </button>
         </div>
-        <MarkdownEditor
-          memory={memory}
-          loading={loading}
-          onSave={(data) => {
-            onSave(data);
-            setEditing(false);
-          }}
-          onCancel={() => setEditing(false)}
-        />
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <MarkdownEditor
+            memory={memory}
+            loading={loading}
+            onSave={(data) => {
+              onSave(data);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
       </aside>
     );
   }
@@ -208,7 +210,6 @@ export default function MemoryDetailPanel({
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius-lg)',
             marginBottom: 18,
-            overflow: 'hidden',
           }}
         >
           <button

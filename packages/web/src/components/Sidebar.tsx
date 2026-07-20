@@ -4,7 +4,7 @@ import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Tras
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 
-type ViewMode = 'mailbox' | 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
+type ViewMode = 'mailbox' | 'memories' | 'valley' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -33,7 +33,7 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers 
   { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
   { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
   { mode: 'integrations', labelKey: 'nav.integrations', icon: Plug },
-  { mode: 'nebula', labelKey: 'nav.nebula', icon: Globe },
+  { mode: 'valley', labelKey: 'nav.valley', icon: Globe },
   { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
   { mode: 'dream', labelKey: 'nav.dream', icon: Moon },
   { mode: 'llm', labelKey: 'nav.llm', icon: Settings },

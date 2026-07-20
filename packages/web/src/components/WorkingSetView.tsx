@@ -28,7 +28,7 @@ export default function WorkingSetView({ onMemorySelect }: WorkingSetViewProps) 
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
 
   return (
-    <div className="flex-1 overflow-y-auto px-8 py-6">
+    <div className="flex-1 px-8 py-6">
       <div className="flex items-start justify-between mb-6">
         <div style={{ maxWidth: 640 }}>
           <h2 style={{ fontSize: 24, fontWeight: 750, color: 'var(--text-primary)', margin: 0 }}>

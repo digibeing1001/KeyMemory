@@ -1,5 +1,6 @@
 import { getDatabase } from '../db/sqlite.js';
 import { runDreamCycle, runDreamCycleAsync, autoResolveStaleTodos } from './dreaming.js';
+import { syncMailbox } from './mailbox.js';
 import { runAutoConsolidation } from './consolidation.js';
 import { DREAM_CONFIG, DREAM_AUTONOMY } from '@keymemory/shared';
 
@@ -204,12 +205,18 @@ function scheduleNextQuickDream(): void {
 
   console.error(`[Scheduler] Next quick dream in ${Math.round(delay / 60000)} minutes`);
 
-  quickDreamTimer = setTimeout(() => {
+  quickDreamTimer = setTimeout(async () => {
     try {
       console.error('[Scheduler] Running quick dream cycle...');
       const report = runDreamCycle(true);
       lastQuickDreamAt = Date.now();
       console.error(`[Scheduler] Quick dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
+      try {
+        const mailboxReport = await syncMailbox();
+        console.error(`[Scheduler] Quick dream mailbox sync: ${JSON.stringify(mailboxReport)}`);
+      } catch (err) {
+        console.error(`[Scheduler] Quick dream mailbox sync failed (non-fatal):`, err);
+      }
     } catch (err) {
       console.error('[Scheduler] Quick dream cycle failed:', (err as Error).message);
     }

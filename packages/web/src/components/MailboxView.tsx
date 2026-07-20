@@ -189,6 +189,9 @@ export default function MailboxView() {
       if (data.folder && data.folder !== folder && folder !== 'all') {
         setThreads((current) => current.filter((item) => item.id !== updated.id));
         setSelectedId(null);
+      } else if (data.snoozedUntil && folder === 'inbox') {
+        setThreads((current) => current.filter((item) => item.id !== updated.id));
+        setSelectedId(null);
       }
       if (successText) setNotice({ text: successText, tone: 'success' });
       void getMailboxStats().then(setStats);
@@ -227,7 +230,7 @@ export default function MailboxView() {
         : sent > 0
           ? (zh ? '记忆秘书已补充一封新邮件' : 'Memory Secretary added an update')
           : skipped.length > 0
-            ? String(skipped[0])
+            ? `${String(skipped[0])}${created === 0 && sent === 0 ? (zh ? '——请前往“设置 > LLM”配置模型后重试' : ' — please configure LLM in Settings and try again') : ''}`
             : (zh ? '已检查，目前没有需要补充的新变化' : 'Checked; there are no new changes');
       setNotice({ text, tone: skipped.length > 0 && created === 0 && sent === 0 ? 'error' : 'success' });
     } catch (cause) {
@@ -287,6 +290,10 @@ export default function MailboxView() {
               <button type="button" className="mail-icon-button" onClick={() => patchThread({ folder: 'archive' }, zh ? '已归档' : 'Archived')} title={zh ? '归档' : 'Archive'}><Archive size={17} /></button>
               <button type="button" className="mail-icon-button" onClick={() => patchThread({ folder: 'trash' }, zh ? '已移到垃圾箱' : 'Moved to trash')} title={zh ? '移到垃圾箱' : 'Move to trash'}><Trash size={17} /></button>
               <button type="button" className="mail-icon-button" onClick={() => patchThread({ starred: !detail.thread.starred })} title={zh ? '星标' : 'Star'}><Star size={17} style={{ fill: detail.thread.starred ? 'var(--warning)' : 'none', color: detail.thread.starred ? 'var(--warning)' : undefined }} /></button>
+              <button type="button" className="mail-icon-button" onClick={() => {
+                const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+                patchThread({ snoozedUntil: detail.thread.snoozedUntil ? null : until }, detail.thread.snoozedUntil ? (zh ? '已取消延后' : 'Snooze cancelled') : (zh ? '已延后 24 小时' : 'Snoozed for 24h'));
+              }} title={detail.thread.snoozedUntil ? (zh ? '取消延后' : 'Cancel snooze') : (zh ? '延后 24 小时' : 'Snooze 24h')}><Clock size={17} /></button>
               <span className="mail-toolbar-spacer" />
               <button type="button" className="btn" onClick={() => void runSync(selectedId)} disabled={syncing}><RefreshCw size={14} />{zh ? '检查新变化' : 'Check changes'}</button>
             </div>

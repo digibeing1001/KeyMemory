@@ -164,7 +164,7 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
   };
 
   return (
-    <main className="migration-view app-page" style={{ padding: 24, overflowY: 'auto', height: '100%' }}>
+    <main className="migration-view app-page" style={{ padding: 24 }}>
       <div style={{ maxWidth: 880 }}>
         <header className="page-header" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
           <div className="km-icon-tile" style={{ width: 42, height: 42, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>

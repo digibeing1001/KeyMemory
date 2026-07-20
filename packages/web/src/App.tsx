@@ -9,7 +9,7 @@ import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
 import MemoryDetailPanel from './components/MemoryDetailPanel';
 import LayerCards from './components/LayerCards';
-import NebulaGraph from './components/NebulaGraph';
+import MemoryValley from './components/MemoryValley';
 import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
 import LLMConfigView from './components/LLMConfigView';
@@ -34,12 +34,12 @@ import {
 import type { MemoryGraphData, TagCloudData } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'mailbox' | 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
+type ViewMode = 'mailbox' | 'memories' | 'valley' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
 
 function isViewMode(value: string | null): value is ViewMode {
   return value === 'mailbox'
     || value === 'memories'
-    || value === 'nebula'
+    || value === 'valley'
     || value === 'tags'
     || value === 'dream'
     || value === 'migration'
@@ -56,9 +56,13 @@ function AppInner() {
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
     const linked = new URLSearchParams(window.location.search).get('view');
-    if (isViewMode(linked)) return linked;
+    // 向后兼容: 旧版 'nebula' → 'valley'
+    const normalize = (v: string | null): string | null => v === 'nebula' ? 'valley' : v;
+    const normalizedLinked = normalize(linked);
+    if (isViewMode(normalizedLinked)) return normalizedLinked;
     const saved = localStorage.getItem('keymemory_view_mode_mailbox_v1');
-    return isViewMode(saved) ? saved : 'mailbox';
+    const normalizedSaved = normalize(saved);
+    return isViewMode(normalizedSaved) ? normalizedSaved : 'mailbox';
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
@@ -111,7 +115,7 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    if (viewMode === 'nebula' && !graphData) {
+    if (viewMode === 'valley' && !graphData) {
       setGraphLoading(true);
       getMemoryConnections()
         .then(setGraphData)
@@ -491,9 +495,9 @@ function AppInner() {
             </>
           )}
 
-          {viewMode === 'nebula' && (
+          {viewMode === 'valley' && (
             <div className="flex-1 relative">
-              <NebulaGraph
+              <MemoryValley
                 data={graphData}
                 onNodeClick={(nodeId) => {
                   setViewMode('memories');
