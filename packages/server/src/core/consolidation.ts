@@ -7,6 +7,7 @@ import { getMemory, updateMemory } from './atom.js';
 import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
 import { detectDuplicateActions, detectStaleActions, detectOldFlashActions, detectSolidifyActions } from './consolidation-detectors.js';
+import { smartMergeContents } from './dreaming.js';
 
 export function planConsolidation(): ConsolidationPlan {
   const db = getDatabase();
@@ -155,7 +156,7 @@ function executeAction(action: ConsolidationAction): void {
       if (!keeper || !removed) throw new Error('Memory not found');
 
       const mergedTags = [...new Set([...(keeper.tags || []), ...(removed.tags || [])])];
-      const mergedContent = keeper.content + '\n\n---\n' + removed.content;
+      const mergedContent = smartMergeContents([keeper.content, removed.content]);
 
       db.transaction(() => {
         updateMemory(keeperId, {
@@ -186,7 +187,7 @@ function executeAction(action: ConsolidationAction): void {
 
       db.transaction(() => {
         updateMemory(targetId, {
-          content: allContent.join('\n\n---\n'),
+          content: smartMergeContents(allContent),
           tags: [...new Set(allTags)],
         }, `合并${sourceIds.length}条记忆`);
 

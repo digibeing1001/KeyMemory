@@ -10,6 +10,40 @@ import { scheduleChunkAndEmbed } from './chunking.js';
 import { redactSensitiveText } from './privacy.js';
 import { resolveAsOf } from './temporal.js';
 
+/**
+ * 增强共同命中的记忆之间的关系。
+ *
+ * 当两条记忆同时出现在搜索结果 top-N 中时，它们之间的现有关系 strength +0.01。
+ * 这模拟了“同时被检索的记忆间存在更强语义关联”的信号。
+ *
+ * 失败不影响主流程（非阻塞、不抛错）。
+ */
+function reinforceCoHitRelations(db: ReturnType<typeof getDatabase>, hitMemoryIds: string[]): void {
+  if (hitMemoryIds.length < 2) return;
+
+  const REINFORCE_AMOUNT = 0.01;
+  const MAX_STRENGTH = 1.0;
+
+  try {
+    for (let i = 0; i < hitMemoryIds.length; i++) {
+      for (let j = i + 1; j < hitMemoryIds.length; j++) {
+        db.prepare(`
+          UPDATE memory_relations
+          SET strength = MIN(?, strength + ?)
+          WHERE (source_memory_id = ? AND target_memory_id = ?)
+             OR (source_memory_id = ? AND target_memory_id = ?)
+        `).run(
+          MAX_STRENGTH, REINFORCE_AMOUNT,
+          hitMemoryIds[i], hitMemoryIds[j],
+          hitMemoryIds[j], hitMemoryIds[i],
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[Query] Relation reinforcement failed (non-fatal):', (err as Error).message);
+  }
+}
+
 type SearchOptions = {
   layer?: Layer;
   status?: MemoryStatus;
@@ -509,16 +543,19 @@ function productionRankBoost(memory: SearchResult['memory']): {
   hitBoost: number;
   confidenceBoost: number;
   durableLayerBoost: number;
+  decayBoost: number;
   total: number;
 } {
   const hitBoost = Math.min(0.006, Math.log1p(memory.hitCount) * 0.0015);
   const confidenceBoost = Math.max(0, Math.min(memory.confidence, 1)) * 0.003;
   const durableLayerBoost = memory.layer === 'long' || memory.layer === 'entity' ? 0.002 : 0;
+  const decayBoost = (memory.decayFactor ?? 1) * 0.002;
   return {
     hitBoost,
     confidenceBoost,
     durableLayerBoost,
-    total: hitBoost + confidenceBoost + durableLayerBoost,
+    decayBoost,
+    total: hitBoost + confidenceBoost + durableLayerBoost + decayBoost,
   };
 }
 
@@ -567,6 +604,7 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
           hitBoost: Number(boosts.hitBoost.toFixed(8)),
           confidenceBoost: Number(boosts.confidenceBoost.toFixed(8)),
           durableLayerBoost: Number(boosts.durableLayerBoost.toFixed(8)),
+          decayBoost: Number(boosts.decayBoost.toFixed(8)),
           finalScore: Number(score.toFixed(8)),
         },
       } : {}),
@@ -576,10 +614,21 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
   fused.sort((a, b) => b.score - a.score);
 
   const limited = fused.slice(0, limit);
+  const hitIds: string[] = [];
   for (const r of limited) {
     recordHit(r.memory.id);
     logQuery(query, r.memory.id, 'hybrid');
+    hitIds.push(r.memory.id);
   }
+
+  // 异步增强共同命中的记忆间关系（不阻塞返回）
+  setImmediate(() => {
+    try {
+      reinforceCoHitRelations(getDatabase(), hitIds);
+    } catch {
+      // 已内部捕获，此处额外保护
+    }
+  });
 
   return limited;
 }

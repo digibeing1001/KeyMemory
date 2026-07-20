@@ -295,59 +295,82 @@ export async function chatWithLLM(request: LLMChatRequest): Promise<LLMChatRespo
         stream: false,
       });
     const requestedTemperature = request.temperature ?? 0.1;
-    let resp = await fetch(chatUrl, {
-      method: 'POST',
-      headers,
-      body: buildBody(requestedTemperature),
-      signal: controller.signal,
-    });
 
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      // 部分 OpenAI 兼容端点（如某些 Coding 模型）只允许 temperature=1。
-      // 仅在服务端明确返回这一限制时重试一次，不掩盖其他 400 配置错误。
-      if (resp.status === 400 && requestedTemperature !== 1 && /invalid temperature[\s\S]*only\s+1\s+is\s+allowed/i.test(text)) {
-        resp = await fetch(chatUrl, {
+    const maxAttempts = 2;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let resp = await fetch(chatUrl, {
           method: 'POST',
           headers,
-          body: buildBody(1),
+          body: buildBody(requestedTemperature),
           signal: controller.signal,
         });
-      } else {
+
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => '');
+          // 部分 OpenAI 兼容端点（如某些 Coding 模型）只允许 temperature=1。
+          // 仅在服务端明确返回这一限制时重试一次，不掩盖其他 400 配置错误。
+          if (resp.status === 400 && requestedTemperature !== 1 && /invalid temperature[\s\S]*only\s+1\s+is\s+allowed/i.test(text)) {
+            resp = await fetch(chatUrl, {
+              method: 'POST',
+              headers,
+              body: buildBody(1),
+              signal: controller.signal,
+            });
+          } else if (resp.status >= 500 && attempt < maxAttempts) {
+            // 5xx 服务端错误：可重试
+            lastError = new Error(`LLM server error: ${resp.status}`);
+            await new Promise(r => setTimeout(r, 2000 * attempt));
+            continue;
+          } else {
+            clearTimeout(timeout);
+            throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
+          }
+        }
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => '');
+          clearTimeout(timeout);
+          throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
+        }
+
+        const data = await resp.json() as {
+          choices?: Array<{ message?: { content?: string } }>;
+          model?: string;
+          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+        };
+        // fetch() 在收到响应头后就会完成；必须等正文完整读取后再取消超时，
+        // 否则分块响应可能让界面无限等待。
         clearTimeout(timeout);
-        throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
+
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) {
+          throw new Error('LLM 返回空内容');
+        }
+
+        return {
+          content,
+          model: data.model ?? config.model,
+          usage: data.usage ? {
+            promptTokens: data.usage.prompt_tokens,
+            completionTokens: data.usage.completion_tokens,
+            totalTokens: data.usage.total_tokens,
+          } : undefined,
+          latencyMs: Date.now() - start,
+        };
+      } catch (err) {
+        // 网络错误（fetch 抛异常）：可重试
+        if (attempt < maxAttempts && !(err instanceof Error && err.message.startsWith('LLM 调用失败'))) {
+          lastError = err as Error;
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+          continue;
+        }
+        throw err;
       }
     }
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      clearTimeout(timeout);
-      throw new Error(`LLM 调用失败 HTTP ${resp.status}: ${text.slice(0, 300) || resp.statusText}`);
-    }
 
-    const data = await resp.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-      model?: string;
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-    };
-    // fetch() 在收到响应头后就会完成；必须等正文完整读取后再取消超时，
-    // 否则分块响应可能让界面无限等待。
-    clearTimeout(timeout);
-
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error('LLM 返回空内容');
-    }
-
-    return {
-      content,
-      model: data.model ?? config.model,
-      usage: data.usage ? {
-        promptTokens: data.usage.prompt_tokens,
-        completionTokens: data.usage.completion_tokens,
-        totalTokens: data.usage.total_tokens,
-      } : undefined,
-      latencyMs: Date.now() - start,
-    };
+    throw lastError || new Error('LLM call failed after retries');
   } catch (err) {
     clearTimeout(timeout);
     const msg = err instanceof Error ? err.message : String(err);

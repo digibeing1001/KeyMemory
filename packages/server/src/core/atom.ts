@@ -690,3 +690,41 @@ export function recordHit(id: string): void {
     WHERE id = @id
   `).run({ id, now, decayFactor: newDecayFactor });
 }
+
+/**
+ * 更新记忆的 confidence 值，范围限制在 [0.1, 1.0]。
+ * 非关键操作，失败只记录日志不抛异常。
+ */
+export function updateMemoryConfidence(id: string, newConfidence: number): void {
+  try {
+    const db = getDatabase();
+    const clamped = Math.max(0.1, Math.min(1.0, newConfidence));
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE memories SET confidence = @confidence, updated_at = @now WHERE id = @id
+    `).run({ id, confidence: clamped, now });
+  } catch (err) {
+    console.error(`[atom] updateMemoryConfidence failed for ${id} (non-fatal):`, (err as Error).message);
+  }
+}
+
+/**
+ * 记录记忆使用反馈（Agent 或用户显式标记）。
+ * - 'useful'：confidence +0.02（上限 1.0）
+ * - 'not_useful'：confidence -0.05（下限 0.1）
+ */
+export function recordMemoryFeedback(memoryId: string, feedback: 'useful' | 'not_useful'): void {
+  const memory = getMemory(memoryId);
+  if (!memory) return;
+
+  const currentConfidence = memory.confidence ?? 0.8;
+  let newConfidence: number;
+
+  if (feedback === 'useful') {
+    newConfidence = Math.min(1.0, currentConfidence + 0.02);
+  } else {
+    newConfidence = Math.max(0.1, currentConfidence - 0.05);
+  }
+
+  updateMemoryConfidence(memoryId, newConfidence);
+}

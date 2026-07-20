@@ -26,6 +26,7 @@ const PROJECT_PATTERN = /\[\[([^\]]+)\]\]/g;
  * - relates_to: 关联关系（A 与 B 相关，最宽泛）
  * - supersedes: 取代关系（A 取代了 B）
  * - references: 引用关系（A 引用了 B）
+ * - contradicts: 矛盾关系（A 与 B 在同一事项上存在相反表述，由冲突检测自动建立）
  *
  * 演化关系（LLM 推理驱动，四问范式）：
  * - extends: A 延伸了 B（A 是 B 的自然下一步/具体化）
@@ -43,7 +44,7 @@ const PROJECT_PATTERN = /\[\[([^\]]+)\]\]/g;
  */
 export const MEMORY_RELATION_TYPES = [
   // 基础关系
-  'part_of', 'derived_from', 'relates_to', 'supersedes', 'references',
+  'part_of', 'derived_from', 'relates_to', 'supersedes', 'references', 'contradicts',
   // 演化关系（正向，LLM 判定）
   'extends', 'reverses', 'reinforces', 'bridges',
   // 演化关系（反向，自动回填）

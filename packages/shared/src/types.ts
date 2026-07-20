@@ -254,6 +254,7 @@ export interface SearchScoreBreakdown {
   hitBoost: number;
   confidenceBoost: number;
   durableLayerBoost: number;
+  decayBoost: number;
   finalScore: number;
 }
 
@@ -397,6 +398,14 @@ export interface AgentContextSection {
   items: AgentContextItem[];
 }
 
+export interface HistoricalReference {
+  id: string;
+  title: string;
+  content: string;
+  relevanceScore: number;
+  layer: Layer;
+}
+
 export interface AgentContextPack {
   query?: string;
   project?: string;
@@ -410,6 +419,8 @@ export interface AgentContextPack {
   sections: AgentContextSection[];
   /** Matching project/task/event mailbox handoff, when one thread is identifiable. */
   mailThread?: MailThreadContext;
+  /** Top-5 historically relevant memories auto-injected based on the current mail thread subject. */
+  historicalReferences?: HistoricalReference[];
   markdown: string;
 }
 

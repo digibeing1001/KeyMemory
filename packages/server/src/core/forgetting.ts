@@ -14,7 +14,9 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; long
   const flashConfig = LAYER_CONFIG.flash;
   const flashResult = db.prepare(`
     UPDATE memories
-    SET decay_factor = decay_factor * @rate, updated_at = @now
+    SET decay_factor = decay_factor * @rate,
+        confidence = MAX(0.1, confidence * @rate),
+        updated_at = @now
     WHERE layer = 'flash'
       AND status = 'active'
       AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
@@ -24,7 +26,9 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; long
   const shortConfig = LAYER_CONFIG.short;
   const shortResult = db.prepare(`
     UPDATE memories
-    SET decay_factor = decay_factor * @rate, updated_at = @now
+    SET decay_factor = decay_factor * @rate,
+        confidence = MAX(0.1, confidence * @rate),
+        updated_at = @now
     WHERE layer = 'short'
       AND status = 'active'
       AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
@@ -35,7 +39,9 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; long
   const longConfig = LAYER_CONFIG.long;
   const longResult = db.prepare(`
     UPDATE memories
-    SET decay_factor = decay_factor * @rate, updated_at = @now
+    SET decay_factor = decay_factor * @rate,
+        confidence = MAX(0.1, confidence * @rate),
+        updated_at = @now
     WHERE layer = 'long'
       AND status = 'active'
       AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))

@@ -23,6 +23,7 @@
  */
 
 import { v4 as uuid } from 'uuid';
+import Database from 'better-sqlite3';
 import { RELATION_REASONER_CONFIG } from '@keymemory/shared';
 import type { LLMRelationJudgment, LLMRelationReasoningResult, LLMChatResponse } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
@@ -522,6 +523,44 @@ export function resetAllScanStatus(): number {
   const db = getDatabase();
   const result = db.prepare('DELETE FROM llm_reasoning_log WHERE scan_type = ?').run('relation_reasoning');
   return result.changes;
+}
+
+/**
+ * 衰减所有记忆关系的 strength。
+ *
+ * 设计用途：在 Full Dream 周期的最后阶段调用，模拟关系随时间自然弱化。
+ * 衰减公式：newStrength = strength * 0.98（每次 Dream 衰减 2%）
+ * 低于 MIN_STRENGTH (0.1) 的关系自动删除，避免残留无意义的极弱关联。
+ *
+ * @param db 数据库实例（由 dreaming.ts 传入，复用 Dream 周期已有的连接）
+ * @returns 衰减和删除的关系数量
+ */
+export function decayRelationStrengths(db: Database.Database): { decayed: number; removed: number } {
+  const DECAY_RATE = 0.98;
+  const MIN_STRENGTH = 0.1;
+
+  try {
+    // 衰减所有 strength 仍在阈值之上的关系
+    const decayResult = db.prepare(`
+      UPDATE memory_relations
+      SET strength = strength * ?
+      WHERE strength > ?
+    `).run(DECAY_RATE, MIN_STRENGTH);
+
+    // 删除衰减后低于阈值的关系
+    const removeResult = db.prepare(`
+      DELETE FROM memory_relations
+      WHERE strength < ?
+    `).run(MIN_STRENGTH);
+
+    return {
+      decayed: decayResult.changes,
+      removed: removeResult.changes,
+    };
+  } catch (err) {
+    console.error('[RelationReasoner] decayRelationStrengths failed (non-fatal):', (err as Error).message);
+    return { decayed: 0, removed: 0 };
+  }
 }
 
 /**

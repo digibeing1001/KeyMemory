@@ -277,6 +277,7 @@ export interface GraphNode {
   valley?: string;
   updatedAt?: string;
   mailThreadId?: string;
+  relations?: string[];
 }
 
 export interface GraphEdge {
@@ -285,11 +286,14 @@ export interface GraphEdge {
   type: string;
   weight: number;
   label?: string;
+  strength?: number;
+  direction?: 'outgoing' | 'incoming';
 }
 
 export interface MemoryGraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  nodesCount?: number;
 }
 
 export async function getMemoryConnections(): Promise<MemoryGraphData> {

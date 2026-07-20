@@ -11,11 +11,26 @@ import { detectDuplicateActions, detectStaleActions, detectOldFlashActions, comp
 import { runRelationReasonerBatch } from './relation-reasoner.js';
 import { syncMailbox } from './mailbox.js';
 import { findConflictMatch } from './conflict-detector.js';
+import { chatWithLLM, isLLMAvailable } from './llm-provider.js';
 
 type ScoredDreamCandidate = DreamCandidate & {
   qualityScore: number;
   qualityIssues: string[];
 };
+
+/**
+ * LLM 合并优化条目：在同步合并阶段收集，由 runDreamCycleAsync 异步处理。
+ * 同步路径使用启发式合并（smartMergeContents），异步路径再用 LLM 生成更优摘要替换。
+ */
+interface MergeRefinementEntry {
+  keeperId: string;
+  contents: string[];
+  titles: string[];
+  reason: string;
+}
+
+/** 模块级 LLM 合并优化队列：runDreamCycle 同步阶段填充，runDreamCycleAsync 异步消费 */
+let pendingMergeRefinements: MergeRefinementEntry[] = [];
 
 /**
  * 执行一次梦境周期。
@@ -47,6 +62,9 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
   if (!/^sp_[a-zA-Z0-9_]+$/.test(savepointName)) {
     throw new Error('Invalid savepoint name');
   }
+
+  // 1. 清空 LLM 合并优化队列（每次周期重新开始）
+  pendingMergeRefinements = [];
 
   try {
     db.exec(`SAVEPOINT ${savepointName}`);
@@ -173,8 +191,17 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
  * @param quickMode 快速模式，跳过语义/聚类/关联推理/项目接龙等高级阶段
  */
 export async function runDreamCycleAsync(quickMode: boolean = false): Promise<DreamReport> {
-  // 1. 执行同步部分（整理 + 项目接龙扫描）
+  // 1. 执行同步部分（整理 + 启发式合并）
   const report = runDreamCycle(quickMode);
+
+  // 1.5 异步处理 LLM 合并优化：用 LLM 生成更好的合并摘要替换启发式结果
+  if (report.status === 'completed' && pendingMergeRefinements.length > 0) {
+    try {
+      await processMergeRefinements();
+    } catch (err) {
+      console.error('[Dream] Merge refinement failed (non-fatal):', (err as Error).message);
+    }
+  }
 
   // 2. quickMode 或失败时不执行关联推理
   if (quickMode || report.status !== 'completed') return report;
@@ -361,6 +388,14 @@ function runLightPhase(reportId: string, details: DreamReportDetails, quickMode:
 
       const mergedContent = smartMergeContents(allContents);
       const mergedTags = Array.from(allTags);
+
+      // 收集 LLM 优化条目，由 runDreamCycleAsync 异步处理
+      pendingMergeRefinements.push({
+        keeperId: group.keeper,
+        contents: [...allContents],
+        titles: [keeper.title, ...group.duplicates.map(id => getMemory(id)?.title ?? '')],
+        reason: `整理合并：合并 ${group.duplicates.length} 条重复记忆`,
+      });
 
       updateMemory(group.keeper, {
         content: mergedContent,
@@ -748,6 +783,15 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
       }
 
       const mergedContent = smartMergeContents(allContents);
+
+      // 收集 LLM 优化条目，由 runDreamCycleAsync 异步处理
+      pendingMergeRefinements.push({
+        keeperId: group.keeper,
+        contents: [...allContents],
+        titles: [keeper.title, ...group.duplicates.map(id => getMemory(id)?.title ?? '')],
+        reason: `语义合并：合并 ${group.duplicates.length} 条语义重复记忆`,
+      });
+
       updateMemory(group.keeper, {
         content: mergedContent,
         tags: Array.from(allTags),
@@ -801,7 +845,7 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
 
 // ========== 智能内容合并 ==========
 
-function smartMergeContents(contents: string[]): string {
+export function smartMergeContents(contents: string[]): string {
   if (contents.length === 0) return '';
   if (contents.length === 1) return contents[0];
 
@@ -856,6 +900,90 @@ function smartMergeContents(contents: string[]): string {
   }
 
   return orderedParagraphs.join('\n\n');
+}
+
+/**
+ * 智能合并两条记忆的内容（LLM 辅助，异步）。
+ *
+ * - 总内容 <= 400 字符：使用简单拼接（避免不必要的 LLM 调用）
+ * - 总内容 > 400 字符：调用 LLM 生成综合摘要
+ * - LLM 不可用或失败时回退到简单拼接，不阻塞 Dream 周期
+ */
+async function smartMergeContentsAsync(
+  contents: string[],
+  titles: string[],
+): Promise<string> {
+  if (contents.length === 0) return '';
+  if (contents.length === 1) return contents[0];
+
+  const totalLength = contents.reduce((sum, c) => sum + c.length, 0);
+  const fallback = contents.join('\n---\n');
+
+  // 短内容直接拼接
+  if (totalLength <= 400) return fallback;
+
+  // LLM 不可用时回退
+  if (!isLLMAvailable()) return fallback;
+
+  try {
+    const memorySections = contents
+      .map((c, i) => `记忆${String.fromCharCode(65 + i)}「${titles[i] ?? ''}」：\n${c}`)
+      .join('\n\n');
+
+    const response = await chatWithLLM({
+      systemPrompt: '你是一个记忆整理助手。请将以下相关记忆合并为一条综合记忆。要求：保留关键信息和独特细节，消除重复内容，保持逻辑连贯。输出纯文本，不要 JSON。字数控制在原始总长度的 60%-80%。',
+      userMessage: `请合并以下 ${contents.length} 条相关记忆：\n\n${memorySections}\n\n请输出合并后的记忆内容：`,
+      temperature: 0.2,
+      maxTokens: 800,
+    });
+
+    if (response.content && response.content.trim().length > 0) {
+      return response.content.trim();
+    }
+    return fallback;
+  } catch (err) {
+    console.error('[Dream] Smart merge failed, falling back to concatenation:', err);
+    return fallback;
+  }
+}
+
+/**
+ * 处理 LLM 合并优化队列。
+ *
+ * 在 runDreamCycle 同步完成后，由 runDreamCycleAsync 异步调用。
+ * 对每个条目调用 LLM 生成更好的合并摘要，如果结果更好则更新记忆。
+ * 失败不影响已完成的同步合并结果。
+ */
+async function processMergeRefinements(): Promise<void> {
+  const queue = pendingMergeRefinements;
+  pendingMergeRefinements = [];
+
+  if (queue.length === 0) return;
+  if (!isLLMAvailable()) return;
+
+  console.error(`[Dream] Processing ${queue.length} merge refinements via LLM...`);
+
+  for (const entry of queue) {
+    try {
+      const refined = await smartMergeContentsAsync(entry.contents, entry.titles);
+      const heuristicMerged = smartMergeContents(entry.contents);
+
+      // 仅当 LLM 结果与启发式结果不同且长度合理时更新
+      const totalOriginalLength = entry.contents.reduce((s, c) => s + c.length, 0);
+      if (
+        refined !== heuristicMerged &&
+        refined.length > totalOriginalLength * 0.3 &&
+        refined.length < totalOriginalLength * 1.2
+      ) {
+        updateMemory(entry.keeperId, { content: refined }, entry.reason);
+        console.error(`[Dream] Refined merge for ${entry.keeperId}: ${heuristicMerged.length} -> ${refined.length} chars`);
+      }
+    } catch (err) {
+      console.error(`[Dream] Merge refinement failed for ${entry.keeperId}:`, (err as Error).message);
+    }
+  }
+
+  console.error(`[Dream] Merge refinement complete: processed ${queue.length} entries`);
 }
 
 // ========== 清理动作检测 ==========
@@ -1188,6 +1316,14 @@ function executeAction(db: ReturnType<typeof getDatabase>, action: Consolidation
 
       const mergedTags = [...new Set([...(keeper.tags || []), ...(removed.tags || [])])];
       const mergedContent = smartMergeContents([keeper.content, removed.content]);
+
+      // 收集 LLM 优化条目，由 runDreamCycleAsync 异步处理
+      pendingMergeRefinements.push({
+        keeperId,
+        contents: [keeper.content, removed.content],
+        titles: [keeper.title, removed.title],
+        reason: `整理合并：与「${removed.title}」合并`,
+      });
 
       updateMemory(keeperId, {
         content: mergedContent,

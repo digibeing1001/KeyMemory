@@ -20,6 +20,7 @@ import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
 import { createProject } from './project.js';
 import { chatWithLLM, isLLMAvailable } from './llm-provider.js';
+import { searchHybrid } from './query.js';
 
 const SECRETARY_ID = 'memory-secretary@keymemory.local';
 const DEFAULT_HUMAN_ID = 'human:local';
@@ -91,7 +92,7 @@ function parseStrings(value: unknown): string[] {
 
 function normalizeSubject(subject: string): string {
   return subject
-    .replace(/^\s*(?:(?:re|fw|fwd)\s*[:：]\s*)+/i, '')
+    .replace(/^\s*(?:(?:re|fw|fwd|回复|转发)\s*[:：]\s*)+/i, '')
     .replace(/\s+/g, ' ')
     .trim()
     .toLocaleLowerCase();
@@ -127,7 +128,7 @@ function firstReadableSentence(content: string, max = 180): string {
   return sentence.length > max ? `${sentence.slice(0, max - 1)}…` : sentence;
 }
 
-function readableBodyIssues(body: string): string[] {
+function readableBodyIssues(body: string, sourceMemories?: Array<{content: string}>): string[] {
   const issues: string[] = [];
   const clean = body.trim();
   if (clean.length < 16) issues.push('正文过短，无法说明当前情况');
@@ -135,6 +136,19 @@ function readableBodyIssues(body: string): string[] {
   if (/^\s*[{[]\s*["']?[\w-]+["']?\s*:/m.test(clean)) issues.push('正文看起来像原始数据');
   const technicalLines = clean.split('\n').filter(line => /(?:Error:|at\s+\S+\s*\(|SELECT\s+.+FROM|npm ERR!|0x[\da-f]+)/i.test(line));
   if (technicalLines.length >= 2) issues.push('正文包含大量技术日志');
+
+  // 来源验证：检查正文中的数字是否能在来源记忆中找到
+  if (sourceMemories && sourceMemories.length > 0) {
+    const allSourceText = sourceMemories.map(m => m.content).join(' ');
+    const numbers = clean.match(/\d{3,}/g) || [];
+    for (const num of numbers) {
+      if (!allSourceText.includes(num)) {
+        issues.push(`邮件中包含来源未提及的数据「${num}」，请核实`);
+        break;
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -344,7 +358,7 @@ export function createMailThread(input: CreateMailThreadInput): MailThreadDetail
   const now = new Date().toISOString();
   const senderId = input.senderId?.trim() || (input.senderType === 'secretary' ? SECRETARY_ID : input.senderType === 'human' ? DEFAULT_HUMAN_ID : 'agent:unknown');
 
-  return db.transaction(() => {
+  const result = db.transaction(() => {
     const scope = createProject({
       name: `mail-${id.slice(0, 8)}`,
       description: input.subject.trim(),
@@ -384,6 +398,51 @@ export function createMailThread(input: CreateMailThreadInput): MailThreadDetail
     for (const memoryId of input.memoryIds ?? []) linkMemoryToThread(id, memoryId, 'source');
     return getMailThreadDetail(id, DEFAULT_HUMAN_ID, undefined, false)!;
   })();
+
+  // 异步搜索并关联与新线程主题相关的历史记忆（非阻塞，不影响创建流程）
+  if (result.thread && isLLMAvailable()) {
+    linkRelevantHistoricalMemories(result.thread.id, result.thread.subject).catch(err => {
+      console.error(`[Mailbox] Auto-link historical memories failed for thread ${result.thread.id}:`, (err as Error).message);
+    });
+  }
+
+  return result;
+}
+
+/**
+ * 异步搜索与线程主题相关的 top-5 历史记忆并自动关联到新线程。
+ * 用于线程创建后帮助 Agent 获取历史经验。
+ */
+async function linkRelevantHistoricalMemories(threadId: string, subject: string): Promise<void> {
+  if (!subject || subject.trim().length < 5) return;
+
+  try {
+    const results = await searchHybrid(subject, {
+      projectId: undefined,
+      includeDescendants: false,
+      limit: 10,
+    });
+
+    // 排除已关联到该线程的记忆
+    const db = getDatabase();
+    const linkedRows = db.prepare(
+      'SELECT memory_id FROM mail_thread_memories WHERE thread_id = ?'
+    ).all(threadId) as Array<{ memory_id: string }>;
+    const alreadyLinked = new Set(linkedRows.map(r => r.memory_id));
+
+    const candidates = results.filter(r => !alreadyLinked.has(r.memory.id));
+    const top5 = candidates.slice(0, 5);
+
+    for (const result of top5) {
+      try {
+        linkMemoryToThread(threadId, result.memory.id, 'reference');
+      } catch {
+        // 可能已关联或记忆不存在，忽略
+      }
+    }
+  } catch (err) {
+    console.error(`[Mailbox] linkRelevantHistoricalMemories failed for thread ${threadId}:`, (err as Error).message);
+  }
 }
 
 export function getMailThread(id: string, recipientId = DEFAULT_HUMAN_ID, agentSpaces?: string[]): MailThread | null {
@@ -428,7 +487,17 @@ export function listMailThreads(options: ListMailThreadsOptions = {}): MailThrea
     ORDER BY COALESCE(t.last_message_at, t.updated_at) DESC
     LIMIT @limit OFFSET @offset
   `).all(params) as Record<string, unknown>[];
-  return rows.map(row => rowToThread(row, String(params.recipientId)));
+  const threads = rows.map(row => rowToThread(row, String(params.recipientId)));
+
+  // 检查 snooze 是否到期，自动清除过期的 snoozed_until
+  for (const thread of threads) {
+    if (thread.snoozedUntil && new Date(thread.snoozedUntil) < new Date()) {
+      db.prepare('UPDATE mail_threads SET snoozed_until = NULL WHERE id = ?').run(thread.id);
+      thread.snoozedUntil = undefined;
+    }
+  }
+
+  return threads;
 }
 
 export function replyToMailThread(threadId: string, input: ReplyMailThreadInput, agentSpaces?: string[]): MailMessage {
@@ -617,7 +686,7 @@ async function writeSecretaryBody(thread: MailThread, memories: Memory[]): Promi
       maxTokens: 900,
     });
     const body = cleanPlainText(result.content);
-    return readableBodyIssues(body).length === 0 ? body : fallback;
+    return readableBodyIssues(body, memories.map(m => ({ content: m.content }))).length === 0 ? body : fallback;
   } catch (error) {
     console.error('[Mailbox] 记忆秘书写信失败，使用本地整理结果：', (error as Error).message);
     return fallback;
@@ -764,12 +833,30 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
 
   const organizeSpace = async ([agentSpace, scopedMemories]: [string, Memory[]]): Promise<void> => {
     const existing = listMailThreads({ folder: 'all', agentSpaces: [agentSpace], limit: 100 });
-    const source = scopedMemories.map(memory => `- ID: ${memory.id}\n  标题: ${memory.title}\n  内容: ${firstReadableSentence(memory.content, 260)}`).join('\n');
+    const source = scopedMemories.map(memory => {
+      const tags = memory.tags ?? [];
+      const kindTag = tags.find(t => t.startsWith('kind:'));
+      const kind = kindTag ? kindTag.slice(5) : '';
+      const userTags = tags.filter(t => !t.startsWith('kind:') && !t.startsWith('scope:') && !t.startsWith('sensitivity:')).join(',');
+      const parts = [
+        `- ID: ${memory.id}`,
+        `  标题: ${memory.title}`,
+        `  layer: ${memory.layer}`,
+        kind ? `  kind: ${kind}` : '',
+        userTags ? `  tags: ${userTags}` : '',
+        `  内容: ${firstReadableSentence(memory.content, 500)}`,
+      ].filter(Boolean);
+      return parts.join('\n');
+    }).join('\n');
     let plans: SecretaryThreadPlan[] | null = null;
     try {
       const response = await chatWithLLM({
         systemPrompt: `你是 KeyMemory 的“记忆秘书”，正在执行工作主题整理：把零散记忆整理成真实、可持续回复的工作邮件主题。\n\n只整理具体项目、任务或事件；通用知识、偏好、规则、概念和仅有一个名词的分类不得建成邮件。优先归入已有主题，只有明确是一项独立工作时才新建。标题必须像工作邮件，清楚说明正在推进什么，不能只写“飞书”“项目”“开发”之类分类词。正文使用自然、通俗的中文书面语，不使用代码、日志、内部编号或 AI 套话。不要把推断写成事实。置信度不足时不要输出。\n\n严格输出 JSON：{"threads":[{"thread_id":"已有主题ID或省略","subject":"清楚的工作邮件标题","kind":"project|task|event","memory_ids":["来源记忆ID"],"confidence":0.0,"body":"第一封邮件正文"}]}`,
-        userMessage: `已有邮件主题：\n${existing.length ? existing.map(thread => `- ${thread.id}: ${thread.subject}`).join('\n') : '（暂无）'}\n\n待整理记忆：\n${source}`,
+        userMessage: `已有邮件主题：\n${existing.length ? existing.map(thread => {
+          const parts: Record<string, string> = { id: thread.id, subject: thread.subject };
+          if (thread.currentSummary) parts.currentSummary = thread.currentSummary;
+          return `- ${JSON.stringify(parts)}`;
+        }).join('\n') : '（暂无）'}\n\n待整理记忆：\n${source}`,
         temperature: 0.1,
         maxTokens: 1800,
         timeoutMs: 45000,
@@ -788,7 +875,7 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
     const used = new Set<string>();
     for (const plan of plans.slice(0, 6)) {
       const ids = Array.from(new Set(plan.memory_ids.map(String))).filter(id => allowed.has(id) && !used.has(id));
-      if (plan.confidence < 0.82 || ids.length === 0 || readableBodyIssues(plan.body).length > 0) continue;
+      if (plan.confidence < 0.82 || ids.length === 0 || readableBodyIssues(plan.body, scopedMemories.map(m => ({ content: m.content }))).length > 0) continue;
       try {
         assertUsefulSubject(plan.subject);
         const targetThread = plan.thread_id
@@ -916,18 +1003,87 @@ export function getMailboxStats(recipientId = DEFAULT_HUMAN_ID): {
   trash: number;
   all: number;
 } {
-  const inbox = listMailThreads({ folder: 'inbox', recipientId, limit: 250 });
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  // 单条 SQL 获取所有文件夹统计，避免 N+1 查询
+  const folderStats = db.prepare(`
+    SELECT
+      folder,
+      COUNT(*) as count,
+      SUM(CASE WHEN starred = 1 THEN 1 ELSE 0 END) as starred_count,
+      SUM(CASE WHEN snoozed_until IS NOT NULL AND snoozed_until > @now THEN 1 ELSE 0 END) as snoozed_active
+    FROM mail_threads
+    WHERE folder != 'trash'
+    GROUP BY folder
+  `).all({ now }) as Array<{ folder: string; count: number; starred_count: number; snoozed_active: number }>;
+
+  const folderMap = new Map(folderStats.map(r => [r.folder, r]));
+
+  // 计算 unread（需要跨表查询）
+  const unreadRow = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM mail_messages m
+    JOIN mail_threads t ON t.id = m.thread_id
+    LEFT JOIN mail_receipts r ON r.message_id = m.id AND r.recipient_id = @recipientId
+    WHERE t.folder = 'inbox'
+      AND (t.snoozed_until IS NULL OR t.snoozed_until <= @now)
+      AND m.status = 'sent'
+      AND COALESCE(m.sender_id, '') != @recipientId
+      AND r.read_at IS NULL
+  `).get({ recipientId, now }) as { count: number };
+
+  // sent: 包含当前用户发送的消息的线程数
+  const sentCount = db.prepare(`
+    SELECT COUNT(DISTINCT t.id) as count
+    FROM mail_threads t
+    WHERE EXISTS (SELECT 1 FROM mail_messages sm WHERE sm.thread_id = t.id AND sm.sender_id = @recipientId AND sm.status = 'sent')
+  `).get({ recipientId }) as { count: number };
+
+  // drafts
+  const draftsCount = db.prepare(`
+    SELECT COUNT(DISTINCT t.id) as count
+    FROM mail_threads t
+    WHERE EXISTS (SELECT 1 FROM mail_messages dm WHERE dm.thread_id = t.id AND dm.status = 'draft')
+  `).get({ recipientId }) as { count: number };
+
+  // scheduled
+  const scheduledCount = db.prepare(`
+    SELECT COUNT(DISTINCT t.id) as count
+    FROM mail_threads t
+    WHERE EXISTS (SELECT 1 FROM mail_messages qm WHERE qm.thread_id = t.id AND qm.status = 'scheduled')
+  `).get({ recipientId }) as { count: number };
+
+  // starred (所有非 trash 的加星标线程)
+  const starredRow = db.prepare(`
+    SELECT COUNT(*) as count FROM mail_threads WHERE starred = 1 AND folder != 'trash'
+  `).get() as { count: number };
+
+  // snoozed (未过期的)
+  const snoozedRow = db.prepare(`
+    SELECT COUNT(*) as count FROM mail_threads WHERE snoozed_until IS NOT NULL AND snoozed_until > @now AND folder != 'trash'
+  `).get({ now }) as { count: number };
+
+  // trash
+  const trashRow = db.prepare(`SELECT COUNT(*) as count FROM mail_threads WHERE folder = 'trash'`).get() as { count: number };
+
+  const inboxRow = folderMap.get('inbox');
+  const archiveRow = folderMap.get('archive');
+  const inboxCount = inboxRow?.count ?? 0;
+  const archiveCount = archiveRow?.count ?? 0;
+  const allNonTrash = folderStats.reduce((sum, r) => sum + r.count, 0) + trashRow.count;
+
   return {
-    inbox: inbox.length,
-    unread: inbox.reduce((sum, thread) => sum + thread.unreadCount, 0),
-    starred: listMailThreads({ folder: 'starred', recipientId, limit: 250 }).length,
-    snoozed: listMailThreads({ folder: 'snoozed', recipientId, limit: 250 }).length,
-    drafts: listMailThreads({ folder: 'drafts', recipientId, limit: 250 }).length,
-    sent: listMailThreads({ folder: 'sent', recipientId, limit: 250 }).length,
-    scheduled: listMailThreads({ folder: 'scheduled', recipientId, limit: 250 }).length,
-    archive: listMailThreads({ folder: 'archive', recipientId, limit: 250 }).length,
-    trash: listMailThreads({ folder: 'trash', recipientId, limit: 250 }).length,
-    all: listMailThreads({ folder: 'all', recipientId, limit: 250 }).length,
+    inbox: inboxCount,
+    unread: unreadRow.count,
+    starred: starredRow.count,
+    snoozed: snoozedRow.count,
+    drafts: draftsCount.count,
+    sent: sentCount.count,
+    scheduled: scheduledCount.count,
+    archive: archiveCount,
+    trash: trashRow.count,
+    all: allNonTrash,
   };
 }
 

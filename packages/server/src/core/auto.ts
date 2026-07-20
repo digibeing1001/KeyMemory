@@ -3,6 +3,8 @@ import { createMemory } from './atom.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
 import { extractProjectPathFromContent, inferMemoryLayer, isMeaningfulTag, cleanTag } from './memory-schema.js';
+import { reasonRelationsForMemory } from './relation-reasoner.js';
+import { isLLMAvailable } from './llm-provider.js';
 
 interface AutoRememberInput {
   content: string;
@@ -148,6 +150,8 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   const projectPath: string | undefined = projects[0] || inferredProjectPath;
 
   const tags = extractTags(content);
+  // 添加 mailbox_indexer 标签，便于 Dream 周期按标签查询待扫描记忆
+  if (!tags.includes('mailbox_indexer')) tags.push('mailbox_indexer');
   // Agent-derived memories should not be indistinguishable from explicit user
   // assertions. Calibrate confidence from the admission score and cap it below
   // 1.0 so a later user correction can deterministically outrank it.
@@ -162,6 +166,9 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
       score: evaluation.total,
       action: evaluation.action,
     },
+    // 标记为待邮箱整理，下次 Dream 周期优先处理
+    pending_mailbox_scan: true,
+    pending_scan_since: Date.now(),
   };
   if (entities.length > 0) metadata.entities = entities;
   if (currentProjectId) metadata.projectId = currentProjectId;
@@ -184,6 +191,13 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   const entityResult = processContent(mem.id, content);
 
   // ensureEmbedding + autoAssociate 已内聚到 createMemory 内部，此处无需重复调用
+
+  // 异步触发增量关联推理（不阻塞主流程）
+  if (mem && isLLMAvailable()) {
+    reasonRelationsForMemory(mem.id).catch(err => {
+      console.error(`[Auto] Incremental relation reasoning failed for ${mem.id}:`, err);
+    });
+  }
 
   return {
     recorded: true,

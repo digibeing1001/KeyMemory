@@ -57,7 +57,7 @@ const zh: Record<string, string> = {
 
   'nav.mailbox': '记忆邮箱',
   'nav.memories': '记忆库',
-  'nav.nebula': '关系图',
+  'nav.valley': '记忆山谷',
   'nav.tags': '标签',
   'nav.dream': '自动整理',
   'nav.llm': 'LLM 配置',
@@ -413,7 +413,7 @@ const en: Record<string, string> = {
 
   'nav.mailbox': 'Shared mailbox',
   'nav.memories': 'Memory library',
-  'nav.nebula': 'Graph',
+  'nav.valley': 'Memory Valley',
   'nav.tags': 'Tags',
   'nav.dream': 'Auto organize',
   'nav.llm': 'LLM Config',
