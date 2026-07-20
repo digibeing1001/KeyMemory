@@ -281,6 +281,8 @@ function MemoryRow({ memory, locale, language, layerLabel, onClick, timeLabel, t
   return (
     <button
       type="button"
+      className="memory-list-item"
+      data-layer={memory.layer}
       onClick={onClick}
       style={{
         textAlign: 'left',

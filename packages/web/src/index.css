@@ -3746,25 +3746,23 @@ label {
 
 /* ===== 记忆库 layer 色彩条 ===== */
 .memory-list-item {
-  border-left: 3px solid transparent;
-  transition: all 0.15s;
+  transition: border-left-color 0.15s;
 }
-.memory-list-item[data-layer="flash"] {
-  border-left-color: #e8a735;
+button.memory-list-item[data-layer="flash"] {
+  border-left: 3px solid #f59e0b !important;
 }
-.memory-list-item[data-layer="short"] {
-  border-left-color: #5b9bd5;
+button.memory-list-item[data-layer="short"] {
+  border-left: 3px solid #3b82f6 !important;
 }
-.memory-list-item[data-layer="long"] {
-  border-left-color: #4f8a67;
+button.memory-list-item[data-layer="long"] {
+  border-left: 3px solid #10b981 !important;
 }
-.memory-list-item[data-layer="entity"] {
-  border-left-color: #8065a3;
+button.memory-list-item[data-layer="entity"] {
+  border-left: 3px solid #ec4899 !important;
 }
 .memory-list-item.selected,
 .memory-list-item[aria-selected="true"] {
   background: rgba(79, 138, 103, 0.08);
-  border-left-width: 3px;
 }
 
 /* ===== 统一空状态 ===== */

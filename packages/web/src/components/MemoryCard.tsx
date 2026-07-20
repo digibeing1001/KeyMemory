@@ -20,7 +20,7 @@ export default function MemoryCard({ memory, onClick, selected, score, matchType
   return (
     <button
       type="button"
-      className={`memory-card${selected ? ' selected' : ''}`}
+      className={`memory-card memory-list-item${selected ? ' selected' : ''}`}
       data-layer={memory.layer}
       onClick={() => onClick(memory)}
       aria-label={title}
