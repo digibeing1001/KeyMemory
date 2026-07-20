@@ -105,7 +105,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [timeRangeDays, setTimeRangeDays] = useState<number>(0);
   const [sliderValue, setSliderValue] = useState<number>(100);
-  const [contourThresholds, setContourThresholds] = useState<number>(12);
+  const [contourThresholds, setContourThresholds] = useState<number>(30);
   const contourThresholdsRef = useRef<number>(contourThresholds);
   contourThresholdsRef.current = contourThresholds;
   const [dimensions, setDimensions] = useState<{ w: number; h: number }>({ w: 800, h: 600 });
@@ -258,12 +258,18 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         .id(d => d.id)
         .distance((d) => 80 - ((d as SimLink).strength ?? 0.5) * 30)
         .strength(0.3))
-      .force('charge', d3.forceManyBody<SimNode>().strength(d => d.isClusterHead ? -300 : -80))
+      .force('charge', d3.forceManyBody<SimNode>().strength(d => d.isClusterHead ? -400 : -60))
       .force('center', d3.forceCenter(W / 2, H / 2))
       .force('collide', d3.forceCollide<SimNode>().radius(d => nodeRadius(d, degreeMap.get(d.id) ?? 0) + 4))
       .force('x', d3.forceX<SimNode>(W / 2).strength(0.04))
       .force('y', d3.forceY<SimNode>().y(d => layerY(d.layer, H)).strength(0.3))
       .alphaDecay(0.02);
+
+    // Add slight random perturbation for natural contour shapes
+    for (const n of simNodes) {
+      if (n.x !== undefined) n.x += (Math.random() - 0.5) * 3;
+      if (n.y !== undefined) n.y += (Math.random() - 0.5) * 3;
+    }
     simulationRef.current = simulation;
 
     /* Canvas contours */
@@ -281,21 +287,61 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         if (!ctx) return;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, W, H);
+
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+        // Background terrain grid
+        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)';
+        ctx.lineWidth = 0.5;
+        for (let y = 0; y < H; y += 40) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+        for (let x = 0; x < W; x += 40) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+        }
+
         const pts = simNodes.filter(n => n.x != null && n.y != null);
         if (pts.length < 3) return;
         try {
           const density = d3.contourDensity<SimNode>()
             .x(d => d.x ?? 0).y(d => d.y ?? 0)
-            .size([W, H]).bandwidth(35).thresholds(contourThresholdsRef.current)(pts);
+            .size([W, H]).bandwidth(15).thresholds(contourThresholdsRef.current)(pts);
           const geo = d3.geoPath().context(ctx);
+
+          // Draw contour layers with gradient fill
           for (let i = 0; i < density.length; i++) {
             ctx.beginPath();
-            ctx.fillStyle = `rgba(255,255,255,${Math.min(0.08, density[i].value * 0.005)})`;
-            ctx.strokeStyle = `rgba(255,255,255,${0.05 + i * 0.008})`;
-            ctx.lineWidth = 0.8;
+            const progress = i / density.length;
+            const alpha = 0.03 + progress * 0.12;
+            if (isDark) {
+              ctx.fillStyle = `rgba(79, 138, 103, ${alpha})`;
+              ctx.strokeStyle = `rgba(255, 255, 255, ${0.04 + progress * 0.08})`;
+            } else {
+              ctx.fillStyle = `rgba(79, 138, 103, ${alpha * 0.5})`;
+              ctx.strokeStyle = `rgba(0, 0, 0, ${0.03 + progress * 0.06})`;
+            }
+            ctx.lineWidth = progress > 0.7 ? 1.2 : 0.6;
             geo(density[i] as unknown as d3.GeoPermissibleObjects);
             ctx.fill();
             ctx.stroke();
+          }
+
+          // Valley shadows (lowest density areas)
+          const valleyPaths = density.filter((_, i) => i < density.length * 0.15);
+          for (const contour of valleyPaths) {
+            ctx.beginPath();
+            geo(contour as unknown as d3.GeoPermissibleObjects);
+            ctx.fillStyle = isDark ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.04)';
+            ctx.fill();
+          }
+
+          // Peak highlight (top 25% contours)
+          const peakPaths = density.filter((_, i) => i >= density.length * 0.75);
+          for (const contour of peakPaths) {
+            ctx.beginPath();
+            geo(contour as unknown as d3.GeoPermissibleObjects);
+            ctx.fillStyle = isDark ? 'rgba(255, 255, 200, 0.04)' : 'rgba(255, 255, 255, 0.15)';
+            ctx.fill();
           }
         } catch { /* contour can fail on degenerate data */ }
       }, 60);
@@ -321,6 +367,13 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
     headGlow.append('feMerge').selectAll('feMergeNode')
       .data(['blur', 'SourceGraphic']).join('feMergeNode').attr('in', (d: string) => d);
 
+    // Peak radial gradient
+    const peakGrad = defs.append('radialGradient')
+      .attr('id', 'peak-glow').attr('cx', '50%').attr('cy', '50%').attr('r', '50%');
+    peakGrad.append('stop').attr('offset', '0%').attr('stop-color', '#FFD700').attr('stop-opacity', 0.6);
+    peakGrad.append('stop').attr('offset', '60%').attr('stop-color', '#FFD700').attr('stop-opacity', 0.2);
+    peakGrad.append('stop').attr('offset', '100%').attr('stop-color', '#FFD700').attr('stop-opacity', 0);
+
     for (const [layer, color] of Object.entries(LAYER_ACCENTS)) {
       const grad = defs.append('radialGradient')
         .attr('id', `grad-${layer}`).attr('cx', '50%').attr('cy', '50%').attr('r', '50%');
@@ -331,6 +384,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
     const gRoot = svgSel.append('g').attr('class', 'valley-root');
     const gEdges = gRoot.append('g').attr('class', 'valley-edges');
     const gNodes = gRoot.append('g').attr('class', 'valley-nodes');
+    const gPeaks = gRoot.append('g').attr('class', 'valley-peaks');
     const gLabels = gRoot.append('g').attr('class', 'valley-labels');
 
     /* Zoom */
@@ -378,6 +432,36 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
           .attr('stroke-width', d.isClusterHead ? 2 : 1);
       })
       .on('click', (event: MouseEvent, d: SimNode) => { event.stopPropagation(); setSelectedNode(d); });
+
+    /* Peak markers for cluster heads */
+    const peakNodes = simNodes.filter(n => n.isClusterHead);
+    const peakSel = gPeaks.selectAll<SVGGElement, SimNode>('g')
+      .data(peakNodes, (d: SimNode) => d.id).join('g')
+      .attr('pointer-events', 'none');
+
+    // Outer glow halo
+    peakSel.append('circle')
+      .attr('r', 18).attr('fill', 'url(#peak-glow)').attr('opacity', 0.4)
+      .each(function() {
+        const el = d3.select(this);
+        el.append('animate').attr('attributeName', 'r').attr('values', '16;20;16').attr('dur', '4s').attr('repeatCount', 'indefinite');
+        el.append('animate').attr('attributeName', 'opacity').attr('values', '0.3;0.5;0.3').attr('dur', '4s').attr('repeatCount', 'indefinite');
+      });
+
+    // Mid ring
+    peakSel.append('circle')
+      .attr('r', 10).attr('fill', 'none').attr('stroke', 'rgba(255,215,0,0.4)').attr('stroke-width', 1)
+      .each(function() {
+        d3.select(this).append('animate').attr('attributeName', 'r').attr('values', '9;12;9').attr('dur', '3s').attr('repeatCount', 'indefinite');
+      });
+
+    // Core glow point
+    peakSel.append('circle')
+      .attr('r', 6).attr('fill', '#FFD700').attr('filter', 'url(#valley-head-glow)');
+
+    // Mountain triangle marker
+    peakSel.append('polygon')
+      .attr('points', '0,-8 3,-2 -3,-2').attr('fill', '#FFD700').attr('opacity', 0.8);
 
     /* Drag */
     const dragBehavior = d3.drag<SVGCircleElement, SimNode>()
@@ -435,6 +519,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         return `M${s.x ?? 0},${s.y ?? 0} Q${mx},${my} ${t.x ?? 0},${t.y ?? 0}`;
       });
       nodeSel.attr('cx', (d: SimNode) => d.x ?? 0).attr('cy', (d: SimNode) => d.y ?? 0);
+      peakSel.attr('transform', (d: SimNode) => `translate(${d.x ?? 0},${d.y ?? 0})`);
       labelSel.attr('transform', (d: SimNode) => {
         const r = nodeRadius(d, degreeMap.get(d.id) ?? 0);
         return `translate(${d.x ?? 0},${(d.y ?? 0) - r - 8})`;
@@ -627,7 +712,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         {/* 等高线密度滑块 */}
         <div className="valley-control-group">
           <label>{language === 'zh' ? '等高线' : 'Contours'}</label>
-          <input type="range" min={4} max={25} value={contourThresholds}
+          <input type="range" min={6} max={60} value={contourThresholds}
             onChange={e => setContourThresholds(Number(e.target.value))}
             className="valley-control-slider" />
           <span>{contourThresholds}</span>

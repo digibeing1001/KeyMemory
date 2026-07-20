@@ -3191,7 +3191,8 @@ label {
 }
 .mail-thread-row:hover { background: var(--bg-hover); }
 .mail-thread-row.active { background: color-mix(in srgb, var(--accent) 9%, var(--bg-primary)); box-shadow: 3px 0 0 var(--accent) inset; }
-.mail-thread-row.unread { background: var(--bg-primary); }
+.mail-thread-row.unread { background: var(--bg-primary); box-shadow: inset 3px 0 0 var(--accent-primary, #4f8a67); }
+.mail-unread-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent-primary, #4f8a67); color: #fff; font-size: 11px; font-weight: 600; flex-shrink: 0; }
 .mail-row-star { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .mail-row-content { min-width: 0; display: grid; gap: 6px; }
 .mail-row-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline; }
@@ -3201,6 +3202,20 @@ label {
 .mail-row-preview { min-width: 0; height: 34px; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 11.5px; line-height: 1.45; color: var(--text-muted); }
 .mail-row-preview em { margin-right: 6px; color: var(--accent); font-style: normal; font-weight: 750; }
 .mail-row-meta { display: flex; gap: 10px; font-size: 10px; color: var(--text-muted); }
+
+/* Date group heading */
+.mail-group-heading { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); background: var(--bg-secondary); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--border-primary); }
+.mail-group-heading > span:last-child { font-size: 10px; font-weight: 400; opacity: 0.7; }
+
+/* Filter panel */
+.mail-filter-panel { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary); }
+.mail-filter-group { display: flex; align-items: center; gap: 6px; }
+.mail-filter-group > label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.mail-filter-chips { display: flex; gap: 4px; }
+.mail-filter-chip { padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border-primary); background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.mail-filter-chip:hover { background: var(--bg-hover); }
+.mail-filter-chip.is-active { background: var(--accent-primary, #4f8a67); color: #fff; border-color: transparent; }
+.mail-icon-button.is-active { background: var(--accent-primary, #4f8a67); color: #fff; }
 
 .mail-empty, .mail-reader-empty { height: 100%; min-height: 240px; padding: 42px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); }
 .mail-empty strong, .mail-reader-empty strong { margin-top: 12px; font-size: 14px; color: var(--text-secondary); }
@@ -3234,6 +3249,34 @@ label {
 .mail-attachments details { width: 100%; margin-top: 5px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-secondary); }
 .mail-attachments summary { padding: 9px 11px; display: flex; align-items: center; gap: 6px; color: var(--text-secondary); cursor: pointer; font-weight: 650; }
 .mail-attachments pre { max-height: 280px; margin: 0; padding: 12px; overflow: auto; border-top: 1px solid var(--border); background: var(--surface-recessed); color: var(--text-secondary); font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+/* 折叠消息摘要行 */
+.mail-message-collapsed { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: transparent; border: none; width: 100%; cursor: pointer; text-align: left; color: var(--text-secondary); font-size: 13px; transition: background 0.15s; }
+.mail-message-collapsed:hover { background: var(--bg-hover, rgba(0,0,0,0.04)); border-radius: 6px; }
+.mail-sender-avatar.is-small { width: 24px; height: 24px; font-size: 11px; }
+.mail-collapsed-info { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: baseline; }
+.mail-collapsed-info strong { font-weight: 600; white-space: nowrap; }
+.mail-collapsed-info em { font-style: normal; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-collapsed-time { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.mail-expand-icon { color: var(--text-muted); font-size: 10px; }
+
+/* 隐藏消息按钮 */
+.mail-hidden-group { display: flex; align-items: center; justify-content: center; padding: 6px 0; }
+.mail-hidden-group button { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 16px; padding: 4px 14px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.mail-hidden-group button:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* 消息类型标签 */
+.mail-type-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.mail-type-badge[data-type="reply"] { color: #5b9bd5; }
+.mail-type-badge[data-type="question"] { color: #e8a735; }
+.mail-type-badge[data-type="decision"] { color: #4f8a67; }
+.mail-type-badge[data-type="correction"] { color: #d9534f; }
+.mail-type-badge[data-type="digest"] { color: #8065a3; }
+.mail-type-badge[data-type="progress"] { color: #2f8297; }
+
+/* 折叠按钮 */
+.mail-collapse-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 4px; }
+.mail-collapse-btn:hover { background: var(--bg-hover); }
+
 .mail-linked-memories { max-width: 784px; margin: 20px auto 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); }
 .mail-linked-memories summary { padding: 11px 13px; display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
 .mail-linked-memories summary svg:last-child { margin-left: auto; }
@@ -3336,6 +3379,156 @@ label {
   .mail-thread-header, .mail-message-stack, .mail-reply-box { padding-left: 20px; padding-right: 20px; }
   .mail-compose { right: 8px; bottom: 8px; width: calc(100vw - 16px); }
   .mail-compose-body { min-height: 220px; }
+}
+
+/* ===== Agent 共读标识 ===== */
+
+/* 在线 Agent 区域（侧边栏） */
+.mailbox-agents-online {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-primary);
+}
+.mailbox-agents-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.mailbox-agents-avatars {
+  display: flex;
+  gap: 8px;
+}
+.agent-avatar {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1.5px solid var(--border-primary);
+  transition: all 0.2s;
+}
+.agent-avatar.is-active {
+  border-color: #4f8a67;
+  color: var(--text-primary);
+}
+.agent-avatar.is-idle {
+  opacity: 0.5;
+}
+
+/* Agent 阅读状态标签（阅读面板） */
+.mail-agent-readers {
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border-primary);
+}
+.mail-agent-readers-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: block;
+}
+.mail-agent-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mail-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  border: 1px solid var(--agent-color, var(--border-primary));
+  background: color-mix(in srgb, var(--agent-color, transparent) 8%, transparent);
+  color: var(--text-secondary);
+  transition: all 0.3s;
+}
+.mail-agent-badge.is-read {
+  animation: agent-badge-fadein 0.5s ease-out;
+}
+.mail-agent-badge.is-unread {
+  border-style: dashed;
+  opacity: 0.5;
+}
+.mail-agent-icon {
+  font-size: 14px;
+}
+.mail-agent-name {
+  font-weight: 500;
+}
+.mail-agent-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+@keyframes agent-badge-fadein {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Agent 活动痕迹（线程列表） */
+.mail-row-agent-activity,
+.mail-agent-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--accent-primary, #4f8a67);
+  margin-top: 2px;
+}
+.agent-activity-pulse,
+.agent-activity-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: agent-pulse 2s ease-in-out infinite;
+}
+
+/* Agent 呼吸灯/脉冲动画 */
+.agent-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4f8a67;
+  display: inline-block;
+  animation: agent-pulse 2s ease-in-out infinite;
+}
+
+.agent-status-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4f8a67;
+  border: 2px solid var(--bg-primary);
+}
+
+.agent-avatar.is-active .agent-status-dot {
+  animation: agent-glow 3s ease-in-out infinite;
+}
+
+@keyframes agent-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@keyframes agent-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 138, 103, 0.4); }
+  50% { box-shadow: 0 0 6px 2px rgba(79, 138, 103, 0.3); }
 }
 
 /* === 减少动画偏好 === */

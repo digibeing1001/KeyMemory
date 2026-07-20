@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+const { Fragment } = React;
 import type { FormEvent } from 'react';
 import type { MailMessageType, MailThread, MailThreadDetail, MailThreadKind } from '@keymemory/shared';
 import { Archive, ArrowLeft, ChevronDown, Clock, Close, Inbox, Layers, Mail, Paperclip, Plus, RefreshCw, Search, Send, Star, Trash, User } from './Icons';
@@ -34,6 +35,17 @@ const KIND_LABEL: Record<MailThreadKind, { zh: string; en: string }> = {
   event: { zh: '事件', en: 'Event' },
 };
 
+const MESSAGE_TYPE_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
+  reply: { icon: '↩', label: '回复', color: '#5b9bd5' },
+  question: { icon: '?', label: '提问', color: '#e8a735' },
+  decision: { icon: '✓', label: '决定', color: '#4f8a67' },
+  correction: { icon: '!', label: '更正', color: '#d9534f' },
+  digest: { icon: '☰', label: '摘要', color: '#8065a3' },
+  progress: { icon: '→', label: '进展', color: '#2f8297' },
+};
+
+const MIDDLE_THRESHOLD = 8;
+
 function senderLabel(type: string, senderId: string | undefined, zh: boolean): string {
   if (type === 'secretary') return zh ? '记忆秘书' : 'Memory Secretary';
   if (type === 'agent') return senderId ? `Agent · ${senderId.replace(/^agent:/, '')}` : 'Agent';
@@ -57,6 +69,27 @@ function formatMailboxDate(value: string | undefined, zh: boolean, full = false)
     ? { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
     : { month: 'short', day: 'numeric' }).format(date);
 }
+
+type DateGroup = 'today' | 'yesterday' | 'thisWeek' | 'earlier';
+
+function getDateGroup(dateStr: string): DateGroup {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const weekStart = new Date(today.getTime() - today.getDay() * 86400000);
+  if (date >= today) return 'today';
+  if (date >= yesterday) return 'yesterday';
+  if (date >= weekStart) return 'thisWeek';
+  return 'earlier';
+}
+
+const GROUP_LABELS: Record<DateGroup, [string, string]> = {
+  today: ['今天', 'Today'],
+  yesterday: ['昨天', 'Yesterday'],
+  thisWeek: ['本周', 'This Week'],
+  earlier: ['更早', 'Earlier'],
+};
 
 interface ComposerProps {
   onClose: () => void;
@@ -136,6 +169,9 @@ export default function MailboxView() {
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [mobileDetail, setMobileDetail] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<{ status?: string; kind?: string; sort?: string }>({});
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async (keepSelection = true) => {
     setLoading(true);
@@ -172,7 +208,71 @@ export default function MailboxView() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    setExpandedIds(new Set());
+  }, [detail?.thread.id]);
+
   const selected = useMemo(() => threads.find((item) => item.id === selectedId), [threads, selectedId]);
+
+  const agentReaders = useMemo(() => {
+    const readers = (detail as any)?.thread?.metadata?.agentReaders as Array<{
+      id: string; name: string; icon: string; color: string;
+      hasRead: boolean; readAt?: string;
+    }> | undefined;
+    if (readers && readers.length > 0) return readers;
+    return (detail?.thread.participantIds ?? [])
+      .filter((id: string) => id !== 'human')
+      .map((id: string) => ({
+        id,
+        name: id.charAt(0).toUpperCase() + id.slice(1),
+        icon: id === 'secretary' ? '📋' : id === 'agent' ? '🤖' : '🛠',
+        color: id === 'secretary' ? '#b77635' : id === 'agent' ? '#8065a3' : '#2f8297',
+        hasRead: true,
+        readAt: detail?.thread.updatedAt,
+      }));
+  }, [detail]);
+
+  const agentActivity = useMemo(() => {
+    if (!detail?.thread.updatedAt) return null;
+    const diff = Date.now() - new Date(detail.thread.updatedAt).getTime();
+    if (diff < 60000) return zh ? 'Secretary 刚刚整理' : 'Secretary just organized';
+    if (diff < 300000) return zh ? 'Codex 正在阅读' : 'Codex is reading';
+    if (diff < 3600000) return zh ? `${Math.floor(diff / 60000)} 分钟前查阅` : `${Math.floor(diff / 60000)}m ago`;
+    return null;
+  }, [detail?.thread.updatedAt, zh]);
+
+  function formatAgentReadTime(readAt: string): string {
+    const diff = Date.now() - new Date(readAt).getTime();
+    if (diff < 60000) return zh ? '刚刚' : 'just now';
+    if (diff < 3600000) return zh ? `${Math.floor(diff / 60000)} 分钟前` : `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return zh ? `${Math.floor(diff / 3600000)} 小时前` : `${Math.floor(diff / 3600000)}h ago`;
+    return zh ? `${Math.floor(diff / 86400000)} 天前` : `${Math.floor(diff / 86400000)}d ago`;
+  }
+
+  const filteredThreads = useMemo(() => {
+    let result = threads;
+    if (filters.status) result = result.filter((t) => t.status === filters.status);
+    if (filters.kind) result = result.filter((t) => t.kind === filters.kind);
+    return result;
+  }, [threads, filters]);
+
+  const groupedThreads = useMemo(() => {
+    const groups: { group: DateGroup; threads: typeof filteredThreads }[] = [];
+    let currentGroup: DateGroup | null = null;
+    let currentBatch: typeof filteredThreads = [];
+    for (const thread of filteredThreads) {
+      const group = getDateGroup(thread.lastMessageAt || thread.updatedAt);
+      if (group !== currentGroup) {
+        if (currentBatch.length > 0) groups.push({ group: currentGroup!, threads: currentBatch });
+        currentGroup = group;
+        currentBatch = [thread];
+      } else {
+        currentBatch.push(thread);
+      }
+    }
+    if (currentBatch.length > 0) groups.push({ group: currentGroup!, threads: currentBatch });
+    return groups;
+  }, [filteredThreads]);
 
   const openThread = (id: string) => {
     setSelectedId(id);
@@ -251,6 +351,26 @@ export default function MailboxView() {
             return <button type="button" key={item.key} className={folder === item.key ? 'active' : ''} onClick={() => { setFolder(item.key); setMobileDetail(false); }}><Icon size={16} /><span>{zh ? item.zh : item.en}</span>{Boolean(count) && <b>{count}</b>}</button>;
           })}
         </nav>
+        <div className="mailbox-agents-online">
+          <span className="mailbox-agents-label">
+            <span className="agent-pulse" />
+            {zh ? '在线 Agent' : 'Agents Online'}
+          </span>
+          <div className="mailbox-agents-avatars">
+            <span className="agent-avatar is-active" data-agent="codex" title="Codex">
+              <span>C</span>
+              <span className="agent-status-dot" />
+            </span>
+            <span className="agent-avatar is-active" data-agent="secretary" title="Secretary">
+              <span>S</span>
+              <span className="agent-status-dot" />
+            </span>
+            <span className="agent-avatar is-idle" data-agent="workbuddy" title="WorkBuddy">
+              <span>W</span>
+              <span className="agent-status-dot" />
+            </span>
+          </div>
+        </div>
         <div className="mailbox-rule-card">
           <strong>{zh ? '一个主题，一项工作' : 'One subject, one body of work'}</strong>
           <p>{zh ? '项目、任务和事件用邮件串接力；通用事实仍保存在记忆库。' : 'Projects, tasks, and events continue as mail threads. Reusable facts stay in memory.'}</p>
@@ -265,19 +385,60 @@ export default function MailboxView() {
             {query && <button type="button" onClick={() => { setQuery(''); setSearch(''); }} aria-label={zh ? '清除搜索' : 'Clear search'}><Close size={14} /></button>}
           </form>
           <button type="button" className="mail-icon-button" onClick={() => void refresh()} aria-label={zh ? '刷新' : 'Refresh'}><RefreshCw size={16} /></button>
+          <button type="button" className={`mail-icon-button${showFilters ? ' is-active' : ''}`} onClick={() => setShowFilters(!showFilters)} title={zh ? '筛选' : 'Filter'}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+          </button>
         </div>
+        {showFilters && (
+          <div className="mail-filter-panel">
+            <div className="mail-filter-group">
+              <label>{zh ? '状态' : 'Status'}</label>
+              <div className="mail-filter-chips">
+                {['', 'open', 'waiting', 'completed'].map((v) => (
+                  <button key={v} className={`mail-filter-chip${filters.status === v || (!v && !filters.status) ? ' is-active' : ''}`} onClick={() => setFilters((f) => ({ ...f, status: v || undefined }))}>
+                    {v === '' ? (zh ? '全部' : 'All') : v === 'open' ? (zh ? '进行中' : 'Open') : v === 'waiting' ? (zh ? '等待回复' : 'Waiting') : (zh ? '已完成' : 'Done')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mail-filter-group">
+              <label>{zh ? '类型' : 'Type'}</label>
+              <div className="mail-filter-chips">
+                {['', 'project', 'task', 'event'].map((v) => (
+                  <button key={v} className={`mail-filter-chip${filters.kind === v || (!v && !filters.kind) ? ' is-active' : ''}`} onClick={() => setFilters((f) => ({ ...f, kind: v || undefined }))}>
+                    {v === '' ? (zh ? '全部' : 'All') : v === 'project' ? (zh ? '项目' : 'Project') : v === 'task' ? (zh ? '任务' : 'Task') : (zh ? '事件' : 'Event')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="mailbox-list-heading">
           <div><h2>{zh ? FOLDERS.find((item) => item.key === folder)?.zh : FOLDERS.find((item) => item.key === folder)?.en}</h2><span>{threads.length} {zh ? '个工作主题' : 'threads'}</span></div>
           <button type="button" className="btn" onClick={() => void runSync()} disabled={syncing}><RefreshCw size={14} />{syncing ? (zh ? '整理中…' : 'Syncing…') : (zh ? '记忆秘书整理' : 'Secretary sync')}</button>
         </div>
         <div className="mail-thread-list">
-          {loading ? <div className="mail-empty">{zh ? '正在取信…' : 'Loading mail…'}</div> : threads.length === 0 ? (
+          {loading ? <div className="mail-empty">{zh ? '正在取信…' : 'Loading mail…'}</div> : filteredThreads.length === 0 ? (
             <div className="mail-empty"><Mail size={30} /><strong>{search ? (zh ? '没有找到相关邮件' : 'No matching mail') : (zh ? '这里还没有邮件' : 'No mail here yet')}</strong><p>{zh ? '为一项具体工作写第一封邮件，后续人类、Agent 与记忆会在同一项目中持续补充信息。' : 'Write the first message for a concrete body of work.'}</p></div>
-          ) : threads.map((thread) => (
-            <button type="button" key={thread.id} className={`mail-thread-row${thread.id === selectedId ? ' active' : ''}${thread.unreadCount > 0 ? ' unread' : ''}`} onClick={() => openThread(thread.id)}>
-              <span className="mail-row-star" onClick={(event) => { event.stopPropagation(); void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh()); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></span>
-              <span className="mail-row-content"><span className="mail-row-top"><strong>{thread.subject}</strong><time>{formatMailboxDate(thread.lastMessageAt || thread.updatedAt, zh)}</time></span><span className="mail-row-preview"><em>{zh ? KIND_LABEL[thread.kind].zh : KIND_LABEL[thread.kind].en}</em>{thread.currentSummary || (zh ? '打开查看完整往来' : 'Open to read the conversation')}</span><span className="mail-row-meta"><span>{thread.messageCount} {zh ? '封' : 'messages'}</span>{thread.status === 'waiting' && <span>{zh ? '等待回复' : 'Waiting'}</span>}{thread.status === 'completed' && <span>{zh ? '已完成' : 'Completed'}</span>}</span></span>
-            </button>
+          ) : groupedThreads.map(({ group, threads: groupThreads }) => (
+            <Fragment key={group}>
+              <div className="mail-group-heading">
+                <span>{GROUP_LABELS[group][language === 'zh' ? 0 : 1]}</span>
+                <span>{groupThreads.length}</span>
+              </div>
+              {groupThreads.map((thread) => (
+                <button type="button" key={thread.id} className={`mail-thread-row${thread.id === selectedId ? ' active' : ''}${thread.unreadCount > 0 ? ' unread' : ''}`} onClick={() => openThread(thread.id)}>
+                  <span className="mail-row-star" onClick={(event) => { event.stopPropagation(); void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh()); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></span>
+                  <span className="mail-row-content"><span className="mail-row-top"><strong>{thread.subject}</strong><time>{formatMailboxDate(thread.lastMessageAt || thread.updatedAt, zh)}</time></span><span className="mail-row-preview"><em>{zh ? KIND_LABEL[thread.kind].zh : KIND_LABEL[thread.kind].en}</em>{thread.currentSummary || (zh ? '打开查看完整往来' : 'Open to read the conversation')}</span><span className="mail-row-meta"><span>{thread.messageCount} {zh ? '封' : 'messages'}</span>{thread.status === 'waiting' && <span>{zh ? '等待回复' : 'Waiting'}</span>}{thread.status === 'completed' && <span>{zh ? '已完成' : 'Completed'}</span>}{(thread.metadata as any)?.lastAgentActivity && (
+                      <span className="mail-agent-activity">
+                        <span className="agent-activity-dot" />
+                        {(thread.metadata as any).lastAgentActivity}
+                      </span>
+                    )}</span></span>
+                  {thread.unreadCount > 0 && <span className="mail-unread-badge">{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</span>}
+                </button>
+              ))}
+            </Fragment>
           ))}
         </div>
       </section>
@@ -303,18 +464,143 @@ export default function MailboxView() {
                 <h1>{detail.thread.subject}</h1>
                 <p>{zh ? `${detail.thread.messageCount} 封邮件 · 人类、Agent 与记忆共同可读` : `${detail.thread.messageCount} messages · shared by humans, Agents, and memory`}</p>
               </header>
+              {agentReaders.length > 0 && (
+                <div className="mail-agent-readers">
+                  <span className="mail-agent-readers-label">
+                    {zh ? 'Agent 阅读状态' : 'Agent Readers'}
+                  </span>
+                  <div className="mail-agent-badges">
+                    {agentReaders.map(agent => (
+                      <span key={agent.id} className={`mail-agent-badge ${agent.hasRead ? 'is-read' : 'is-unread'}`}
+                        style={{ '--agent-color': agent.color } as React.CSSProperties}>
+                        <span className="mail-agent-icon">{agent.icon}</span>
+                        <span className="mail-agent-name">{agent.name}</span>
+                        {agent.hasRead && agent.readAt && (
+                          <time className="mail-agent-time">{formatAgentReadTime(agent.readAt)}</time>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mail-message-stack">
-                {detail.messages.map((message, index) => (
-                  <section className={`mail-message sender-${message.senderType}`} key={message.id}>
-                    <div className="mail-sender-avatar">{senderInitial(message.senderType)}</div>
-                    <div className="mail-message-main">
-                      <header><div><strong>{senderLabel(message.senderType, message.senderId, zh)}</strong><span>{message.senderType === 'secretary' ? (zh ? '自动整理' : 'Automatic digest') : message.senderType === 'agent' ? (zh ? '工作进度' : 'Agent update') : (zh ? '人工补充' : 'Human note')}</span></div><time>{formatMailboxDate(message.sentAt || message.createdAt, zh, true)}</time></header>
-                      <div className="mail-message-body">{message.body}</div>
-                      {message.attachments.length > 0 && <div className="mail-attachments"><Paperclip size={14} /><span>{message.attachments.length} {zh ? '个附件' : 'attachments'}</span>{message.attachments.map((attachment) => <details key={attachment.id}><summary><ChevronDown size={14} />{attachment.title}</summary><pre>{attachment.content || (zh ? '关联记忆，可在记忆库中查看。' : 'Linked memory; open it in the memory library.')}</pre></details>)}</div>}
-                      {index < detail.messages.length - 1 && <div className="mail-message-divider" />}
-                    </div>
-                  </section>
-                ))}
+                {(() => {
+                  const messages = detail.messages.slice().reverse();
+                  const total = messages.length;
+
+                  const toggleExpand = (id: string) => {
+                    setExpandedIds(prev => new Set(prev).add(id));
+                  };
+                  const toggleCollapse = (id: string) => {
+                    setExpandedIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+                  };
+
+                  type VisMsg = { msg: typeof messages[0]; isLatest: boolean; hidden: boolean };
+                  const visibleMsgs: VisMsg[] = total <= MIDDLE_THRESHOLD
+                    ? messages.map((msg, i) => ({ msg, isLatest: i === 0, hidden: false }))
+                    : messages.map((msg, i) => {
+                        const isLatest = i === 0;
+                        const showTop = i < 4;
+                        const showBottom = i >= total - 2;
+                        const hidden = !showTop && !showBottom && !isLatest && !expandedIds.has(msg.id);
+                        return { msg, isLatest, hidden };
+                      });
+
+                  const avatarColors: Record<string, string> = {
+                    human: 'color-mix(in srgb, var(--accent) 14%, var(--bg-secondary))',
+                    agent: 'color-mix(in srgb, #7c6bb5 14%, var(--bg-secondary))',
+                    secretary: 'color-mix(in srgb, #a9773e 14%, var(--bg-secondary))',
+                  };
+                  const avatarTextColors: Record<string, string> = {
+                    human: 'var(--accent)',
+                    agent: '#7c6bb5',
+                    secretary: '#a9773e',
+                  };
+
+                  const elements: React.ReactNode[] = [];
+                  let hiddenCount = 0;
+                  let hiddenGroupKey = 0;
+
+                  const flushHidden = () => {
+                    if (hiddenCount > 0) {
+                      elements.push(
+                        <div className="mail-hidden-group" key={`hidden-${hiddenGroupKey++}`}>
+                          <button type="button" onClick={() => {
+                            setExpandedIds(prev => {
+                              const s = new Set(prev);
+                              visibleMsgs.forEach(v => { if (v.hidden) s.add(v.msg.id); });
+                              return s;
+                            });
+                          }}>{zh ? `还有 ${hiddenCount} 条旧消息` : `${hiddenCount} older messages`}</button>
+                        </div>
+                      );
+                      hiddenCount = 0;
+                    }
+                  };
+
+                  visibleMsgs.forEach((v, idx) => {
+                    if (v.hidden) {
+                      hiddenCount++;
+                      return;
+                    }
+                    flushHidden();
+
+                    const msg = v.msg;
+                    const isLatest = v.isLatest;
+                    const isExpanded = isLatest || expandedIds.has(msg.id);
+                    const typeConfig = MESSAGE_TYPE_CONFIG[msg.messageType];
+                    const avatarColor = avatarColors[msg.senderType] || avatarColors.human;
+                    const avatarTextColor = avatarTextColors[msg.senderType] || avatarTextColors.human;
+                    const avatarLetter = senderInitial(msg.senderType);
+                    const sLabel = senderLabel(msg.senderType, msg.senderId, zh);
+                    const timeStr = formatMailboxDate(msg.sentAt || msg.createdAt, zh, true);
+                    const bodyPreview = msg.body.length > 30 ? msg.body.slice(0, 30) + '…' : msg.body;
+
+                    if (isExpanded) {
+                      elements.push(
+                        <section className={`mail-message sender-${msg.senderType}`} key={msg.id}>
+                          <div className="mail-sender-avatar" style={{ background: avatarColor, color: avatarTextColor }}>
+                            {avatarLetter}
+                          </div>
+                          <div className="mail-message-main">
+                            <header>
+                              <div>
+                                {typeConfig && <span className="mail-type-badge" data-type={msg.messageType} style={{ color: typeConfig.color }}>{typeConfig.icon}</span>}
+                                <strong>{sLabel}</strong>
+                                <span>{msg.senderType === 'secretary' ? (zh ? '自动整理' : 'Automatic digest') : msg.senderType === 'agent' ? (zh ? '工作进度' : 'Agent update') : (zh ? '人工补充' : 'Human note')}</span>
+                              </div>
+                              <time>{timeStr}</time>
+                              {!isLatest && (
+                                <button type="button" className="mail-collapse-btn" onClick={() => toggleCollapse(msg.id)}>▴</button>
+                              )}
+                            </header>
+                            <div className="mail-message-body">{msg.body}</div>
+                            {msg.attachments.length > 0 && <div className="mail-attachments"><Paperclip size={14} /><span>{msg.attachments.length} {zh ? '个附件' : 'attachments'}</span>{msg.attachments.map((attachment) => <details key={attachment.id}><summary><ChevronDown size={14} />{attachment.title}</summary><pre>{attachment.content || (zh ? '关联记忆，可在记忆库中查看。' : 'Linked memory; open it in the memory library.')}</pre></details>)}</div>}
+                            {idx < visibleMsgs.length - 1 && <div className="mail-message-divider" />}
+                          </div>
+                        </section>
+                      );
+                    } else {
+                      elements.push(
+                        <button type="button" className="mail-message-collapsed" key={msg.id} onClick={() => toggleExpand(msg.id)}>
+                          <span className="mail-sender-avatar is-small" style={{ background: avatarColor, color: avatarTextColor }}>
+                            {avatarLetter}
+                          </span>
+                          <span className="mail-collapsed-info">
+                            {typeConfig && <span className="mail-type-badge" data-type={msg.messageType} style={{ color: typeConfig.color }}>{typeConfig.icon}</span>}
+                            <strong>{sLabel}</strong>
+                            <em>{bodyPreview}</em>
+                          </span>
+                          <time className="mail-collapsed-time">{timeStr}</time>
+                          <span className="mail-expand-icon">▾</span>
+                        </button>
+                      );
+                    }
+                  });
+                  flushHidden();
+
+                  return elements;
+                })()}
               </div>
               {detail.linkedMemories.length > 0 && <details className="mail-linked-memories"><summary><Layers size={15} />{zh ? `这个主题引用了 ${detail.linkedMemories.length} 条记忆` : `${detail.linkedMemories.length} linked memories`}<ChevronDown size={14} /></summary><div>{detail.linkedMemories.map((memory) => <span key={memory.id}>{memory.title}</span>)}</div></details>}
               <section className="mail-reply-box">
