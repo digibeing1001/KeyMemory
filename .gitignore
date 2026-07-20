@@ -18,3 +18,6 @@ scripts/*.txt
 # Local research notes (not for public release)
 docs/research-and-product-upgrade.md
 docs/loop-harness-research.md
+
+# Temporary logo assets fetched from brand websites (not for public release)
+.tmp-logos/

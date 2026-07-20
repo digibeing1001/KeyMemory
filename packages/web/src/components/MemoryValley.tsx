@@ -391,7 +391,13 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
     const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.3, 5])
       .on('zoom', (event: d3.D3ZoomEvent<SVGSVGElement, unknown>) => {
-        gRoot.attr('transform', event.transform.toString());
+        const tfStr = event.transform.toString();
+        gRoot.attr('transform', tfStr);
+        // 同步 canvas 等高线层 transform，避免与 SVG 节点分离
+        if (canvas) {
+          canvas.style.transformOrigin = '0 0';
+          canvas.style.transform = tfStr;
+        }
         transformRef.current = event.transform;
         setZoomLevel(event.transform.k);
         // Toggle non-cluster labels based on zoom level

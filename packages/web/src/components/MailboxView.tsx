@@ -78,11 +78,11 @@ interface AgentConfig {
 }
 
 const AGENT_CONFIGS: AgentConfig[] = [
-  { id: 'openclaw',   name: 'OpenClaw',   logo: '/agents/agent-openclaw.svg',   color: '#EE5A24', status: 'active' },
-  { id: 'hermes',     name: 'Hermes',     logo: '/agents/agent-hermes.svg',     color: '#6C5CE7', status: 'active' },
-  { id: 'codex',      name: 'Codex',      logo: '/agents/agent-codex.svg',      color: '#00B894', status: 'active' },
+  { id: 'openclaw',   name: 'OpenClaw',   logo: '/agents/agent-openclaw.svg',   color: '#ff4d4d', status: 'active' },
+  { id: 'hermes',     name: 'Hermes',     logo: '/agents/agent-hermes.png',     color: '#6C5CE7', status: 'active' },
+  { id: 'codex',      name: 'Codex',      logo: '/agents/agent-codex.svg',      color: '#10A37F', status: 'active' },
   { id: 'secretary',  name: 'Secretary',  logo: '/agents/agent-secretary.svg',  color: '#F39C12', status: 'active' },
-  { id: 'workbuddy',  name: 'WorkBuddy',  logo: '/agents/agent-workbuddy.svg',  color: '#0984E3', status: 'idle' },
+  { id: 'workbuddy',  name: 'WorkBuddy',  logo: '/agents/agent-workbuddy.svg',  color: '#6C4DFF', status: 'idle' },
 ];
 
 function getAgentConfig(id: string): AgentConfig {
