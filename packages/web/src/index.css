@@ -390,7 +390,7 @@ textarea:focus-visible,
   box-shadow: var(--shadow-inset);
 }
 
-.memory-card .card-indicator {
+.memory-card.memory-list-item .card-indicator {
   width: 3px;
   border-radius: 2px;
   align-self: stretch;
@@ -3749,16 +3749,16 @@ label {
   transition: border-left-color 0.15s;
 }
 button.memory-list-item[data-layer="flash"] {
-  border-left: 3px solid #f59e0b !important;
+  border-left-color: #f59e0b;
 }
 button.memory-list-item[data-layer="short"] {
-  border-left: 3px solid #3b82f6 !important;
+  border-left-color: #3b82f6;
 }
 button.memory-list-item[data-layer="long"] {
-  border-left: 3px solid #10b981 !important;
+  border-left-color: #10b981;
 }
 button.memory-list-item[data-layer="entity"] {
-  border-left: 3px solid #ec4899 !important;
+  border-left-color: #ec4899;
 }
 .memory-list-item.selected,
 .memory-list-item[aria-selected="true"] {
