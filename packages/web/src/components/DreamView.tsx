@@ -126,6 +126,7 @@ export default function DreamView({ onMemorySelect, onHealthChanged }: DreamView
     targetId: string;
   } | null>(null);
   const [orphanIssues, setOrphanIssues] = useState<OrphanIssue[]>([]);
+  const [dreamFilter, setDreamFilter] = useState<string>('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -775,15 +776,43 @@ export default function DreamView({ onMemorySelect, onHealthChanged }: DreamView
           <Clock size={15} style={{ color: 'var(--text-tertiary)' }} />
           {t('dream.history')}
         </h3>
-        {reports.length === 0 ? (
-          <div className="empty-state" style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', padding: 48 }}>
-            <Archive size={28} style={{ opacity: 0.45, marginBottom: 12 }} />
-            <span style={{ fontSize: 15, fontWeight: 650, color: 'var(--text-secondary)' }}>{t('dream.noReports')}</span>
-            <span style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>{t('dream.noReportsHint')}</span>
+        <div className="mail-filter-panel" style={{ borderBottom: '1px solid var(--border-primary)', marginBottom: 12 }}>
+          <div className="mail-filter-group">
+            <label>{language === 'zh' ? '状态' : 'Status'}</label>
+            <div className="mail-filter-chips">
+              {[
+                ['', language === 'zh' ? '全部' : 'All'],
+                ['pending', language === 'zh' ? '待处理' : 'Pending'],
+                ['running', language === 'zh' ? '运行中' : 'Running'],
+                ['completed', language === 'zh' ? '已完成' : 'Completed'],
+                ['failed', language === 'zh' ? '失败' : 'Failed']
+              ].map(([val, label]) => (
+                <button key={val} type="button"
+                  className={`mail-filter-chip${(dreamFilter === val || (!val && !dreamFilter)) ? ' is-active' : ''}`}
+                  onClick={() => setDreamFilter(val as string)}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        ) : (
+        </div>
+        {(() => {
+          const filteredDreams = dreamFilter ? reports.filter(d => d.status === dreamFilter) : reports;
+          if (filteredDreams.length === 0) {
+            return (
+              <div className="empty-state">
+                <div className="empty-state-icon">💤</div>
+                <div className="empty-state-title">{language === 'zh' ? '还没有 Dream 记录' : 'No dreams yet'}</div>
+                <div className="empty-state-desc">{language === 'zh' ? 'Dream 机制会在后台自动整理和关联你的记忆' : 'Dreams automatically organize and connect your memories in the background'}</div>
+                <button type="button" className="empty-state-action" onClick={handleRunDream}>
+                  {language === 'zh' ? '运行首次 Dream' : 'Run First Dream'}
+                </button>
+              </div>
+            );
+          }
+          return (
           <div style={{ display: 'grid', gap: 8 }}>
-            {reports.map((report) => {
+            {filteredDreams.map((report) => {
               const isSelected = selectedReport?.id === report.id;
               return (
                 <button
@@ -827,7 +856,8 @@ export default function DreamView({ onMemorySelect, onHealthChanged }: DreamView
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </section>
     </main>
   );

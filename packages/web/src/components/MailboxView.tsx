@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-const { Fragment } = React;
 import type { FormEvent } from 'react';
 import type { MailMessageType, MailThread, MailThreadDetail, MailThreadKind } from '@keymemory/shared';
 import { Archive, ArrowLeft, ChevronDown, Clock, Close, Inbox, Layers, Mail, Paperclip, Plus, RefreshCw, Search, Send, Star, Trash, User } from './Icons';
@@ -35,14 +34,38 @@ const KIND_LABEL: Record<MailThreadKind, { zh: string; en: string }> = {
   event: { zh: '事件', en: 'Event' },
 };
 
-const MESSAGE_TYPE_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
-  reply: { icon: '↩', label: '回复', color: '#5b9bd5' },
-  question: { icon: '?', label: '提问', color: '#e8a735' },
-  decision: { icon: '✓', label: '决定', color: '#4f8a67' },
-  correction: { icon: '!', label: '更正', color: '#d9534f' },
-  digest: { icon: '☰', label: '摘要', color: '#8065a3' },
-  progress: { icon: '→', label: '进展', color: '#2f8297' },
+const MESSAGE_TYPE_CONFIG: Record<string, { icon: string; label: string; labelEn: string; color: string }> = {
+  reply: { icon: '↩', label: '回复', labelEn: 'Reply', color: '#5b9bd5' },
+  question: { icon: '?', label: '提问', labelEn: 'Question', color: '#e8a735' },
+  decision: { icon: '✓', label: '决定', labelEn: 'Decision', color: '#4f8a67' },
+  correction: { icon: '!', label: '更正', labelEn: 'Correction', color: '#d9534f' },
+  digest: { icon: '☰', label: '摘要', labelEn: 'Digest', color: '#8065a3' },
+  progress: { icon: '→', label: '进展', labelEn: 'Progress', color: '#2f8297' },
 };
+
+function formatRelativeTime(dateStr: string, language: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return language === 'zh' ? '刚刚' : 'Just now';
+  if (minutes < 60) return language === 'zh' ? `${minutes} 分钟前` : `${minutes}m ago`;
+  if (hours < 24) return language === 'zh' ? `${hours} 小时前` : `${hours}h ago`;
+
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+
+  if (date >= todayStart) return language === 'zh' ? `今天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : `Today ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+  if (date >= yesterdayStart) return language === 'zh' ? `昨天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : `Yesterday ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+  if (days < 7) {
+    const weekdays = language === 'zh' ? ['周日','周一','周二','周三','周四','周五','周六'] : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    return `${weekdays[date.getDay()]} ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  return date.toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' });
+}
 
 const MIDDLE_THRESHOLD = 8;
 
@@ -195,6 +218,24 @@ export default function MailboxView() {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<{ status?: string; kind?: string; sort?: string }>({});
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [density, setDensity] = useState<'compact' | 'comfortable' | 'relaxed'>('comfortable');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = useCallback((group: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      next.has(group) ? next.delete(group) : next.add(group);
+      return next;
+    });
+  }, []);
+
+  const toggleMessage = useCallback((id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
 
   const refresh = useCallback(async (keepSelection = true) => {
     setLoading(true);
@@ -273,6 +314,11 @@ export default function MailboxView() {
     let result = threads;
     if (filters.status) result = result.filter((t) => t.status === filters.status);
     if (filters.kind) result = result.filter((t) => t.kind === filters.kind);
+    if (filters.sort === 'created') {
+      result = [...result].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else if (filters.sort === 'messages') {
+      result = [...result].sort((a, b) => b.messageCount - a.messageCount);
+    }
     return result;
   }, [threads, filters]);
 
@@ -300,7 +346,7 @@ export default function MailboxView() {
     setThreads((current) => current.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
   };
 
-  const patchThread = async (data: Parameters<typeof updateMailboxThread>[1], successText?: string) => {
+  const patchThread = useCallback(async (data: Parameters<typeof updateMailboxThread>[1], successText?: string) => {
     if (!selectedId) return;
     try {
       const updated = await updateMailboxThread(selectedId, data);
@@ -318,7 +364,7 @@ export default function MailboxView() {
     } catch (cause) {
       setNotice({ text: cause instanceof Error ? cause.message : (zh ? '操作失败' : 'Action failed'), tone: 'error' });
     }
-  };
+  }, [selectedId, folder, zh]);
 
   const sendReply = async () => {
     if (!selectedId || !reply.trim()) return;
@@ -360,6 +406,90 @@ export default function MailboxView() {
     }
   };
 
+  // 键盘快捷键导航
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if (target.closest('.mail-filter-panel')) return;
+
+      const items = filteredThreads;
+      const currentIndex = items.findIndex(t => t.id === selectedId);
+
+      switch (e.key.toLowerCase()) {
+        case 'j': {
+          e.preventDefault();
+          const nextIdx = Math.min(currentIndex + 1, items.length - 1);
+          if (items[nextIdx]) setSelectedId(items[nextIdx].id);
+          break;
+        }
+        case 'k': {
+          e.preventDefault();
+          const prevIdx = Math.max(currentIndex - 1, 0);
+          if (items[prevIdx]) setSelectedId(items[prevIdx].id);
+          break;
+        }
+        case 'enter':
+        case 'o': {
+          e.preventDefault();
+          if (selectedId) {
+            setMobileDetail(true);
+            setThreads(current => current.map(item => item.id === selectedId ? { ...item, unreadCount: 0 } : item));
+          }
+          break;
+        }
+        case 'e': {
+          e.preventDefault();
+          if (selectedId) {
+            void patchThread({ folder: 'archive' }, zh ? '已归档' : 'Archived');
+          }
+          break;
+        }
+        case 's': {
+          e.preventDefault();
+          if (selectedId) {
+            const thread = items.find(t => t.id === selectedId);
+            if (thread) {
+              void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh());
+            }
+          }
+          break;
+        }
+        case 'u': {
+          e.preventDefault();
+          if (selectedId) {
+            const thread = items.find(t => t.id === selectedId);
+            if (thread) {
+              const newUnread = thread.unreadCount > 0 ? 0 : 1;
+              setThreads(current => current.map(item => item.id === thread.id ? { ...item, unreadCount: newUnread } : item));
+              setDetail(current => current && current.thread.id === thread.id
+                ? { ...current, thread: { ...current.thread, unreadCount: newUnread } }
+                : current);
+              setNotice({ text: newUnread === 0 ? (zh ? '已标记为已读' : 'Marked as read') : (zh ? '已标记为未读' : 'Marked as unread'), tone: 'success' });
+            }
+          }
+          break;
+        }
+        case 'r': {
+          e.preventDefault();
+          const replyTextarea = document.querySelector('.mail-reply-box textarea') as HTMLTextAreaElement;
+          if (replyTextarea) replyTextarea.focus();
+          break;
+        }
+        case 'escape': {
+          e.preventDefault();
+          if (mobileDetail) {
+            setMobileDetail(false);
+          }
+          break;
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, detail, folder, filteredThreads, zh, mobileDetail, patchThread, refresh]);
+
   return (
     <div className="mailbox-shell">
       <aside className="mailbox-folders">
@@ -389,6 +519,9 @@ export default function MailboxView() {
           <strong>{zh ? '一个主题，一项工作' : 'One subject, one body of work'}</strong>
           <p>{zh ? '项目、任务和事件用邮件串接力；通用事实仍保存在记忆库。' : 'Projects, tasks, and events continue as mail threads. Reusable facts stay in memory.'}</p>
         </div>
+        <div className="mailbox-shortcuts-hint">
+          <span>{zh ? '快捷键: J/K 导航 · Enter 打开 · S 星标 · R 回复 · Esc 返回' : 'Shortcuts: J/K navigate · Enter open · S star · R reply · Esc back'}</span>
+        </div>
       </aside>
 
       <section className={`mailbox-list${mobileDetail ? ' is-hidden-mobile' : ''}`}>
@@ -401,6 +534,15 @@ export default function MailboxView() {
           <button type="button" className="mail-icon-button" onClick={() => void refresh()} aria-label={zh ? '刷新' : 'Refresh'}><RefreshCw size={16} /></button>
           <button type="button" className={`mail-icon-button${showFilters ? ' is-active' : ''}`} onClick={() => setShowFilters(!showFilters)} title={zh ? '筛选' : 'Filter'}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+          </button>
+          <button type="button" className="mail-icon-button"
+            onClick={() => setDensity(d => d === 'compact' ? 'comfortable' : d === 'comfortable' ? 'relaxed' : 'compact')}
+            title={zh ? `密度: ${density === 'compact' ? '紧凑' : density === 'comfortable' ? '舒适' : '宽松'}` : `Density: ${density}`}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              {density === 'compact' && <><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/></>}
+              {density === 'comfortable' && <><line x1="2" y1="3" x2="14" y2="3"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="13" x2="14" y2="13"/></>}
+              {density === 'relaxed' && <><line x1="2" y1="2" x2="14" y2="2"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="14" x2="14" y2="14"/></>}
+            </svg>
           </button>
         </div>
         {showFilters && (
@@ -425,22 +567,36 @@ export default function MailboxView() {
                 ))}
               </div>
             </div>
+            <div className="mail-filter-group">
+              <label>{zh ? '排序' : 'Sort'}</label>
+              <div className="mail-filter-chips">
+                {['', 'created', 'messages'].map((v) => (
+                  <button key={v} className={`mail-filter-chip${filters.sort === v || (!v && !filters.sort) ? ' is-active' : ''}`} onClick={() => setFilters((f) => ({ ...f, sort: v || undefined }))}>
+                    {v === '' ? (zh ? '最近活动' : 'Recent') : v === 'created' ? (zh ? '创建时间' : 'Created') : (zh ? '消息数' : 'Messages')}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
         <div className="mailbox-list-heading">
           <div><h2>{zh ? FOLDERS.find((item) => item.key === folder)?.zh : FOLDERS.find((item) => item.key === folder)?.en}</h2><span>{threads.length} {zh ? '个工作主题' : 'threads'}</span></div>
           <button type="button" className="btn" onClick={() => void runSync()} disabled={syncing}><RefreshCw size={14} />{syncing ? (zh ? '整理中…' : 'Syncing…') : (zh ? '记忆秘书整理' : 'Secretary sync')}</button>
         </div>
-        <div className="mail-thread-list">
+        <div className={`mail-thread-list density-${density}`}>
           {loading ? <div className="mail-empty">{zh ? '正在取信…' : 'Loading mail…'}</div> : filteredThreads.length === 0 ? (
             <div className="mail-empty"><Mail size={30} /><strong>{search ? (zh ? '没有找到相关邮件' : 'No matching mail') : (zh ? '这里还没有邮件' : 'No mail here yet')}</strong><p>{zh ? '为一项具体工作写第一封邮件，后续人类、Agent 与记忆会在同一项目中持续补充信息。' : 'Write the first message for a concrete body of work.'}</p></div>
           ) : groupedThreads.map(({ group, threads: groupThreads }) => (
-            <Fragment key={group}>
-              <div className="mail-group-heading">
-                <span>{GROUP_LABELS[group][language === 'zh' ? 0 : 1]}</span>
-                <span>{groupThreads.length}</span>
-              </div>
-              {groupThreads.map((thread) => (
+            <div key={group} className="mail-thread-group">
+              <button type="button" className={`mail-group-heading${collapsedGroups.has(group) ? ' is-collapsed' : ''}`}
+                onClick={() => toggleGroup(group)}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                  <path d={collapsedGroups.has(group) ? 'M3 1l4 4-4 4' : 'M1 3l4 4 4-4'} />
+                </svg>
+                {GROUP_LABELS[group][language === 'zh' ? 0 : 1]}
+                <span className="mail-group-count">{groupThreads.length}</span>
+              </button>
+              {!collapsedGroups.has(group) && groupThreads.map((thread) => (
                 <button type="button" key={thread.id} className={`mail-thread-row${thread.id === selectedId ? ' active' : ''}${thread.unreadCount > 0 ? ' unread' : ''}`} onClick={() => openThread(thread.id)}>
                   <span className="mail-row-star" onClick={(event) => { event.stopPropagation(); void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh()); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></span>
                   <span className="mail-row-content"><span className="mail-row-top"><strong>{thread.subject}</strong><time>{formatMailboxDate(thread.lastMessageAt || thread.updatedAt, zh)}</time></span><span className="mail-row-preview"><em>{zh ? KIND_LABEL[thread.kind].zh : KIND_LABEL[thread.kind].en}</em>{thread.currentSummary || (zh ? '打开查看完整往来' : 'Open to read the conversation')}</span><span className="mail-row-meta"><span>{thread.messageCount} {zh ? '封' : 'messages'}</span>{thread.status === 'waiting' && <span>{zh ? '等待回复' : 'Waiting'}</span>}{thread.status === 'completed' && <span>{zh ? '已完成' : 'Completed'}</span>}{(thread.metadata as any)?.lastAgentActivity && (
@@ -453,7 +609,7 @@ export default function MailboxView() {
                   {thread.unreadCount > 0 && <span className="mail-unread-badge">{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</span>}
                 </button>
               ))}
-            </Fragment>
+            </div>
           ))}
         </div>
       </section>
@@ -505,13 +661,6 @@ export default function MailboxView() {
                 {(() => {
                   const messages = detail.messages.slice().reverse();
                   const total = messages.length;
-
-                  const toggleExpand = (id: string) => {
-                    setExpandedIds(prev => new Set(prev).add(id));
-                  };
-                  const toggleCollapse = (id: string) => {
-                    setExpandedIds(prev => { const s = new Set(prev); s.delete(id); return s; });
-                  };
 
                   type VisMsg = { msg: typeof messages[0]; isLatest: boolean; hidden: boolean };
                   const visibleMsgs: VisMsg[] = total <= MIDDLE_THRESHOLD
@@ -571,7 +720,8 @@ export default function MailboxView() {
                     const avatarTextColor = avatarTextColors[msg.senderType] || avatarTextColors.human;
                     const avatarLetter = senderInitial(msg.senderType);
                     const sLabel = senderLabel(msg.senderType, msg.senderId, zh);
-                    const timeStr = formatMailboxDate(msg.sentAt || msg.createdAt, zh, true);
+                    const timeStr = formatRelativeTime(msg.sentAt || msg.createdAt || '', language);
+                    const fullTimeStr = (msg.sentAt || msg.createdAt) ? new Date(msg.sentAt || msg.createdAt).toLocaleString(zh ? 'zh-CN' : 'en-US') : '';
                     const bodyPreview = msg.body.length > 30 ? msg.body.slice(0, 30) + '…' : msg.body;
 
                     if (isExpanded) {
@@ -583,13 +733,13 @@ export default function MailboxView() {
                           <div className="mail-message-main">
                             <header>
                               <div>
-                                {typeConfig && <span className="mail-type-badge" data-type={msg.messageType} style={{ color: typeConfig.color }}>{typeConfig.icon}</span>}
+                                {typeConfig && <span className="mail-type-badge" data-type={msg.messageType} style={{ color: typeConfig.color }} title={zh ? typeConfig.label : typeConfig.labelEn}>{typeConfig.icon}</span>}
                                 <strong>{sLabel}</strong>
                                 <span>{msg.senderType === 'secretary' ? (zh ? '自动整理' : 'Automatic digest') : msg.senderType === 'agent' ? (zh ? '工作进度' : 'Agent update') : (zh ? '人工补充' : 'Human note')}</span>
                               </div>
-                              <time>{timeStr}</time>
+                              <time title={fullTimeStr}>{timeStr}</time>
                               {!isLatest && (
-                                <button type="button" className="mail-collapse-btn" onClick={() => toggleCollapse(msg.id)}>▴</button>
+                                <button type="button" className="mail-collapse-btn" onClick={() => toggleMessage(msg.id)} title={zh ? '折叠' : 'Collapse'}>▴</button>
                               )}
                             </header>
                             <div className="mail-message-body">{msg.body}</div>
@@ -600,16 +750,17 @@ export default function MailboxView() {
                       );
                     } else {
                       elements.push(
-                        <button type="button" className="mail-message-collapsed" key={msg.id} onClick={() => toggleExpand(msg.id)}>
+                        <button type="button" className="mail-message-collapsed" key={msg.id} onClick={() => toggleMessage(msg.id)}
+                          style={{ '--type-color': (MESSAGE_TYPE_CONFIG[msg.messageType] ?? MESSAGE_TYPE_CONFIG.reply).color } as React.CSSProperties}>
                           <span className="mail-sender-avatar is-small" style={{ background: avatarColor, color: avatarTextColor }}>
                             {avatarLetter}
                           </span>
                           <span className="mail-collapsed-info">
-                            {typeConfig && <span className="mail-type-badge" data-type={msg.messageType} style={{ color: typeConfig.color }}>{typeConfig.icon}</span>}
+                            {typeConfig && <span className="mail-type-badge" data-type={msg.messageType} style={{ color: typeConfig.color }} title={zh ? typeConfig.label : typeConfig.labelEn}>{typeConfig.icon}</span>}
                             <strong>{sLabel}</strong>
                             <em>{bodyPreview}</em>
                           </span>
-                          <time className="mail-collapsed-time">{timeStr}</time>
+                          <time className="mail-collapsed-time" title={fullTimeStr}>{timeStr}</time>
                           <span className="mail-expand-icon">▾</span>
                         </button>
                       );

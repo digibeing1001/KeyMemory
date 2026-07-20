@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Memory, LoopRun, LoopRunStatus } from '@keymemory/shared';
 import { useI18n } from '../i18n';
 import { useWorkingSet } from '../hooks/useWorkingSet';
@@ -26,6 +27,10 @@ export default function WorkingSetView({ onMemorySelect }: WorkingSetViewProps) 
   const { t, language, layerLabel } = useI18n();
   const { recentHits, recentCreated, loopRuns, loading, refresh } = useWorkingSet();
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
+  const [wsFilter, setWsFilter] = useState<string>('');
+
+  const filteredHits = wsFilter ? recentHits.filter(i => i.layer === wsFilter) : recentHits;
+  const filteredCreated = wsFilter ? recentCreated.filter(i => i.layer === wsFilter) : recentCreated;
 
   return (
     <div className="flex-1 px-8 py-6">
@@ -81,6 +86,35 @@ export default function WorkingSetView({ onMemorySelect }: WorkingSetViewProps) 
         />
       </div>
 
+      <div className="mail-filter-panel" style={{ borderBottom: '1px solid var(--border-primary)', marginBottom: 16 }}>
+        <div className="mail-filter-group">
+          <label>{language === 'zh' ? '层级' : 'Layer'}</label>
+          <div className="mail-filter-chips">
+            {[
+              ['', language === 'zh' ? '全部' : 'All'],
+              ['flash', 'Flash'],
+              ['short', language === 'zh' ? '短期' : 'Short'],
+              ['long', language === 'zh' ? '长期' : 'Long'],
+              ['entity', language === 'zh' ? '实体' : 'Entity']
+            ].map(([val, label]) => (
+              <button key={val} type="button"
+                className={`mail-filter-chip${(wsFilter === val || (!val && !wsFilter)) ? ' is-active' : ''}`}
+                onClick={() => setWsFilter(val as string)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {filteredHits.length === 0 && filteredCreated.length === 0 && loopRuns.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">📦</div>
+          <div className="empty-state-title">{language === 'zh' ? '工作集为空' : 'Working set is empty'}</div>
+          <div className="empty-state-desc">{language === 'zh' ? '将需要频繁使用的记忆添加到工作集中，方便快速访问' : 'Add frequently used memories to your working set for quick access'}</div>
+        </div>
+      ) : (
+
       <div
         style={{
           display: 'grid',
@@ -94,7 +128,7 @@ export default function WorkingSetView({ onMemorySelect }: WorkingSetViewProps) 
           subtitle={t('workingSet.colHitsSub')}
           emptyHint={t('workingSet.colHitsEmpty')}
         >
-          {recentHits.map((memory) => (
+          {filteredHits.map((memory) => (
             <MemoryRow
               key={memory.id}
               memory={memory}
@@ -113,7 +147,7 @@ export default function WorkingSetView({ onMemorySelect }: WorkingSetViewProps) 
           subtitle={t('workingSet.colCreatedSub')}
           emptyHint={t('workingSet.colCreatedEmpty')}
         >
-          {recentCreated.map((memory) => (
+          {filteredCreated.map((memory) => (
             <MemoryRow
               key={memory.id}
               memory={memory}
@@ -137,6 +171,7 @@ export default function WorkingSetView({ onMemorySelect }: WorkingSetViewProps) 
           ))}
         </Column>
       </div>
+      )}
     </div>
   );
 }
