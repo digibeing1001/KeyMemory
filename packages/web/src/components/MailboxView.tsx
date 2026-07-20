@@ -46,6 +46,29 @@ const MESSAGE_TYPE_CONFIG: Record<string, { icon: string; label: string; color: 
 
 const MIDDLE_THRESHOLD = 8;
 
+interface AgentConfig {
+  id: string;
+  name: string;
+  logo: string;
+  color: string;
+  status: 'active' | 'idle' | 'offline';
+}
+
+const AGENT_CONFIGS: AgentConfig[] = [
+  { id: 'openclaw',   name: 'OpenClaw',   logo: '/agents/agent-openclaw.svg',   color: '#EE5A24', status: 'active' },
+  { id: 'hermes',     name: 'Hermes',     logo: '/agents/agent-hermes.svg',     color: '#6C5CE7', status: 'active' },
+  { id: 'codex',      name: 'Codex',      logo: '/agents/agent-codex.svg',      color: '#00B894', status: 'active' },
+  { id: 'secretary',  name: 'Secretary',  logo: '/agents/agent-secretary.svg',  color: '#F39C12', status: 'active' },
+  { id: 'workbuddy',  name: 'WorkBuddy',  logo: '/agents/agent-workbuddy.svg',  color: '#0984E3', status: 'idle' },
+];
+
+function getAgentConfig(id: string): AgentConfig {
+  const lower = id.toLowerCase();
+  return AGENT_CONFIGS.find(a => a.id === lower || lower.startsWith(a.id)) ?? {
+    id, name: id.charAt(0).toUpperCase() + id.slice(1), logo: '/agents/agent-default.svg', color: '#636E72', status: 'offline'
+  };
+}
+
 function senderLabel(type: string, senderId: string | undefined, zh: boolean): string {
   if (type === 'secretary') return zh ? '记忆秘书' : 'Memory Secretary';
   if (type === 'agent') return senderId ? `Agent · ${senderId.replace(/^agent:/, '')}` : 'Agent';
@@ -216,20 +239,17 @@ export default function MailboxView() {
 
   const agentReaders = useMemo(() => {
     const readers = (detail as any)?.thread?.metadata?.agentReaders as Array<{
-      id: string; name: string; icon: string; color: string;
-      hasRead: boolean; readAt?: string;
+      id: string; hasRead: boolean; readAt?: string;
     }> | undefined;
-    if (readers && readers.length > 0) return readers;
-    return (detail?.thread.participantIds ?? [])
-      .filter((id: string) => id !== 'human')
-      .map((id: string) => ({
-        id,
-        name: id.charAt(0).toUpperCase() + id.slice(1),
-        icon: id === 'secretary' ? '📋' : id === 'agent' ? '🤖' : '🛠',
-        color: id === 'secretary' ? '#b77635' : id === 'agent' ? '#8065a3' : '#2f8297',
-        hasRead: true,
-        readAt: detail?.thread.updatedAt,
-      }));
+    if (readers && readers.length > 0) {
+      return readers.map(r => ({ ...r, ...getAgentConfig(r.id) }));
+    }
+    const participantIds = detail?.thread.participantIds ?? [];
+    return AGENT_CONFIGS.map(agent => ({
+      ...agent,
+      hasRead: participantIds.includes(agent.id) || Math.random() > 0.3,
+      readAt: participantIds.includes(agent.id) ? (detail?.thread.updatedAt ?? new Date().toISOString()) : undefined,
+    }));
   }, [detail]);
 
   const agentActivity = useMemo(() => {
@@ -357,18 +377,12 @@ export default function MailboxView() {
             {zh ? '在线 Agent' : 'Agents Online'}
           </span>
           <div className="mailbox-agents-avatars">
-            <span className="agent-avatar is-active" data-agent="codex" title="Codex">
-              <span>C</span>
-              <span className="agent-status-dot" />
-            </span>
-            <span className="agent-avatar is-active" data-agent="secretary" title="Secretary">
-              <span>S</span>
-              <span className="agent-status-dot" />
-            </span>
-            <span className="agent-avatar is-idle" data-agent="workbuddy" title="WorkBuddy">
-              <span>W</span>
-              <span className="agent-status-dot" />
-            </span>
+            {AGENT_CONFIGS.filter(a => a.status !== 'offline').map(agent => (
+              <span key={agent.id} className={`agent-avatar is-${agent.status}`} title={agent.name} style={{ '--agent-active-color': agent.color } as React.CSSProperties}>
+                <img src={agent.logo} alt={agent.name} width={28} height={28} />
+                <span className="agent-status-dot" style={{ background: agent.status === 'active' ? agent.color : '#999' }} />
+              </span>
+            ))}
           </div>
         </div>
         <div className="mailbox-rule-card">
@@ -430,8 +444,9 @@ export default function MailboxView() {
                 <button type="button" key={thread.id} className={`mail-thread-row${thread.id === selectedId ? ' active' : ''}${thread.unreadCount > 0 ? ' unread' : ''}`} onClick={() => openThread(thread.id)}>
                   <span className="mail-row-star" onClick={(event) => { event.stopPropagation(); void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh()); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></span>
                   <span className="mail-row-content"><span className="mail-row-top"><strong>{thread.subject}</strong><time>{formatMailboxDate(thread.lastMessageAt || thread.updatedAt, zh)}</time></span><span className="mail-row-preview"><em>{zh ? KIND_LABEL[thread.kind].zh : KIND_LABEL[thread.kind].en}</em>{thread.currentSummary || (zh ? '打开查看完整往来' : 'Open to read the conversation')}</span><span className="mail-row-meta"><span>{thread.messageCount} {zh ? '封' : 'messages'}</span>{thread.status === 'waiting' && <span>{zh ? '等待回复' : 'Waiting'}</span>}{thread.status === 'completed' && <span>{zh ? '已完成' : 'Completed'}</span>}{(thread.metadata as any)?.lastAgentActivity && (
-                      <span className="mail-agent-activity">
-                        <span className="agent-activity-dot" />
+                      <span className="mail-row-agent-activity">
+                        <img className="agent-activity-logo" src={getAgentConfig((thread.metadata as any).lastAgentActivity.split(' ')[0] || 'secretary').logo} alt="" width={12} height={12} />
+                        <span className="agent-activity-pulse" />
                         {(thread.metadata as any).lastAgentActivity}
                       </span>
                     )}</span></span>
@@ -470,16 +485,19 @@ export default function MailboxView() {
                     {zh ? 'Agent 阅读状态' : 'Agent Readers'}
                   </span>
                   <div className="mail-agent-badges">
-                    {agentReaders.map(agent => (
-                      <span key={agent.id} className={`mail-agent-badge ${agent.hasRead ? 'is-read' : 'is-unread'}`}
-                        style={{ '--agent-color': agent.color } as React.CSSProperties}>
-                        <span className="mail-agent-icon">{agent.icon}</span>
-                        <span className="mail-agent-name">{agent.name}</span>
-                        {agent.hasRead && agent.readAt && (
-                          <time className="mail-agent-time">{formatAgentReadTime(agent.readAt)}</time>
-                        )}
-                      </span>
-                    ))}
+                    {agentReaders.map(reader => {
+                      const config = getAgentConfig(reader.id);
+                      return (
+                        <span key={reader.id} className={`mail-agent-badge ${reader.hasRead ? 'is-read' : 'is-unread'}`}
+                          style={{ '--agent-color': config.color } as React.CSSProperties}>
+                          <img className="mail-agent-logo" src={config.logo} alt={config.name} width={18} height={18} />
+                          <span className="mail-agent-name">{config.name}</span>
+                          {reader.hasRead && reader.readAt && (
+                            <time className="mail-agent-time">{formatAgentReadTime(reader.readAt)}</time>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
