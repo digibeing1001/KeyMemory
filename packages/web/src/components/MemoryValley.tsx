@@ -97,10 +97,17 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   hoveredRef.current = hoveredNode;
   const [zoomLevel, setZoomLevel] = useState(1);
+  const zoomLevelRef = useRef<number>(zoomLevel);
+  zoomLevelRef.current = zoomLevel;
   const [rotation, setRotation] = useState(0);
   const [showLayerPanel, setShowLayerPanel] = useState(false);
   const [activeLayer, setActiveLayer] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
+  const [timeRangeDays, setTimeRangeDays] = useState<number>(0);
+  const [sliderValue, setSliderValue] = useState<number>(100);
+  const [contourThresholds, setContourThresholds] = useState<number>(12);
+  const contourThresholdsRef = useRef<number>(contourThresholds);
+  contourThresholdsRef.current = contourThresholds;
   const [dimensions, setDimensions] = useState<{ w: number; h: number }>({ w: 800, h: 600 });
 
   /* ── ResizeObserver ─────────────────────────────────────── */
@@ -172,6 +179,22 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
     const times = data.nodes.map(n => (n as SimNode).updatedAt ? new Date((n as SimNode).updatedAt!).getTime() : Date.now());
     return [Math.min(...times), Math.max(...times)];
   }, [data]);
+
+  const handleSliderChange = useCallback((v: number) => {
+    setSliderValue(v);
+    if (!data?.nodes.length) return;
+    const [minT, maxT] = timeExtent;
+    if (v >= 100) { setTimeRange(null); return; }
+    const cutoff = minT + (maxT - minT) * (v / 100);
+    setTimeRange([minT, cutoff]);
+  }, [data, timeExtent]);
+
+  const handleTimeRangeDaysChange = useCallback((days: number) => {
+    setTimeRangeDays(days);
+    if (days === 0) { setTimeRange(null); return; }
+    const now = Date.now();
+    setTimeRange([now - days * 24 * 60 * 60 * 1000, now]);
+  }, []);
 
   /* ── Filtered data ─────────────────────────────────────── */
   const filteredData = useMemo(() => {
@@ -263,7 +286,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         try {
           const density = d3.contourDensity<SimNode>()
             .x(d => d.x ?? 0).y(d => d.y ?? 0)
-            .size([W, H]).bandwidth(35).thresholds(12)(pts);
+            .size([W, H]).bandwidth(35).thresholds(contourThresholdsRef.current)(pts);
           const geo = d3.geoPath().context(ctx);
           for (let i = 0; i < density.length; i++) {
             ctx.beginPath();
@@ -317,6 +340,10 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         gRoot.attr('transform', event.transform.toString());
         transformRef.current = event.transform;
         setZoomLevel(event.transform.k);
+        // Toggle non-cluster labels based on zoom level
+        const k = event.transform.k;
+        gLabels.selectAll<SVGGElement, SimNode>('g')
+          .attr('display', (d: SimNode) => (k < 1.5 && !d.isClusterHead) ? 'none' : null);
       });
     svgSel.call(zoomBehavior);
     zoomRef.current = zoomBehavior;
@@ -367,8 +394,12 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
       });
     nodeSel.call(dragBehavior);
 
-    /* Labels */
-    const labelNodes = simNodes.filter(n => n.isClusterHead || (degreeMap.get(n.id) ?? 0) >= 2 || layerRank(n.layer) < 2);
+    /* Labels — zoom-dependent visibility */
+    const labelNodes = simNodes.filter(n => {
+      const isClusterHead = n.isClusterHead;
+      if (zoomLevelRef.current < 1.5 && !isClusterHead) return false;
+      return isClusterHead || (degreeMap.get(n.id) ?? 0) >= 2 || layerRank(n.layer) < 2;
+    });
     const labelSel = gLabels.selectAll<SVGGElement, SimNode>('g')
       .data(labelNodes, (d: SimNode) => d.id).join('g')
       .attr('pointer-events', 'none');
@@ -593,6 +624,23 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
           <button onClick={() => handleRotate(15)} title="Rotate right">↻</button>
           <button onClick={() => { setRotation(0); if (svgRef.current) { const g = d3.select(svgRef.current).select<SVGGElement>('.valley-root'); const t = g.attr('transform') || ''; g.attr('transform', t.replace(/rotate\([^)]*\)/g, '').trim()); } }} title={language === 'zh' ? '重置旋转' : 'Reset rotation'}>N</button>
         </div>
+        {/* 等高线密度滑块 */}
+        <div className="valley-control-group">
+          <label>{language === 'zh' ? '等高线' : 'Contours'}</label>
+          <input type="range" min={4} max={25} value={contourThresholds}
+            onChange={e => setContourThresholds(Number(e.target.value))}
+            className="valley-control-slider" />
+          <span>{contourThresholds}</span>
+        </div>
+        {/* 指南针 - 重置旋转 */}
+        <button className="valley-control-btn" onClick={() => setRotation(0)} title={language === 'zh' ? '重置方向' : 'Reset rotation'}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="10" cy="10" r="8"/>
+            <polygon points="10,3 12,9 10,8 8,9" fill="currentColor" stroke="none"/>
+            <polygon points="10,17 8,11 10,12 12,11" fill="none" stroke="currentColor"/>
+            <text x="10" y="2" textAnchor="middle" fontSize="5" fill="currentColor" stroke="none">N</text>
+          </svg>
+        </button>
         <div className="valley-controls-group">
           <button onClick={() => setShowLayerPanel(!showLayerPanel)} title={language === 'zh' ? '层级面板' : 'Layer panel'}>
             {language === 'zh' ? '层级' : 'Layers'}
@@ -600,22 +648,42 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         </div>
       </div>
 
-      {/* Time slider */}
-      {hasTimeSlider && (
-        <div className="valley-toolbar">
-          <span>{language === 'zh' ? '时间范围' : 'Time range'}</span>
-          <input type="range" min={timeExtent[0]} max={timeExtent[1]}
-            value={timeRange?.[1] ?? timeExtent[1]}
-            onChange={e => {
-              const v = Number(e.target.value);
-              setTimeRange(v >= timeExtent[1] ? null : [timeExtent[0], v]);
-            }} />
-          <span>{timeRange
-            ? `${new Date(timeRange[0]).toLocaleDateString(locale, { month: 'short', year: '2-digit' })} – ${new Date(timeRange[1]).toLocaleDateString(locale, { month: 'short', year: '2-digit' })}`
-            : language === 'zh' ? '全部' : 'All'}</span>
-          {timeRange && <button onClick={() => setTimeRange(null)}>{language === 'zh' ? '重置' : 'Reset'}</button>}
+      {/* Bottom toolbar */}
+      <div className="valley-toolbar">
+        <div className="valley-toolbar-left">
+          <button className="valley-toolbar-btn" onClick={() => {/* theme toggle or placeholder */}} title={language === 'zh' ? '切换主题' : 'Toggle theme'}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5"/><path d="M8 2a6 6 0 0 1 0 12z"/></svg>
+          </button>
+          <button className="valley-toolbar-btn" title={language === 'zh' ? '帮助' : 'Help'}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6"/><text x="8" y="11" textAnchor="middle" fontSize="9" fill="currentColor" stroke="none">?</text></svg>
+          </button>
+          <button className="valley-toolbar-btn" onClick={() => {/* refresh data */}} title={language === 'zh' ? '刷新' : 'Refresh'}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 4A6 6 0 1 0 14 8"/><path d="M14 2v4h-4"/></svg>
+          </button>
         </div>
-      )}
+        <div className="valley-toolbar-center">
+          <span className="valley-toolbar-label">{language === 'zh' ? '记录足迹' : 'Timeline'}</span>
+          <select className="valley-toolbar-select" value={timeRangeDays} onChange={e => handleTimeRangeDaysChange(Number(e.target.value))}>
+            <option value={0}>{language === 'zh' ? '全部时间' : 'All time'}</option>
+            <option value={7}>{language === 'zh' ? '近 7 天' : 'Last 7 days'}</option>
+            <option value={30}>{language === 'zh' ? '近 30 天' : 'Last 30 days'}</option>
+            <option value={90}>{language === 'zh' ? '近 90 天' : 'Last 90 days'}</option>
+            <option value={365}>{language === 'zh' ? '近一年' : 'Last year'}</option>
+          </select>
+          {hasTimeSlider && (
+            <input type="range" className="valley-toolbar-slider" min={0} max={100} value={sliderValue} onChange={e => handleSliderChange(Number(e.target.value))} />
+          )}
+        </div>
+        <div className="valley-toolbar-right">
+          <button className="valley-toolbar-btn valley-toolbar-primary" title={language === 'zh' ? '分享图' : 'Share'}>
+            {language === 'zh' ? '分享图' : 'Share'}
+          </button>
+          <span className="valley-toolbar-disclaimer">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="6" cy="6" r="5.5" fill="none" stroke="currentColor"/><text x="6" y="9" textAnchor="middle" fontSize="8" fill="currentColor">i</text></svg>
+            {language === 'zh' ? '当前内容由 AI 生成，仅供参考' : 'AI-generated content, for reference only'}
+          </span>
+        </div>
+      </div>
 
       {/* Layer panel overlay */}
       {showLayerPanel && (
@@ -654,7 +722,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
 
       {/* Node detail drawer */}
       {selectedNode && (
-        <div className="valley-drawer">
+        <div className="valley-node-drawer">
           <header>
             <button onClick={() => setSelectedNode(null)}><ArrowLeft size={16} /></button>
             <div>
@@ -662,16 +730,20 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
               <h3>{redactSensitiveText(selectedNode.title)}</h3>
             </div>
           </header>
-          {selectedNode.summary && <p className="valley-drawer-summary">{redactSensitiveText(selectedNode.summary)}</p>}
-          {selectedNode.tags && selectedNode.tags.length > 0 && (
-            <div className="valley-drawer-tags">{selectedNode.tags.map(t => <span key={t}>{t}</span>)}</div>
+          {selectedNode.summary && (
+            <div className="valley-node-drawer-content">
+              <p className="valley-node-drawer-body">{redactSensitiveText(selectedNode.summary)}</p>
+            </div>
           )}
-          {selectedNode.project && <div className="valley-drawer-meta"><small>{language === 'zh' ? '项目' : 'Project'}: {selectedNode.project}</small></div>}
-          {selectedNode.updatedAt && <div className="valley-drawer-meta"><small>{language === 'zh' ? '更新' : 'Updated'}: {compactDate(selectedNode.updatedAt, locale)}</small></div>}
-          {selectedNode.valley && <div className="valley-drawer-meta"><small>{language === 'zh' ? '山谷' : 'Valley'}: {selectedNode.valley}</small></div>}
+          {selectedNode.tags && selectedNode.tags.length > 0 && (
+            <div className="valley-node-drawer-tags">{selectedNode.tags.map(t => <span key={t}>{t}</span>)}</div>
+          )}
+          {selectedNode.project && <div className="valley-node-drawer-meta"><small>{language === 'zh' ? '项目' : 'Project'}: {selectedNode.project}</small></div>}
+          {selectedNode.updatedAt && <div className="valley-node-drawer-meta"><small>{language === 'zh' ? '更新' : 'Updated'}: {compactDate(selectedNode.updatedAt, locale)}</small></div>}
+          {selectedNode.valley && <div className="valley-node-drawer-meta"><small>{language === 'zh' ? '山谷' : 'Valley'}: {selectedNode.valley}</small></div>}
           {/* Related memories */}
           {selectedNode.relations && selectedNode.relations.length > 0 && (
-            <div className="valley-drawer-relations">
+            <div className="valley-node-drawer-relations">
               <h4>{language === 'zh' ? '关联记忆' : 'Related memories'} ({selectedNode.relations.length})</h4>
               {selectedNode.relations.map((rId: string) => {
                 const rNode = nodeById.get(rId);
@@ -692,7 +764,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
               })}
             </div>
           )}
-          <button className="valley-drawer-open" onClick={() => onNodeClick?.(selectedNode.id)}>
+          <button className="valley-node-drawer-open" onClick={() => onNodeClick?.(selectedNode.id)}>
             {language === 'zh' ? '在记忆库中打开' : 'Open in memory library'}
           </button>
         </div>

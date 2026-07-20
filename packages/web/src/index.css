@@ -2216,7 +2216,14 @@ label {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #1E2D2D;
+  background-color: #1E2D2D;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+[data-theme="light"] .valley-page {
+  background-color: #F0F5F0;
+  background-image: radial-gradient(circle, rgba(0,0,0,0.05) 1px, transparent 1px);
 }
 
 .valley-canvas {
@@ -2580,7 +2587,7 @@ label {
 .valley-layer-nodes strong { display: block; font-size: 12px; }
 .valley-layer-nodes small { color: rgba(255,255,255,0.4); font-size: 10px; }
 
-.valley-drawer {
+.valley-node-drawer {
   position: absolute;
   top: 0;
   left: 0;
@@ -2594,54 +2601,64 @@ label {
   box-shadow: 4px 0 24px rgba(0,0,0,0.5);
   padding: 18px 20px;
 }
-.valley-drawer > header {
+.valley-node-drawer > header {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   margin-bottom: 12px;
 }
-.valley-drawer > header > button {
+.valley-node-drawer > header > button {
   margin-top: 2px;
   background: transparent;
   border: 0;
   color: rgba(255,255,255,0.5);
   cursor: pointer;
 }
-.valley-drawer > header span { color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 700; }
-.valley-drawer > header h3 { margin: 2px 0 0; color: #fff; font-size: 16px; line-height: 1.35; }
-.valley-drawer-summary {
+.valley-node-drawer > header span { color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 700; }
+.valley-node-drawer > header h3 { margin: 2px 0 0; color: #fff; font-size: 16px; line-height: 1.35; }
+.valley-node-drawer-content {
+  margin: 0 0 12px;
+}
+.valley-node-drawer-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.7);
+  white-space: pre-wrap;
+}
+.valley-node-drawer-summary {
   margin: 0 0 12px;
   color: rgba(255,255,255,0.6);
   font-size: 12px;
   line-height: 1.55;
 }
-.valley-drawer-tags {
+.valley-node-drawer-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   margin-bottom: 10px;
 }
-.valley-drawer-tags span {
+.valley-node-drawer-tags span {
   padding: 2px 8px;
   border-radius: 99px;
   background: rgba(255,255,255,0.08);
   color: rgba(255,255,255,0.7);
   font-size: 11px;
 }
-.valley-drawer-meta { margin-bottom: 6px; }
-.valley-drawer-meta small { color: rgba(255,255,255,0.4); font-size: 11px; }
-.valley-drawer-relations {
+.valley-node-drawer-meta { margin-bottom: 6px; }
+.valley-node-drawer-meta small { color: rgba(255,255,255,0.4); font-size: 11px; }
+.valley-node-drawer-relations {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid rgba(255,255,255,0.08);
 }
-.valley-drawer-relations h4 {
+.valley-node-drawer-relations h4 {
   margin: 0 0 8px;
   color: rgba(255,255,255,0.5);
   font-size: 11px;
   font-weight: 750;
 }
-.valley-drawer-relations > button {
+.valley-node-drawer-relations > button {
   width: 100%;
   padding: 6px 8px;
   display: grid;
@@ -2655,11 +2672,11 @@ label {
   text-align: left;
   margin-bottom: 2px;
 }
-.valley-drawer-relations > button:hover { background: rgba(255,255,255,0.06); }
-.valley-drawer-relations > button > span { width: 3px; min-height: 26px; border-radius: 9px; }
-.valley-drawer-relations strong { display: block; font-size: 11px; line-height: 1.35; }
-.valley-drawer-relations small { color: rgba(255,255,255,0.4); font-size: 9px; }
-.valley-drawer-open {
+.valley-node-drawer-relations > button:hover { background: rgba(255,255,255,0.06); }
+.valley-node-drawer-relations > button > span { width: 3px; min-height: 26px; border-radius: 9px; }
+.valley-node-drawer-relations strong { display: block; font-size: 11px; line-height: 1.35; }
+.valley-node-drawer-relations small { color: rgba(255,255,255,0.4); font-size: 9px; }
+.valley-node-drawer-open {
   margin-top: 16px;
   width: 100%;
   padding: 10px;
@@ -2672,7 +2689,7 @@ label {
   cursor: pointer;
   transition: background .15s;
 }
-.valley-drawer-open:hover { background: rgba(120,200,180,0.18); }
+.valley-node-drawer-open:hover { background: rgba(120,200,180,0.18); }
 
 .valley-loading,
 .valley-empty {
@@ -2687,6 +2704,106 @@ label {
 .valley-empty { flex-direction: column; gap: 8px; text-align: center; }
 .valley-empty strong { color: rgba(255,255,255,0.7); }
 .valley-empty span { max-width: 420px; font-size: 12px; line-height: 1.6; }
+
+/* Toolbar sub-elements */
+.valley-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  gap: 12px;
+}
+.valley-toolbar-left,
+.valley-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.valley-toolbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+.valley-toolbar-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-primary, rgba(255,255,255,0.15));
+  background: rgba(255,255,255,0.05);
+  color: var(--text-secondary, rgba(255,255,255,0.7));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.valley-toolbar-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text-primary, #fff);
+}
+.valley-toolbar-primary {
+  width: auto;
+  border-radius: 16px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+.valley-toolbar-label {
+  font-size: 12px;
+  color: var(--text-muted, rgba(255,255,255,0.5));
+  white-space: nowrap;
+}
+.valley-toolbar-select {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: var(--text-primary, #fff);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.valley-toolbar-slider {
+  width: 120px;
+  accent-color: var(--accent-primary, #4f8a67);
+}
+.valley-toolbar-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted, rgba(255,255,255,0.4));
+  background: rgba(0,0,0,0.3);
+  padding: 4px 10px;
+  border-radius: 10px;
+}
+
+/* Control slider */
+.valley-control-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted, rgba(255,255,255,0.5));
+}
+.valley-control-slider {
+  width: 60px;
+  accent-color: var(--accent-primary, #4f8a67);
+}
+.valley-control-btn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+}
+.valley-control-btn:hover { background: rgba(255,255,255,0.1); }
 
 /* === 标签云 === */
 .tag-cloud-page { width: 100%; max-width: 1180px; margin: 0 auto; box-sizing: border-box; padding: 10px 0 42px; }
