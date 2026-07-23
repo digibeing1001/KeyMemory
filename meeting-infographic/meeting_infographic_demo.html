@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会议综合信息图 · Aurora 定价终审</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#1a1d24; --card2:#22262f; --line:#2e333d;
+    --txt:#e8eaf0; --sub:#9aa0ad; --dim:#6b7280;
+    --blue:#4f8cff; --green:#34d399; --amber:#fbbf24; --red:#f87171; --purple:#a78bfa;
+    --accent:#4f8cff;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.7;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:0 16px 56px}
+
+  /* 顶部结论卡 */
+  .hero{margin:16px 0 18px;padding:22px 20px;border-radius:20px;
+    background:linear-gradient(135deg,#1e3a5f 0%,#1a1d24 60%);
+    border:1px solid #2a4a6b;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+  .badge{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.5px;
+    padding:4px 10px;border-radius:20px;background:rgba(79,140,255,.16);
+    color:var(--blue);margin-bottom:12px}
+  .hero h1{font-size:20px;margin:0 0 8px;line-height:1.4;font-weight:700}
+  .meta{font-size:12px;color:var(--sub);margin-bottom:16px;display:flex;flex-wrap:wrap;gap:6px 14px}
+  .conclusion{font-size:15.5px;color:#eef2f8;letter-spacing:.2px}
+  .conclusion b{color:var(--amber)}
+  .conclusion p{margin:0 0 10px}
+  .conclusion p:last-child{margin-bottom:0}
+  .quickrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .chip{font-size:12px;padding:5px 11px;border-radius:14px;background:rgba(255,255,255,.06);
+    border:1px solid var(--line);color:var(--sub)}
+  .chip.dec{color:var(--green);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.08)}
+  .chip.block{color:var(--red);border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.08)}
+
+  /* 模块 */
+  .grid{display:grid;gap:16px;margin-top:8px}
+  .sec{}
+  .sec h2{font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px;color:var(--txt);font-weight:700}
+  .sec h2 .n{width:22px;height:22px;border-radius:7px;background:var(--accent);color:#fff;
+    font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 16px}
+  .card p{margin:0 0 10px;font-size:14px}
+  .card p:last-child{margin-bottom:0}
+
+  /* 列表 */
+  ul.clean{list-style:none;margin:0;padding:0}
+  ul.clean li{padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+  ul.clean li:last-child{border-bottom:0}
+  ul.clean li b{color:var(--txt)}
+  .tag{font-size:10px;padding:2px 7px;border-radius:8px;margin-right:8px;vertical-align:1px;white-space:nowrap}
+  .tag.new{color:var(--green);background:rgba(52,211,153,.12)}
+  .tag.cont{color:var(--amber);background:rgba(251,191,36,.12)}
+  .tag.done{color:var(--dim);background:rgba(107,114,128,.14);text-decoration:line-through}
+  .pri{float:right;font-size:11px;font-weight:700}
+  .p0{color:var(--red)} .p1{color:var(--amber)} .p2{color:var(--sub)}
+
+  /* 角色贡献度 */
+  .role{margin-bottom:14px}
+  .role:last-child{margin-bottom:0}
+  .role .top{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;gap:8px}
+  .role .top .pct{color:var(--blue);font-weight:700;flex-shrink:0}
+  .bar{height:8px;border-radius:6px;background:var(--card2);overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--blue),var(--purple))}
+  .role .note{font-size:11.5px;color:var(--sub);margin-top:4px}
+
+  /* 情绪时间线 */
+  .emo{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+  .emo .node{flex:0 0 auto;min-width:130px;padding:10px 11px;border-radius:11px;background:var(--card2);
+    border:1px solid var(--line);font-size:12px}
+  .emo .node .t{font-weight:700;color:var(--txt);margin-bottom:4px}
+  .emo .node .m{font-size:11px;margin-bottom:4px}
+  .e-pos{color:var(--green)} .e-neu{color:var(--sub)} .e-neg{color:var(--red)}
+  .emo .node .it{font-size:11px;color:var(--dim)}
+
+  /* 第一性原理对照 */
+  .fp{display:grid;gap:10px}
+  .fp .row{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:start;
+    padding:11px;border-radius:10px;background:var(--card2);border:1px solid var(--line)}
+  .fp .lbl{font-size:11px;font-weight:700;padding-top:1px}
+  .fp .lbl.assume{color:var(--red)}
+  .fp .lbl.truth{color:var(--green)}
+  .fp .lbl.rebuild{color:var(--blue)}
+  .fp .val{font-size:13px;color:var(--txt);line-height:1.6}
+  .fp-topic{font-size:13.5px;font-weight:700;color:var(--amber);margin:10px 0 8px}
+  .fp-topic:first-child{margin-top:0}
+
+  /* 锚点时间线 */
+  .tl{position:relative;padding-left:20px}
+  .tl:before{content:"";position:absolute;left:6px;top:4px;bottom:4px;width:2px;background:var(--line)}
+  .tl .it{position:relative;padding:0 0 16px}
+  .tl .it:last-child{padding-bottom:0}
+  .tl .it:before{content:"";position:absolute;left:-17px;top:4px;width:10px;height:10px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 0 3px var(--card)}
+  .tl .it .d{font-size:11px;color:var(--dim);margin-bottom:3px}
+  .tl .it .t{font-size:13.5px;color:var(--txt);line-height:1.6}
+  .tl .it .t b{color:var(--amber)}
+  .tl .now:before{background:var(--amber)}
+
+  /* 进度 */
+  .prog{height:10px;border-radius:6px;background:var(--card2);overflow:hidden;margin:8px 0 6px}
+  .prog i{display:block;height:100%;background:linear-gradient(90deg,var(--green),var(--blue))}
+  .checklist li{font-size:13.5px;padding:5px 0}
+
+  /* 分歧卡 */
+  .disagree{padding:11px 0;border-bottom:1px solid var(--line)}
+  .disagree:last-child{border-bottom:0}
+  .disagree .h{font-size:13.5px;font-weight:700;margin-bottom:5px}
+  .disagree .h .lvl{font-size:10px;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:1px}
+  .disagree .b{font-size:12.5px;color:var(--sub);line-height:1.6}
+
+  /* 逻辑链 */
+  .chain{font-size:14px;line-height:1.8}
+  .chain .step{display:inline}
+  .chain .arrow{color:var(--blue);margin:0 4px;font-weight:700}
+
+  /* 洞察 */
+  .insight-src{font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.7}
+  .insight-src b{color:var(--amber)}
+
+  /* PC 两栏 */
+  @media(min-width:760px){
+    .wrap{max-width:980px;padding:0 24px 64px}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+    .grid-2 .full{grid-column:1/-1}
+    .hero h1{font-size:22px}
+    .conclusion{font-size:16px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 0. 结论先行 -->
+  <div class="hero">
+    <span class="badge">结论先行 · 7月22日 Aurora 定价终审</span>
+    <h1>Aurora 定价方案三审<br>三档定价通过，年付折扣与席位拆分成新分歧</h1>
+    <div class="meta">
+      <span>📅 2026-07-22 15:00–16:40</span>
+      <span>👥 5 人</span>
+      <span>🗂 项目：Aurora 定价与增长</span>
+      <span>🔁 本项目第 3 场</span>
+    </div>
+    <div class="conclusion">
+      <p>本场在 <b>7/8 初评</b>（提出三档模型）、<b>7/15 竞品对标</b>（成本核算确认毛利 68%）基础上完成终审。</p>
+      <p><b>三档定价（¥99 / ¥399 / ¥1299）正式通过</b>，定档 8/1 全量上线。<b>林睿（CEO）主导推进</b>，力主"先上线再迭代"。</p>
+      <p><b>陈雪（CFO）</b>对"年付 8 折"持保留，担心 ARR 口径与现金流；<b>王皓（产品）</b>主张高阶版席位拆分收费被<b>推迟到二期</b>，情绪由期待转为克制。</p>
+      <p>最大风险：<b>销售侧折扣权限未定</b>，赵敏与陈雪在场上有明显权力博弈。</p>
+      <p><b>关键待办</b>：7/25 前确认年付折扣政策，7/28 前销售话术定稿。</p>
+    </div>
+    <div class="quickrow">
+      <span class="chip dec">✓ 三档定价通过</span>
+      <span class="chip dec">✓ 8/1 上线</span>
+      <span class="chip block">⚠ 年付折扣未决</span>
+      <span class="chip block">⚠ 销售折扣权限未定</span>
+      <span class="chip">⏸ 席位拆分 → 二期</span>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- 1. 核心事项 -->
+    <div class="sec grid-2 full">
+      <div>
+        <h2><span class="n">1</span>核心事项与核心观点</h2>
+        <div class="card">
+          <ul class="clean">
+            <li><b>定档三档定价</b>：入门 ¥99/月、团队 ¥399/月、企业 ¥1299/月，沿用 7/8 方案。</li>
+            <li><b>确认成本底线</b>：单账号边际成本 ¥7.2/月（来自 7/15 核算），毛利 68%。</li>
+            <li><b>年付折扣争议</b>：林睿主张年付 8 折促 ARR，陈雪担心现金流，未达共识。</li>
+            <li><b>高阶席位拆分</b>：王皓提议按席位拆分，被认为复杂度过高，推迟二期。</li>
+            <li><b>上线节奏锁定</b>：8/1 全量上线，不做灰度，林睿一锤定音。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 2. 关键逻辑 -->
+      <div>
+        <h2><span class="n">2</span>关键逻辑梳理</h2>
+        <div class="card">
+          <div class="chain">
+            <span class="step">成本已验证(7/15)</span><span class="arrow">→</span>
+            <span class="step">定价空间充足</span><span class="arrow">→</span>
+            <span class="step">锁定档位</span><span class="arrow">→</span>
+            <span class="step">转向折扣/席位</span><span class="arrow">→</span>
+            <span class="step">遇财务与产品两道分歧</span><span class="arrow">→</span>
+            <span class="step">CEO 以"速度优先"裁决，争议延后</span>
+          </div>
+          <p style="margin-top:12px;font-size:13px;color:var(--sub)">
+            演进脉络：7/8 提"三档"基于<b style="color:var(--amber)">类比竞品</b>；7/15 用<b style="color:var(--amber)">成本核算</b>验证空间；
+            本场本应进入"价值定价"，却被"折扣机制"这种<b style="color:var(--amber)">惯例性议题</b>占用。<br>
+            本项目反复出现的模式：<b>战略议题被战术细节牵走</b>。
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 情绪与权力动态 -->
+    <div class="sec">
+      <h2><span class="n">3</span>对话者情绪转变与意图识别（含权力动态）</h2>
+      <div class="card">
+        <div class="emo">
+          <div class="node">
+            <div class="t">林睿 CEO</div>
+            <div class="m e-pos">果断 → 强势裁决</div>
+            <div class="it">意图：抢窗口期，强调"先跑起来"</div>
+          </div>
+          <div class="node">
+            <div class="t">陈雪 CFO</div>
+            <div class="m e-neu">理性 → 防御性施压</div>
+            <div class="it">意图：守住 ARR 与现金流口径</div>
+          </div>
+          <div class="node">
+            <div class="t">王皓 产品</div>
+            <div class="m e-neg">期待 → 克制妥协</div>
+            <div class="it">意图：席位拆分被延后，让步</div>
+          </div>
+          <div class="node">
+            <div class="t">赵敏 销售</div>
+            <div class="m e-neu">试探 → 暗中争取折扣权</div>
+            <div class="it">意图：扩大一线让价空间</div>
+          </div>
+          <div class="node">
+            <div class="t">周凯 增长</div>
+            <div class="m e-pos">配合 → 默认</div>
+            <div class="it">意图：跟随 CEO，低存在感</div>
+          </div>
+        </div>
+        <p style="margin:14px 0 0;font-size:13px;color:var(--sub);line-height:1.7">
+          <b style="color:var(--txt)">权力动态：</b>林睿主导议题节奏，陈雪以"财务否决权"形成隐性制衡，构成双人轴心；
+          赵敏借折扣议题向陈雪争夺销售自主权，未果；王皓议题被边缘化；
+          周凯持续低参与，<b style="color:var(--amber)">连续 3 场贡献度垫底</b>。
+        </p>
+      </div>
+    </div>
+
+    <!-- 4. 决策与待办 -->
+    <div class="sec">
+      <h2><span class="n">4</span>决策与待办（结合历史，含行动优先级）</h2>
+      <div class="card">
+        <ul class="clean">
+          <li><span class="tag done">已完成</span>成本核算与毛利确认（7/15 决议，本场复核通过）<span class="pri p2">P2</span></li>
+          <li><span class="tag new">新决策</span>三档定价正式定档，8/1 全量上线 <span class="pri p0">P0</span></li>
+          <li><span class="tag cont">延续</span>年付折扣政策：<b>7/25 前</b>陈雪+林睿拍板 <span class="pri p0">P0·阻塞</span></li>
+          <li><span class="tag new">新增</span>销售折扣权限规则：<b>7/26 前</b>赵敏起草、陈雪审批 <span class="pri p1">P1</span></li>
+          <li><span class="tag cont">延续</span>销售话术与培训材料：<b>7/28 前</b>定稿 <span class="pri p1">P1</span></li>
+          <li><span class="tag cont">延续·推迟</span>企业版席位拆分计费 → 二期（原 7/8 提议） <span class="pri p2">P2</span></li>
+          <li><span class="tag new">新增</span>定价页 + 购买流程开发：<b>7/30 前</b>王皓负责 <span class="pri p1">P1</span></li>
+        </ul>
+        <p style="margin:14px 0 0;font-size:12.5px;color:var(--red);line-height:1.7">
+          ⚠ 历史待办追踪：7/8 的"竞品深度调研"至今<b>未完成</b>，本场未提及，存在遗漏风险。
+        </p>
+      </div>
+    </div>
+
+    <!-- 5 & 6 并列 -->
+    <div class="sec grid-2 full">
+      <div>
+        <h2><span class="n">5</span>分歧点与未决事项</h2>
+        <div class="card">
+          <div class="disagree">
+            <div class="h">分歧① 年付折扣<span class="lvl" style="color:var(--red);background:rgba(248,113,113,.12)">高</span></div>
+            <div class="b">林睿(促 ARR) vs 陈雪(守现金流)。本质是<b>增长 vs 财务纪律</b>的结构性矛盾，连续 2 场未解。</div>
+          </div>
+          <div class="disagree">
+            <div class="h">分歧② 折扣权限<span class="lvl" style="color:var(--red);background:rgba(248,113,113,.12)">高</span></div>
+            <div class="b">赵敏(要一线让价空间) vs 陈雪(要审批控)。权力分配问题。</div>
+          </div>
+          <div class="disagree">
+            <div class="h">分歧③ 席位拆分<span class="lvl" style="color:var(--amber);background:rgba(251,191,36,.12)">中</span></div>
+            <div class="b">王皓(价值定价) vs 林睿(速度优先)。本场以"延后"回避，未真正解决。</div>
+          </div>
+          <div class="disagree">
+            <div class="h" style="color:var(--sub)">未决事项</div>
+            <div class="b">竞品深度调研（7/8 遗留）、退订与升级补差规则、老用户迁移策略。</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2><span class="n">6</span>角色贡献度（本项目 3 场累计）</h2>
+        <div class="card">
+          <div class="role">
+            <div class="top"><span>林睿 CEO · 议题主导、关键裁决</span><span class="pct">34%</span></div>
+            <div class="bar"><i style="width:34%"></i></div>
+            <div class="note">3 场均主导，本场裁决 2 项争议。权力中心。</div>
+          </div>
+          <div class="role">
+            <div class="top"><span>陈雪 CFO · 成本验证、财务制衡</span><span class="pct">26%</span></div>
+            <div class="bar"><i style="width:26%"></i></div>
+            <div class="note">7/15 成本核算是关键贡献；本场守住折扣否决权。</div>
+          </div>
+          <div class="role">
+            <div class="top"><span>王皓 产品 · 档位设计、席位提案</span><span class="pct">18%</span></div>
+            <div class="bar"><i style="width:18%"></i></div>
+            <div class="note">7/8 三档设计者；本场提案被延后，影响力下降。</div>
+          </div>
+          <div class="role">
+            <div class="top"><span>赵敏 销售 · 渠道与折扣视角</span><span class="pct">15%</span></div>
+            <div class="bar"><i style="width:15%"></i></div>
+            <div class="note">持续争取一线自主权，本场主动出击但未果。</div>
+          </div>
+          <div class="role">
+            <div class="top"><span>周凯 增长 · 偏配合</span><span class="pct">7%</span></div>
+            <div class="bar"><i style="width:7%"></i></div>
+            <div class="note">3 场低参与，几乎无独立提案，需关注角色定位。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 & 8 并列 -->
+    <div class="sec grid-2 full">
+      <div>
+        <h2><span class="n">7</span>上下文锚点（议题演进脉络）</h2>
+        <div class="card">
+          <div class="tl">
+            <div class="it">
+              <div class="d">7/8 · 第1场 定价初评</div>
+              <div class="t">提出<b>三档模型</b>（类比竞品而来），年付折扣首次被提及但未深入</div>
+            </div>
+            <div class="it">
+              <div class="d">7/15 · 第2场 竞品对标</div>
+              <div class="t">完成<b>成本核算</b>，确认毛利 68%；竞品深度调研待办<b>遗留至今</b></div>
+            </div>
+            <div class="it now">
+              <div class="d">7/22 · 第3场 终审（本场）</div>
+              <div class="t">三档<b>定档</b>；年付折扣争议升级；席位拆分<b>延后</b></div>
+            </div>
+          </div>
+          <p style="margin:14px 0 0;font-size:12px;color:var(--sub);line-height:1.7">
+            锚点关联：本场"年付折扣"是 7/8 埋下的线；"席位拆分"是王皓 7/8 提案的延续；"折扣权限"是本场因赵敏介入<b style="color:var(--amber)">新增</b>的议题分支。
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <h2><span class="n">8</span>项目进度演进</h2>
+        <div class="card">
+          <div style="font-size:13px;margin-bottom:4px">定价上线准备度：<b style="color:var(--green);font-size:16px">68%</b></div>
+          <div class="prog"><i style="width:68%"></i></div>
+          <ul class="clean checklist" style="margin-top:10px">
+            <li><span style="color:var(--green)">✓</span> 定价模型确定（7/8→7/22）</li>
+            <li><span style="color:var(--green)">✓</span> 成本与毛利验证（7/15）</li>
+            <li><span style="color:var(--red)">✗</span> 折扣政策（阻塞中）</li>
+            <li><span style="color:var(--amber)">○</span> 销售话术 / 定价页开发（进行中）</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- 9. 第一性原理 -->
+    <div class="sec">
+      <h2><span class="n">9</span>第一性原理解读</h2>
+      <div class="card">
+        <p style="font-size:13px;color:var(--sub);margin-bottom:14px">把议题剥到底层事实，剔除"行业惯例"，看哪些"约束"其实是可打破的"惯例"。</p>
+
+        <div class="fp-topic">议题①：年付要不要打 8 折？</div>
+        <div class="fp">
+          <div class="row"><div class="lbl assume">经验假设</div><div class="val">"SaaS 都做年付折扣，我们应该跟着做" —— 类比竞品</div></div>
+          <div class="row"><div class="lbl truth">底层真相</div><div class="val">边际成本 ¥7.2/月，毛利 68%；客户续费核心驱动力是产品价值而非折扣；当前现金流能支撑 2 个月</div></div>
+          <div class="row"><div class="lbl rebuild">重构方案</div><div class="val">不打"年付 8 折"，改为"年付送 2 个月+锁定价格"。收入口径不变，现金流更稳，避免折价锚定品牌价值</div></div>
+        </div>
+
+        <div class="fp-topic">议题②：高阶版要不要按席位拆分？</div>
+        <div class="fp">
+          <div class="row"><div class="lbl assume">经验假设</div><div class="val">"复杂度过高，先不做" —— 以工程难度为由回避</div></div>
+          <div class="row"><div class="lbl truth">底层真相</div><div class="val">企业版客户价值来自"团队协作席位数"；席位是价值载体，不是计费复杂度</div></div>
+          <div class="row"><div class="lbl rebuild">重构方案</div><div class="val">一期即按"基础席位+附加席位"计费，工程上仅是数量字段，并非真复杂；"复杂"是被放大的惯例借口</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10. 多维度洞察 -->
+    <div class="sec">
+      <h2><span class="n">10</span>多维度综合洞察</h2>
+      <div class="card">
+        <p class="insight-src">
+          结合 <b>散念笔记</b>（7/10「定价要先证明价值再谈折扣」、7/18「销售要给一线让权但要设护栏」）与 <b>收藏文章</b>《PLG 定价的三个反直觉》综合判断：
+        </p>
+        <ul class="clean">
+          <li>个人观点"价值优先于折扣"与第一性原理重构一致，可作为说服陈雪的论据。</li>
+          <li>赵敏争取折扣权，恰对应 7/18 散念 —— 建议设"单笔 ≤15% + 月度总额上限"双护栏。</li>
+          <li>收藏文章指出"灰度上线优于全量"，与林睿"8/1 全量"决策冲突，需评估风险。</li>
+          <li>周凯连续低参与，可能是增长策略未进入议程，建议下场单独设增长议题。</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</body>
+</html>
