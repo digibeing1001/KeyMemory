@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>周认知信息图 · 2026 W29 | AI时代的认知基础设施重构</title>
+<style>
+  :root{
+    --bg:#0a0e1a; --bg2:#0f1525; --card:#161d31; --card2:#1e2742;
+    --border:#2a3556; --border2:#3a466b;
+    --text:#e8edf7; --muted:#8b96b3; --dim:#6b7595;
+    --accent:#5b9bf5; --accent2:#a78bfa; --pink:#f472b6;
+    --green:#34d399; --orange:#fb923c; --cyan:#22d3ee; --yellow:#fbbf24;
+    --shadow:0 4px 20px rgba(0,0,0,.3);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{scroll-behavior:smooth}
+  body{
+    background:radial-gradient(ellipse at top,#131a30 0%,var(--bg) 60%);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",sans-serif;
+    line-height:1.8;font-size:15px;padding:0;min-height:100vh;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+
+  /* Header - 信息图放最顶部 */
+  header{padding:36px 0 22px;text-align:center;border-bottom:1px solid var(--border);margin-bottom:8px}
+  .badge{display:inline-block;font-size:11px;letter-spacing:1.5px;color:var(--accent);
+    background:rgba(91,155,245,.1);border:1px solid rgba(91,155,245,.3);
+    padding:4px 14px;border-radius:14px;margin-bottom:14px;font-weight:600}
+  h1{font-size:30px;font-weight:800;line-height:1.3;margin-bottom:8px;
+    background:linear-gradient(100deg,var(--accent),var(--accent2) 45%,var(--pink));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{color:var(--text);font-size:16px;font-weight:500;margin-bottom:6px;opacity:.92}
+
+  /* 主线说明 - 紧跟标题 */
+  .lead{background:linear-gradient(135deg,var(--card),var(--card2));
+    border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin:16px 0 10px;box-shadow:var(--shadow)}
+  .lead h2{font-size:16px;color:var(--accent);margin-bottom:10px}
+  .lead p{color:var(--muted);font-size:14px;margin-bottom:6px}
+  .lead p:last-child{margin-bottom:0}
+  .lead b{color:var(--text)}
+  .lead .hl{color:var(--orange);font-weight:600}
+
+  /* 关联类型说明 - 清晰定义 */
+  .legend{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:16px 20px;margin:12px 0 18px}
+  .legend-title{font-size:13px;color:var(--accent);font-weight:700;margin-bottom:10px}
+  .legend-list{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .legend-item{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;color:var(--muted);line-height:1.5}
+  .legend-item .swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0;margin-top:3px}
+  .legend-item b{color:var(--text)}
+
+  /* Section title */
+  .sec-title{font-size:20px;font-weight:700;margin:28px 0 4px;color:var(--text);
+    display:flex;align-items:center;gap:10px}
+  .sec-title::before{content:"";width:6px;height:22px;background:linear-gradient(var(--accent),var(--accent2));border-radius:3px}
+  .sec-sub{color:var(--dim);font-size:13px;margin-bottom:18px;padding-left:16px}
+
+  /* Knowledge point cards - 无 KP 编号，直接用标题 */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+  .kp{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:24px 22px 20px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s}
+  .kp:hover{transform:translateY(-2px);border-color:var(--border2)}
+  .kp::before{content:"";position:absolute;top:0;left:0;width:4px;height:100%}
+  .kp:nth-child(6n+1)::before{background:var(--accent)}
+  .kp:nth-child(6n+2)::before{background:var(--green)}
+  .kp:nth-child(6n+3)::before{background:var(--orange)}
+  .kp:nth-child(6n+4)::before{background:var(--pink)}
+  .kp:nth-child(6n+5)::before{background:var(--cyan)}
+  .kp:nth-child(6n+6)::before{background:var(--yellow)}
+
+  .kp-tag{font-size:10.5px;padding:3px 10px;border-radius:10px;background:var(--card2);
+    color:var(--accent);border:1px solid var(--border);font-weight:500;display:inline-block;margin-bottom:10px}
+  .kp h3{font-size:17px;font-weight:700;color:var(--text);margin-bottom:12px;line-height:1.45}
+  .kp-desc{font-size:13.5px;color:var(--muted);margin-bottom:16px;line-height:1.75}
+  .kp-desc b{color:var(--text)}
+
+  .block-label{font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.5px;margin:16px 0 10px;
+    text-transform:uppercase}
+  /* 关联关系 - 清晰说明，不追求简洁 */
+  .rel-list{margin-bottom:14px}
+  .rel-item{background:var(--bg2);border:1px solid var(--border);border-radius:9px;
+    padding:11px 13px;margin-bottom:8px;border-left:3px solid}
+  .rel-item.type-增强{border-left-color:var(--green)}
+  .rel-item.type-迭代{border-left-color:var(--orange)}
+  .rel-item.type-扩展{border-left-color:var(--cyan)}
+  .rel-item.type-新立{border-left-color:var(--pink)}
+  .rel-type{font-size:12px;font-weight:700;margin-bottom:4px}
+  .rel-type.type-增强{color:var(--green)}
+  .rel-type.type-迭代{color:var(--orange)}
+  .rel-type.type-扩展{color:var(--cyan)}
+  .rel-type.type-新立{color:var(--pink)}
+  .rel-explain{font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:6px}
+  .rel-explain b{color:var(--text)}
+  .rel-hist{font-size:11.5px;color:var(--dim);line-height:1.55}
+  .rel-hist a{color:var(--accent2);text-decoration:none}
+  .rel-hist .date{color:var(--dim);font-size:10.5px}
+
+  .insight{background:linear-gradient(135deg,rgba(91,155,245,.1),rgba(167,139,250,.08));
+    border:1px solid rgba(91,155,245,.3);border-radius:9px;padding:13px 15px;margin-top:12px}
+  .insight-lbl{font-size:11px;color:var(--accent2);font-weight:700;letter-spacing:.5px;margin-bottom:6px}
+  .insight p{font-size:12.5px;color:var(--muted);line-height:1.7}
+  .insight b{color:var(--text)}
+
+  .principle{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.3);
+    border-radius:9px;padding:14px 16px;margin-top:12px}
+  .principle h4{font-size:13.5px;color:var(--cyan);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  .principle h4::before{content:"📖";font-size:15px}
+  .principle p{font-size:12.5px;color:var(--muted);line-height:1.75;margin-bottom:8px}
+  .principle p:last-child{margin-bottom:0}
+  .principle b{color:var(--text)}
+  .principle .formula{background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+    padding:8px 12px;font-family:"SF Mono",Consolas,monospace;font-size:11.5px;color:var(--green);
+    margin:8px 0;overflow-x:auto}
+  .principle .src{font-size:10.5px;color:var(--dim);margin-top:10px;opacity:.75}
+  .principle .src a{color:var(--accent2)}
+
+  /* 关系图谱 */
+  .relmap{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:24px;margin:14px 0;box-shadow:var(--shadow)}
+  .relmap h2{font-size:17px;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .relmap h2::before{content:"🔗";font-size:18px}
+  .relmap .desc{font-size:13px;color:var(--muted);margin-bottom:18px}
+  .relmap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+  .relmap-item{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:15px 17px}
+  .relmap-item h4{font-size:13.5px;color:var(--text);margin-bottom:8px;font-weight:600}
+  .relmap-item p{font-size:12.5px;color:var(--muted);line-height:1.7}
+  .relmap-item .arrow{color:var(--accent);font-weight:700}
+
+  /* 时间线 */
+  .timeline{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:24px;margin:14px 0;box-shadow:var(--shadow)}
+  .timeline h2{font-size:17px;color:var(--accent);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .timeline h2::before{content:"📅";font-size:18px}
+  .tl{position:relative;padding-left:24px}
+  .tl::before{content:"";position:absolute;left:6px;top:4px;bottom:4px;width:2px;background:var(--border2)}
+  .tl-item{position:relative;padding-bottom:16px}
+  .tl-item:last-child{padding-bottom:0}
+  .tl-item::before{content:"";position:absolute;left:-21px;top:5px;width:10px;height:10px;
+    border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+  .tl-date{font-size:11px;color:var(--accent);font-weight:600;margin-bottom:3px}
+  .tl-content{font-size:13px;color:var(--muted);line-height:1.65}
+
+  /* 元数据放底部 */
+  .meta-footer{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+    padding:18px 22px;margin:18px 0 10px}
+  .meta-footer h3{font-size:13px;color:var(--accent);margin-bottom:12px;font-weight:700}
+  .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+  .meta-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
+    padding:7px 0;border-bottom:1px solid var(--border)}
+  .meta-row:last-child{border-bottom:none}
+  .meta-row .k{color:var(--dim)}
+  .meta-row .v{color:var(--text);font-weight:500;text-align:right}
+
+  footer{text-align:center;padding:24px 0 20px;color:var(--dim);font-size:11.5px;
+    border-top:1px solid var(--border);margin-top:20px}
+
+  .totop{position:fixed;bottom:24px;right:24px;width:42px;height:42px;border-radius:50%;
+    background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:18px;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(91,155,245,.5);
+    opacity:0;transition:opacity .3s;pointer-events:none;z-index:50}
+  .totop.show{opacity:1;pointer-events:auto}
+
+  @media(max-width:768px){
+    body{font-size:14px}
+    .wrap{padding:0 14px}
+    header{padding:26px 0 16px}
+    h1{font-size:22px}
+    .subtitle{font-size:14px}
+    .grid{grid-template-columns:1fr;gap:14px}
+    .kp{padding:20px 18px}
+    .kp h3{font-size:15.5px}
+    .lead,.relmap,.timeline,.meta-footer{padding:18px}
+    .legend-list{grid-template-columns:1fr}
+    .sec-title{font-size:17px;margin:22px 0 4px}
+    .totop{bottom:18px;right:18px;width:38px;height:38px;font-size:16px}
+  }
+  @media(max-width:420px){
+    h1{font-size:19px}
+    .kp{padding:18px 16px}
+    .kp-tag{font-size:10px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="badge">周认知信息图 · WEEKLY COGNITIVE INFOGRAPHIC</div>
+    <h1>2026 第 29 周认知信息图</h1>
+    <div class="subtitle">AI 时代的认知基础设施重构</div>
+  </header>
+
+  <!-- 主线说明 紧跟标题 -->
+  <div class="lead">
+    <h2>本周认知主线</h2>
+    <p>本周共采集 <b>12 条录音卡笔记</b>，提炼出 <b>6 个核心新认知</b>，通过 getnote 语义搜索从全部历史笔记中召回 <b>30 条相关笔记</b> 做关联分析，并对其中 3 个知识点补充了底层原理的扩展解释。</p>
+    <p>本周所有认知可一句话概括：<span class="hl">AI 时代的认知基础设施正在重构</span>——当世界变化速度超过人类大脑的设计上限时，我们需要把"认知"外包给 AI 基础设施。这 6 个新认知看似分散，底层都指向同一个命题。</p>
+  </div>
+
+  <!-- 关联类型清晰说明 -->
+  <div class="legend">
+    <div class="legend-title">关联类型说明（每个新认知与历史笔记的关系）</div>
+    <div class="legend-list">
+      <div class="legend-item"><span class="swatch" style="background:var(--green)"></span><span><b>增强</b>：本周新认知<b>强化、补充了</b>之前已有的认知，让原有观点更完整、更有力。原有认知的方向没变，只是更扎实了。</span></div>
+      <div class="legend-item"><span class="swatch" style="background:var(--orange)"></span><span><b>迭代</b>：本周新认知<b>更新、演进、升级了</b>之前的认知，原有观点的某个方面被修正或推进到新阶段。方向有变化，是升级而非推翻。</span></div>
+      <div class="legend-item"><span class="swatch" style="background:var(--cyan)"></span><span><b>扩展</b>：本周新认知<b>延伸了</b>之前认知的边界，把原有观点应用到新领域、新场景、新对象上。原有认知还在，只是覆盖范围变大了。</span></div>
+      <div class="legend-item"><span class="swatch" style="background:var(--pink)"></span><span><b>新立</b>：本周新认知是<b>全新建立的</b>，之前的历史笔记中没有对应的认知基础，是从零开始的全新观点。</span></div>
+    </div>
+  </div>
+
+  <!-- 六个核心新认知 -->
+  <div class="sec-title">本周六个核心新认知</div>
+  <div class="sec-sub">每张卡片包含：本周新观点 · 与历史笔记的具体关联（含解释）· 关联洞察 · 底层原理扩展（如有）</div>
+
+  <div class="grid">
+
+    <!-- 1 -->
+    <div class="kp">
+      <span class="kp-tag">认知科学 / AI</span>
+      <h3>AI 采集人生上下文，成为中立决策顾问</h3>
+      <div class="kp-desc">未来 AI 通过每日倾听、情绪识别、决策模式采集<b>整个人生上下文</b>，可能比"当局者迷"的人类更了解自己。但 AI 不替人做决策，而是在关键时刻<b>剥离情绪干扰、提供符合内心真实意愿的中立建议</b>——像一个永远在线、永远理性的"第二自我"。</div>
+
+      <div class="block-label">与历史笔记的关联</div>
+      <div class="rel-list">
+        <div class="rel-item type-增强">
+          <div class="rel-type type-增强">增强 · 上下文工程</div>
+          <div class="rel-explain">本周新认知<b>强化了</b>之前"上下文工程"的认知：原来上下文工程是讲"如何给 AI 喂信息"，本周进一步强调"采集整个人生上下文"也是上下文工程的核心，让这个概念更完整。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1892453399111818568">AI 的本质不是算力，而是「上下文革命」</a> <span class="date">（2025-11-07）</span></div>
+        </div>
+        <div class="rel-item type-迭代">
+          <div class="rel-type type-迭代">迭代 · AI 经济决策链</div>
+          <div class="rel-explain">本周新认知<b>升级了</b>之前"AI 经济决策链"的认知：从"AI 帮人收集信息做决策"升级到"AI 采集整个人生上下文做中立顾问"，决策辅助方式从被动响应演进到主动理解。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1885710367693475704">2025年AI经济的崛起</a> <span class="date">（2025-08-26）</span></div>
+        </div>
+        <div class="rel-item type-扩展">
+          <div class="rel-type type-扩展">扩展 · 上下文革命本质</div>
+          <div class="rel-explain">本周新认知<b>延伸了</b>之前"上下文革命"的应用边界：原来上下文革命主要讲产品层（Manus 给 Agent 喂产品上下文），本周把它扩展到个人生命层（AI 采集整个人生上下文）。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1898338532951477208">AI Agent 上下文工程：Manus 与 Cursor 的实践</a> <span class="date">（2026-01-09）</span></div>
+        </div>
+      </div>
+
+      <div class="insight">
+        <div class="insight-lbl">关联洞察</div>
+        <p>本周把"上下文工程"从<b>工程层</b>（如何给 Agent 喂信息）<b>迭代</b>到<b>个人生命层</b>（AI 采集整个人生上下文辅助决策）。从 Manus 的"产品上下文"升级为"人生上下文"——这是上下文工程应用范围的显著扩展。</p>
+      </div>
+    </div>
+
+    <!-- 2 -->
+    <div class="kp">
+      <span class="kp-tag">认知科学 / 进化心理学</span>
+      <h3>大脑是预测引擎，在指数化时代失效</h3>
+      <div class="kp-desc">大脑本质是<b>预测引擎</b>，为资源匮乏的地域性、线性化进化环境而生。如今全球化+指数化变化远超大脑设计上限，导致<b>类比失效、末日论调盛行、认知眩晕</b>——这正是精神疾病高发的底层原因。</div>
+      <div class="kp-desc" style="background:var(--bg2);border-radius:8px;padding:10px 12px;margin-top:-6px"><b style="color:var(--orange)">通俗说</b>：我们用石器时代的大脑，应对火箭时代的世界。</div>
+
+      <div class="block-label">与历史笔记的关联</div>
+      <div class="rel-list">
+        <div class="rel-item type-扩展">
+          <div class="rel-type type-扩展">扩展 · 指数型技术</div>
+          <div class="rel-explain">本周新认知<b>延伸了</b>之前《吾辈如神》关于"指数型技术"的认知：原来只讲"技术指数化发展带来神明级能力"，本周扩展到"指数化变化超出了大脑的处理能力"，从技术现象延伸到对人类认知的影响。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1914653560004710808">《吾辈如神》深度解析：指数型技术</a> <span class="date">（2026-07-04）</span></div>
+        </div>
+        <div class="rel-item type-增强">
+          <div class="rel-type type-增强">增强 · AI 时代认知抉择</div>
+          <div class="rel-explain">本周新认知<b>强化了</b>之前"成为驾驭者而非乘客"的认知：原来只说"AI 重塑认知技能定义"，本周补充了为什么需要驾驭 AI 的底层原因——大脑预测引擎本身已失效，不驾驭就会被甩开。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1884426427357654600">AI时代的认知抉择：成为驾驭者而非乘客</a> <span class="date">（2025-08-12）</span></div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <h4>底层原理扩展 · 自由能原理 (Free Energy Principle)</h4>
+        <p>本周观点的底层原理是神经科学家 <b>Karl Friston</b> 提出的<b>自由能原理</b>与<b>预测编码 (Predictive Coding)</b> 理论。</p>
+        <p><b style="color:var(--cyan)">一句话理解</b>：大脑不是"接收器"而是"预测机"——它先预测会发生什么，再用实际感觉来修正预测。预测准了就轻松，预测错了就"惊讶"。</p>
+        <p><b>核心公式</b>：大脑持续最小化"自由能"（即预测与现实的差距）：</p>
+        <div class="formula">自由能 F = 交叉熵(预测, 实际) + KL散度(内部模型, 先验经验)</div>
+        <p><b>生物学证据</b>：大脑皮层中"反馈（预测）连接"与"前馈（误差）连接"比例约 <b>1:10</b>，说明预测是大脑的主要工作，而非被动接收。</p>
+        <p><b>与本周观点的连接</b>：当环境变化速度（指数化）远超大脑内部模型更新速度时 → 预测误差持续高位 → 自由能无法收敛 → 系统陷入持续"惊讶"状态（焦虑/认知眩晕的神经科学解释）。"类比失效"的数学本质是：旧的先验分布与新的现实分布严重偏离，KL 散度激增。</p>
+        <div class="src">来源：Friston (2010) Nature Reviews Neuroscience；详见 <a href="https://biji.com/note/1916414775768944856">追加子笔记·自由能原理</a></div>
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="kp">
+      <span class="kp-tag">AI 基础设施 / 协作范式</span>
+      <h3>人机共治：基础设施为 Agent 与人类共同而建</h3>
+      <div class="kp-desc">"基础设施是为人类还是为 Agent 而建"的二元对立<b>已经过时</b>。Agent 既是执行依据，也是人类判断的重要参考。本周创新方案：用<b>邮箱作为人类与 Agent 共同可读的上下文载体</b>，替代 MCP/CLI 黑箱接口，实现信息对齐与协作——邮件天然是追加式、可追溯的，对人类和机器都友好。</div>
+
+      <div class="block-label">与历史笔记的关联</div>
+      <div class="rel-list">
+        <div class="rel-item type-迭代">
+          <div class="rel-type type-迭代">迭代 · Agent 技术全景</div>
+          <div class="rel-explain">本周新认知<b>升级了</b>之前"Agent 技术全景"的认知：原来 Agent 交互范式主要讲"工具集合进化为智能体系统"，本周推进到"人机共治"——基础设施不再是单给人或单给 Agent，而是两者共用。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1884871569579263704">AI Agent 技术全景：从设计方法到未来趋势</a> <span class="date">（2025-08-17）</span></div>
+        </div>
+        <div class="rel-item type-扩展">
+          <div class="rel-type type-扩展">扩展 · Manus 上下文原则</div>
+          <div class="rel-explain">本周新认知<b>延伸了</b>之前 Manus"只追加不修改"原则的应用场景：原来这个原则用于 Agent 内部上下文管理，本周扩展到人机协作层——邮件作为追加式载体，正好契合这个原则。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1882534271999111720">Manus 团队上下文工程核心原则</a> <span class="date">（2025-07-23）</span></div>
+        </div>
+        <div class="rel-item type-新立">
+          <div class="rel-type type-新立">新立 · 荣格原型 + 邮箱方案</div>
+          <div class="rel-explain">本周新认知是<b>全新建立的</b>：用荣格原型理论为"邮箱作为人机共用载体"提供心理学依据，这是之前历史笔记中完全没有的视角，属于从零开始的创新观点。</div>
+        </div>
+      </div>
+
+      <div class="insight">
+        <div class="insight-lbl">关联洞察</div>
+        <p>本周把 Agent 上下文管理从<b>纯工程接口</b>（MCP/CLI/API 封装）<b>迭代</b>为<b>人类可读的协作载体</b>（邮箱）。这与 Manus"只追加不修改"原则天然契合——邮件天然是追加式、可追溯的。从"给 Agent 喂数据"升级为"人机共享同一信息流"，是基础设施哲学的根本转向。</p>
+      </div>
+
+      <div class="principle">
+        <h4>底层原理扩展 · 荣格原型理论 (Jungian Archetypes)</h4>
+        <p><b style="color:var(--cyan)">一句话理解</b>：荣格认为人类心灵深处有"集体无意识"——全人类共享的、天生的心理模式（原型），比如"英雄""智慧老人""伟大母亲"在不同文化的神话里反复出现。</p>
+        <p><b>原型的关键特性</b>：① 非习得（天生遗传）；② 普遍模式（跨文化出现）；③ <b>形式无内容</b>（像空壳，由个人经验填充）；④ 被特定情境激活。</p>
+        <p><b>与本周观点的连接</b>：邮件本身就是一种"原型化"的信息载体——<b>普遍性</b>（跨系统通用）、<b>形式无内容</b>（可承载任何事件）、<b>人类可读</b>（破除技术黑箱）、<b>追加式</b>（符合只增不改原则）。把荣格的"心理原型"迁移到 AI 设计：邮件成为人机协作的"集体可读协议"。</p>
+        <div class="src">来源：Carl Jung《分析心理学》；详见 <a href="https://biji.com/note/1916414845564111824">追加子笔记·荣格原型理论</a></div>
+      </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="kp">
+      <span class="kp-tag">AI 工程 / 企业落地</span>
+      <h3>AI = LLM + Agent + Loop，方法论蒸馏</h3>
+      <div class="kp-desc">AI 工程化的清晰拆解：<b>LLM（大脑）+ Harness（外挂流程）= Agent（数字员工）</b>；<b>Agent + Loop（自我反思校正循环）= 企业落地形态</b>。精英员工的"感觉"其实是具身认知中的隐性方法论——虽说不出来但确实存在。用 AI 硬件采集做事过程，可把方法论<b>蒸馏</b>为显性规则；无精英时则加载行业专家知识库。</div>
+
+      <div class="block-label">与历史笔记的关联</div>
+      <div class="rel-list">
+        <div class="rel-item type-增强">
+          <div class="rel-type type-增强">增强 · Agent 设计模式</div>
+          <div class="rel-explain">本周新认知<b>强化了</b>之前"从 GoF 到 Agent 设计模式"的认知：原来讲 Harness 工程 + 27 种 Agent 设计模式，本周进一步明确"LLM + Harness = Agent"的拆解公式，让设计模式的工程基础更清晰。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1907136715475966088">从GoF到Agent：设计模式30年演进与Harness革命</a> <span class="date">（2026-04-14）</span></div>
+        </div>
+        <div class="rel-item type-迭代">
+          <div class="rel-type type-迭代">迭代 · Loop Engineering 数字办公室</div>
+          <div class="rel-explain">本周新认知<b>升级了</b>之前"Loop Engineering 实战"的认知：从"Agent 自主运行 + 一群 Agent 协同"升级到完整公式"Agent + Loop = 企业落地形态"，并新增"方法论蒸馏"这一关键环节。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1912604615792984632">我一个人管了7个AI员工：Loop Engineering 实战</a> <span class="date">（2026-06-12）</span></div>
+        </div>
+        <div class="rel-item type-扩展">
+          <div class="rel-type type-扩展">扩展 · 智能体元年共识</div>
+          <div class="rel-explain">本周新认知<b>延伸了</b>之前"智能体元年"的认知：从"2025 年是智能体加速起点"扩展到具体的企业落地方法论（LLM+Agent+Loop+方法论蒸馏），把宏观共识落到可操作层面。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1900514610513117488">AI智能体：从"对话"到"行动"的下一代AI革命</a> <span class="date">（2026-02-27）</span></div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <h4>底层原理扩展 · 具身认知与隐性知识</h4>
+        <p><b style="color:var(--cyan)">一句话理解</b>：哲学家 Polanyi 说"我们知道的远比能说出的多"（we know more than we can tell）。比如你会骑车，但很难用文字教会别人——这种"会做但说不清"的知识就是隐性知识。</p>
+        <p><b>4E Cognition 框架</b>：认知不局限于大脑，而根植于<b>身体 + 环境 + 行动 + 工具</b>的交互。精英员工的"感觉"是长期实践中身体沉积的方法论（knowing-how），无法简单转成文字（knowing-that）。</p>
+        <p><b>与本周观点的连接</b>：本周"AI 硬件采集过程→蒸馏方法论"的本质，是用技术手段把<b>隐性 knowing-how</b> 转化为<b>显性 knowing-that</b>。AI 录音卡捕获的不是"员工怎么说"，而是"员工怎么做"——捕获具身化的感知运动图式，再由 AI 分析提炼出可符号化的方法论。</p>
+        <div class="src">来源：Varela (1991)《具身心智》；Polanyi (1967)《隐性维度》；详见 <a href="https://biji.com/note/1916414916428975056">追加子笔记·具身认知</a></div>
+      </div>
+    </div>
+
+    <!-- 5 -->
+    <div class="kp">
+      <span class="kp-tag">商业应用 / 内容创作</span>
+      <h3>AI 短剧：从影视创作到营销工具与老年影视传记</h3>
+      <div class="kp-desc">打破"AI 短剧=影视创作"的认知惯性，从第一性原理（抖音内容本质是吸引观众）重新定位为<b>更优的营销工具</b>；并衍生出<b>老年影视传记</b>新形态——用 AI 短剧让老人"穿越"弥补人生遗憾，把文字传记升级为影视表达。三条历史线索在此汇合。</div>
+
+      <div class="block-label">与历史笔记的关联</div>
+      <div class="rel-list">
+        <div class="rel-item type-迭代">
+          <div class="rel-type type-迭代">迭代 · AI 短剧体验变化</div>
+          <div class="rel-explain">本周新认知<b>升级了</b>之前"AI 短剧体验变化"的认知：从"观察刷剧体验"升级到"重新定位 AI 短剧为营销工具"，对 AI 短剧的认知从内容消费演进到主动商业应用。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1911157060415063352">AI短剧和AI工具的快速进步带来的体验变化</a> <span class="date">（2026-05-28）</span></div>
+        </div>
+        <div class="rel-item type-扩展">
+          <div class="rel-type type-扩展">扩展 · 银发经济 + 老年人 AI</div>
+          <div class="rel-explain">本周新认知<b>延伸了</b>之前两条笔记的边界：把"银发经济掘金方向"和"老年人拥抱 AI"两个原本独立的认知，扩展到"老年影视传记"这一具体新形态，三者交叉产生新机会。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1870710367693475704">拐点已至！消费市场两大掘金方向</a> <span class="date">（2025-03-18）</span>；<a href="https://biji.com/note/1886571531593594456">美国老年人拥抱AI：82岁创业的逆龄故事</a> <span class="date">（2025-09-05）</span></div>
+        </div>
+        <div class="rel-item type-新立">
+          <div class="rel-type type-新立">新立 · 营销工具定位</div>
+          <div class="rel-explain">本周新认知是<b>全新建立的</b>：把 AI 短剧从"影视创作"重新定位为"营销工具"，这是之前历史笔记中没有的观点，是从第一性原理出发的全新判断。</div>
+        </div>
+      </div>
+
+      <div class="insight">
+        <div class="insight-lbl">关联洞察</div>
+        <p>本周将 AI 短剧从<b>内容消费</b>（5/28 笔记的"刷剧体验"）<b>迭代</b>为<b>主动营销工具</b>，并<b>扩展</b>到<b>银发经济</b>（3/18 笔记的消费方向）与<b>老年人 AI 应用</b>（9/5 笔记）的交叉点。三条历史线索在"老年影视传记"这一新形态上汇合，是本周认知网络中最具商业落地潜力的节点。</p>
+      </div>
+    </div>
+
+    <!-- 6 -->
+    <div class="kp">
+      <span class="kp-tag">企业战略 / 思维范式</span>
+      <h3>AI 时代核心是"千人千面"，工业化思维必败</h3>
+      <div class="kp-desc">AI 时代企业最大障碍是<b>工业化认知</b>（标准化、规模化获客）。互联网时代已带来"千人千面"算法认知（字节跳动5年超BAT），AI 时代真正问题是<b>每个客户需求的个性化</b>。AI 使过去高成本的"千人千面"成为天然能力——正如农业思维败给工业思维，工业/信息思维也将败给智能化思维。</div>
+
+      <div class="block-label">与历史笔记的关联</div>
+      <div class="rel-list">
+        <div class="rel-item type-增强">
+          <div class="rel-type type-增强">增强 · AI 时代认知跃迁</div>
+          <div class="rel-explain">本周新认知<b>强化了</b>之前"顶尖 1% 学习者思维范式"的认知：原来讲个人学习层的认知跃迁，本周补充了企业战略层的认知转变，让"认知跃迁"从个人维度强化到组织维度。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1905114610513117488">AI时代的认知跃迁：顶尖1%学习者思维范式</a> <span class="date">（2026-03-23）</span></div>
+        </div>
+        <div class="rel-item type-迭代">
+          <div class="rel-type type-迭代">迭代 · 认知抉择驾驭者</div>
+          <div class="rel-explain">本周新认知<b>升级了</b>之前"成为驾驭者而非乘客"的认知：从"驾驭 AI 工具"升级到"驾驭智能化思维范式"，驾驭的对象从工具层面演进到思维层面。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1884426427357654600">AI时代的认知抉择：成为驾驭者而非乘客</a> <span class="date">（2025-08-12）</span></div>
+        </div>
+        <div class="rel-item type-扩展">
+          <div class="rel-type type-扩展">扩展 · 认知危机研报</div>
+          <div class="rel-explain">本周新认知<b>延伸了</b>之前"认知危机研报"的视角：研报关注"AI 带来思维同质化风险"，本周扩展到"AI 反而使大规模个性化成为天然能力"，从风险视角扩展到机遇视角。</div>
+          <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1914554102521148248">AI时代认知危机深度研报：判断力流失破局指南</a> <span class="date">（2026-07-03）</span></div>
+        </div>
+      </div>
+
+      <div class="insight">
+        <div class="insight-lbl">关联洞察</div>
+        <p>本周把"认知转变"从<b>个人学习层</b>（3/23 顶尖1%思维）<b>增强</b>到<b>企业战略层</b>，并<b>扩展</b>了 7/3 认知危机研报的视角——后者关注 AI 带来的思维同质化风险，本周则强调 AI 反而使"个性化/千人千面"成为天然能力。两个视角构成辩证：AI 既可能同质化思维（风险），也使大规模个性化成为可能（机遇），关键在主动驾驭而非被动接入。</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 关系图谱 -->
+  <div class="relmap">
+    <h2>六个新认知之间的内在关系</h2>
+    <div class="desc">本周 6 个新认知并非孤立，而是围绕"AI时代认知基础设施重构"这一主线构成一张关系网。下面用通俗语言说明它们如何相互关联。</div>
+    <div class="relmap-grid">
+      <div class="relmap-item">
+        <h4>1. 总根源：大脑预测引擎失效</h4>
+        <p>大脑预测引擎在指数化时代失效（第 2 个认知）<span class="arrow">→</span> 这是所有问题的起点。人类自身认知能力不足，才需要把认知外包给 AI 基础设施。</p>
+      </div>
+      <div class="relmap-item">
+        <h4>2. 解决方案：三个认知构成基础设施</h4>
+        <p>认知外包需要三件套：<br>• <b>第 1 个</b> 人生上下文采集（让 AI 真正了解你）<br>• <b>第 3 个</b> 人机共治（人类与 Agent 共享同一信息流）<br>• <b>第 4 个</b> LLM+Agent+Loop（把认知能力工程化、可复用）</p>
+      </div>
+      <div class="relmap-item">
+        <h4>3. 商业落地：两个认知是应用层</h4>
+        <p>基础设施建好后，产生两类商业形态：<br>• <b>第 5 个</b> AI 短剧/老年影视传记（内容生产个性化）<br>• <b>第 6 个</b> 千人千面企业服务（需求匹配个性化）</p>
+      </div>
+      <div class="relmap-item">
+        <h4>4. 底层原理的相互呼应</h4>
+        <p>三个原理扩展形成闭环：<br>• <b>自由能原理</b>解释"为什么需要外包"（大脑预测误差过高）<br>• <b>具身认知</b>解释"如何提取人类能力"（隐性知识蒸馏）<br>• <b>荣格原型</b>解释"如何让人机协作"（原型化共享载体）</p>
+      </div>
+      <div class="relmap-item">
+        <h4>5. 辩证张力</h4>
+        <p>第 6 个认知揭示一个核心辩证：<b>AI 既威胁同质化思维，又赋能大规模个性化</b>。这不是矛盾，而是同一枚硬币的两面——结果取决于人是"乘客"还是"驾驭者"。第 1 个认知的"人生上下文"正是让人成为驾驭者的关键。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 时间线 -->
+  <div class="timeline">
+    <h2>认知演进时间线</h2>
+    <div class="tl">
+      <div class="tl-item"><div class="tl-date">2025-03 · 消费方向预判</div><div class="tl-content">银发经济与单身经济被识别为未来10年两大掘金方向——本周第 5 个认知（老年影视传记）正是银发经济的具体落地。</div></div>
+      <div class="tl-item"><div class="tl-date">2025-07 · Manus 上下文原则</div><div class="tl-content">"只追加不修改"原则确立——本周第 3 个认知的邮箱方案与此天然契合。</div></div>
+      <div class="tl-item"><div class="tl-date">2025-08 · AI经济与认知抉择</div><div class="tl-content">AI经济崛起（完整决策链）+ 认知抉择（驾驭者vs乘客）——本周第 1 个和第 6 个认知的早期雏形。</div></div>
+      <div class="tl-item"><div class="tl-date">2025-11 · 上下文革命</div><div class="tl-content">"AI本质是上下文革命"提出——本周第 1 个认知将其从产品层迭代到人生层。</div></div>
+      <div class="tl-item"><div class="tl-date">2026-04 · Agent设计模式</div><div class="tl-content">从GoF到Agent的Harness革命——本周第 4 个认知的工程基础。</div></div>
+      <div class="tl-item"><div class="tl-date">2026-06 · Loop Engineering实战</div><div class="tl-content">7个AI员工协同的数字办公室——本周第 4 个认知的企业落地形态。</div></div>
+      <div class="tl-item"><div class="tl-date">2026-07-04 · 指数型技术</div><div class="tl-content">《吾辈如神》解析——本周第 2 个认知（大脑预测引擎失效）的技术背景。</div></div>
+      <div class="tl-item"><div class="tl-date">2026-07-13~19 · 本周汇合</div><div class="tl-content"><b style="color:var(--accent)">认知基础设施重构</b>——6条线索在此汇合，形成完整的"诊断→基础设施→应用层"框架。</div></div>
+    </div>
+  </div>
+
+  <!-- 元数据放底部 -->
+  <div class="meta-footer">
+    <h3>本期信息图元数据</h3>
+    <div class="meta-grid">
+      <div class="meta-row"><span class="k">数据周期</span><span class="v">2026-07-13 ~ 07-19</span></div>
+      <div class="meta-row"><span class="k">数据源</span><span class="v">Get笔记 录音卡笔记（12 条）</span></div>
+      <div class="meta-row"><span class="k">关联范围</span><span class="v">全部 2000 条历史笔记</span></div>
+      <div class="meta-row"><span class="k">语义搜索召回</span><span class="v">30 条相关历史笔记</span></div>
+      <div class="meta-row"><span class="k">知识点扩展</span><span class="v">3 个底层原理</span></div>
+      <div class="meta-row"><span class="k">关联时间跨度</span><span class="v">16 个月（2025-03 ~ 2026-07）</span></div>
+      <div class="meta-row"><span class="k">生成时间</span><span class="v">2026-07-23</span></div>
+    </div>
+  </div>
+
+  <footer>
+    由 Get笔记 周认知合成任务自动生成 · 数据源：录音卡笔记 + getnote 语义搜索召回 + 全网原理扩展
+  </footer>
+
+</div>
+
+<button class="totop" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="返回顶部">↑</button>
+<script>
+  const btn=document.querySelector('.totop');
+  window.addEventListener('scroll',()=>{btn.classList.toggle('show',window.scrollY>400)});
+</script>
+</body>
+</html>
