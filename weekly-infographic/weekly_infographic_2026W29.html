@@ -1,67 +1,104 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <title>周认知信息图 · 2026 W29 | AI时代的认知基础设施重构</title>
 <style>
-  :root{
-    --bg:#0a0e1a; --bg2:#0f1525; --card:#161d31; --card2:#1e2742;
-    --border:#2a3556; --border2:#3a466b;
-    --text:#e8edf7; --muted:#8b96b3; --dim:#6b7595;
-    --accent:#5b9bf5; --accent2:#a78bfa; --pink:#f472b6;
-    --green:#34d399; --orange:#fb923c; --cyan:#22d3ee; --yellow:#fbbf24;
-    --shadow:0 4px 20px rgba(0,0,0,.3);
+  /* ===== 主题变量 ===== */
+  :root[data-theme="dark"]{
+    --bg:#0d1117; --bg-soft:#161b22; --card:#1a2233; --card-2:#21293c;
+    --border:#2d3748; --border-soft:#374151;
+    --text:#e6edf3; --text-soft:#b1bac4; --muted:#8b949e; --dim:#6e7681;
+    --accent:#58a6ff; --accent-2:#bc8cff; --pink:#ff7eb6;
+    --green:#3fb950; --orange:#f0883e; --cyan:#39d0d8; --yellow:#e3b341;
+    --lead-bg:linear-gradient(135deg,#1a2233,#21293c);
+    --shadow:0 8px 24px rgba(0,0,0,.4);
+    --hl:#f0883e;
   }
+  :root[data-theme="light"]{
+    --bg:#fafbfc; --bg-soft:#ffffff; --card:#ffffff; --card-2:#f6f8fa;
+    --border:#d0d7de; --border-soft:#e1e4e8;
+    --text:#1f2328; --text-soft:#3b4252; --muted:#57606a; --dim:#8c959f;
+    --accent:#0969da; --accent-2:#8250df; --pink:#bf3989;
+    --green:#1a7f37; --orange:#bc4c00; --cyan:#0a7b83; --yellow:#7d4e00;
+    --lead-bg:linear-gradient(135deg,#ffffff,#f6f8fa);
+    --shadow:0 4px 16px rgba(140,149,159,.16);
+    --hl:#bc4c00;
+  }
+
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   html{scroll-behavior:smooth}
   body{
-    background:radial-gradient(ellipse at top,#131a30 0%,var(--bg) 60%);
+    background:var(--bg);
     color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",sans-serif;
-    line-height:1.8;font-size:15px;padding:0;min-height:100vh;-webkit-font-smoothing:antialiased;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
+    line-height:1.85;font-size:16px;padding:0;min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+    transition:background .3s,color .3s;
   }
-  .wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 22px}
 
-  /* Header - 信息图放最顶部 */
-  header{padding:36px 0 22px;text-align:center;border-bottom:1px solid var(--border);margin-bottom:8px}
-  .badge{display:inline-block;font-size:11px;letter-spacing:1.5px;color:var(--accent);
-    background:rgba(91,155,245,.1);border:1px solid rgba(91,155,245,.3);
-    padding:4px 14px;border-radius:14px;margin-bottom:14px;font-weight:600}
-  h1{font-size:30px;font-weight:800;line-height:1.3;margin-bottom:8px;
-    background:linear-gradient(100deg,var(--accent),var(--accent2) 45%,var(--pink));
-    -webkit-background-clip:text;background-clip:text;color:transparent}
-  .subtitle{color:var(--text);font-size:16px;font-weight:500;margin-bottom:6px;opacity:.92}
+  /* ===== 主题切换按钮 ===== */
+  .theme-toggle{
+    position:fixed;top:18px;right:18px;z-index:100;
+    width:44px;height:44px;border-radius:50%;
+    background:var(--card);border:1px solid var(--border);
+    color:var(--text);font-size:18px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:var(--shadow);
+    transition:transform .2s,background .3s;
+  }
+  .theme-toggle:hover{transform:scale(1.08)}
+  .theme-toggle:active{transform:scale(.94)}
+  [data-theme="dark"] .icon-sun{display:block}
+  [data-theme="dark"] .icon-moon{display:none}
+  [data-theme="light"] .icon-sun{display:none}
+  [data-theme="light"] .icon-moon{display:block}
 
-  /* 主线说明 - 紧跟标题 */
-  .lead{background:linear-gradient(135deg,var(--card),var(--card2));
-    border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin:16px 0 10px;box-shadow:var(--shadow)}
-  .lead h2{font-size:16px;color:var(--accent);margin-bottom:10px}
-  .lead p{color:var(--muted);font-size:14px;margin-bottom:6px}
+  /* ===== Header ===== */
+  header{padding:48px 0 28px;text-align:center;border-bottom:1px solid var(--border);margin-bottom:12px}
+  .badge{display:inline-block;font-size:11px;letter-spacing:1.8px;color:var(--accent);
+    background:color-mix(in srgb,var(--accent) 12%,transparent);
+    border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);
+    padding:5px 16px;border-radius:14px;margin-bottom:16px;font-weight:600}
+  h1{font-size:34px;font-weight:800;line-height:1.3;margin-bottom:10px;
+    background:linear-gradient(100deg,var(--accent),var(--accent-2) 50%,var(--pink));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    letter-spacing:-.3px}
+  .subtitle{color:var(--text-soft);font-size:17px;font-weight:500;margin-bottom:4px}
+
+  /* ===== 主线说明 ===== */
+  .lead{background:var(--lead-bg);border:1px solid var(--border);
+    border-radius:16px;padding:24px 28px;margin:18px 0 12px;box-shadow:var(--shadow)}
+  .lead h2{font-size:17px;color:var(--accent);margin-bottom:12px;font-weight:700}
+  .lead p{color:var(--muted);font-size:15px;margin-bottom:8px;line-height:1.8}
   .lead p:last-child{margin-bottom:0}
-  .lead b{color:var(--text)}
-  .lead .hl{color:var(--orange);font-weight:600}
+  .lead b{color:var(--text);font-weight:600}
+  .lead .hl{color:var(--hl);font-weight:700}
 
-  /* 关联类型说明 - 清晰定义 */
-  .legend{background:var(--card);border:1px solid var(--border);border-radius:12px;
-    padding:16px 20px;margin:12px 0 18px}
-  .legend-title{font-size:13px;color:var(--accent);font-weight:700;margin-bottom:10px}
-  .legend-list{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-  .legend-item{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;color:var(--muted);line-height:1.5}
-  .legend-item .swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0;margin-top:3px}
-  .legend-item b{color:var(--text)}
+  /* ===== 关联类型说明 ===== */
+  .legend{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:18px 22px;margin:12px 0 22px;box-shadow:var(--shadow)}
+  .legend-title{font-size:14px;color:var(--accent);font-weight:700;margin-bottom:12px}
+  .legend-list{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .legend-item{display:flex;gap:11px;align-items:flex-start;font-size:13px;color:var(--muted);line-height:1.6}
+  .legend-item .swatch{width:13px;height:13px;border-radius:4px;flex-shrink:0;margin-top:3px}
+  .legend-item b{color:var(--text);font-weight:600}
 
-  /* Section title */
-  .sec-title{font-size:20px;font-weight:700;margin:28px 0 4px;color:var(--text);
-    display:flex;align-items:center;gap:10px}
-  .sec-title::before{content:"";width:6px;height:22px;background:linear-gradient(var(--accent),var(--accent2));border-radius:3px}
-  .sec-sub{color:var(--dim);font-size:13px;margin-bottom:18px;padding-left:16px}
+  /* ===== Section ===== */
+  .sec-title{font-size:22px;font-weight:800;margin:32px 0 6px;color:var(--text);
+    display:flex;align-items:center;gap:11px;letter-spacing:-.2px}
+  .sec-title::before{content:"";width:6px;height:24px;
+    background:linear-gradient(var(--accent),var(--accent-2));border-radius:3px}
+  .sec-sub{color:var(--dim);font-size:13.5px;margin-bottom:22px;padding-left:17px}
 
-  /* Knowledge point cards - 无 KP 编号，直接用标题 */
-  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
-  .kp{background:var(--card);border:1px solid var(--border);border-radius:14px;
-    padding:24px 22px 20px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s}
-  .kp:hover{transform:translateY(-2px);border-color:var(--border2)}
+  /* ===== 知识点卡片 ===== */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+  .kp{background:var(--card);border:1px solid var(--border);border-radius:16px;
+    padding:26px 24px 22px;position:relative;overflow:hidden;
+    transition:transform .2s,border-color .2s,box-shadow .2s}
+  .kp:hover{transform:translateY(-3px);border-color:var(--border-soft);box-shadow:var(--shadow)}
   .kp::before{content:"";position:absolute;top:0;left:0;width:4px;height:100%}
   .kp:nth-child(6n+1)::before{background:var(--accent)}
   .kp:nth-child(6n+2)::before{background:var(--green)}
@@ -70,120 +107,154 @@
   .kp:nth-child(6n+5)::before{background:var(--cyan)}
   .kp:nth-child(6n+6)::before{background:var(--yellow)}
 
-  .kp-tag{font-size:10.5px;padding:3px 10px;border-radius:10px;background:var(--card2);
-    color:var(--accent);border:1px solid var(--border);font-weight:500;display:inline-block;margin-bottom:10px}
-  .kp h3{font-size:17px;font-weight:700;color:var(--text);margin-bottom:12px;line-height:1.45}
-  .kp-desc{font-size:13.5px;color:var(--muted);margin-bottom:16px;line-height:1.75}
-  .kp-desc b{color:var(--text)}
+  .kp-tag{font-size:11px;padding:4px 11px;border-radius:11px;background:var(--card-2);
+    color:var(--accent);border:1px solid var(--border-soft);font-weight:600;
+    display:inline-block;margin-bottom:12px;letter-spacing:.3px}
+  .kp h3{font-size:18px;font-weight:700;color:var(--text);margin-bottom:14px;
+    line-height:1.5;letter-spacing:-.1px}
+  .kp-desc{font-size:14px;color:var(--text-soft);margin-bottom:18px;line-height:1.8}
+  .kp-desc b{color:var(--text);font-weight:600}
+  .kp-quote{background:var(--card-2);border-radius:10px;padding:11px 14px;
+    margin:-8px 0 16px;font-size:13.5px;border-left:3px solid var(--orange)}
+  .kp-quote b{color:var(--orange);font-weight:700}
 
-  .block-label{font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.5px;margin:16px 0 10px;
-    text-transform:uppercase}
-  /* 关联关系 - 清晰说明，不追求简洁 */
+  .block-label{font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.8px;
+    margin:18px 0 11px;text-transform:uppercase}
+
+  /* ===== 关联关系 ===== */
   .rel-list{margin-bottom:14px}
-  .rel-item{background:var(--bg2);border:1px solid var(--border);border-radius:9px;
-    padding:11px 13px;margin-bottom:8px;border-left:3px solid}
-  .rel-item.type-增强{border-left-color:var(--green)}
-  .rel-item.type-迭代{border-left-color:var(--orange)}
-  .rel-item.type-扩展{border-left-color:var(--cyan)}
-  .rel-item.type-新立{border-left-color:var(--pink)}
-  .rel-type{font-size:12px;font-weight:700;margin-bottom:4px}
-  .rel-type.type-增强{color:var(--green)}
-  .rel-type.type-迭代{color:var(--orange)}
-  .rel-type.type-扩展{color:var(--cyan)}
-  .rel-type.type-新立{color:var(--pink)}
-  .rel-explain{font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:6px}
-  .rel-explain b{color:var(--text)}
-  .rel-hist{font-size:11.5px;color:var(--dim);line-height:1.55}
-  .rel-hist a{color:var(--accent2);text-decoration:none}
+  .rel-item{background:var(--bg-soft);border:1px solid var(--border);border-radius:10px;
+    padding:13px 15px;margin-bottom:10px;border-left:3px solid}
+  .rel-item.type-zeng{border-left-color:var(--green)}
+  .rel-item.type-die{border-left-color:var(--orange)}
+  .rel-item.type-kuo{border-left-color:var(--cyan)}
+  .rel-item.type-xin{border-left-color:var(--pink)}
+  .rel-type{font-size:12.5px;font-weight:700;margin-bottom:6px}
+  .rel-type.type-zeng{color:var(--green)}
+  .rel-type.type-die{color:var(--orange)}
+  .rel-type.type-kuo{color:var(--cyan)}
+  .rel-type.type-xin{color:var(--pink)}
+  .rel-explain{font-size:12.5px;color:var(--muted);line-height:1.7;margin-bottom:7px}
+  .rel-explain b{color:var(--text);font-weight:600}
+  .rel-hist{font-size:11.5px;color:var(--dim);line-height:1.6}
+  .rel-hist a{color:var(--accent-2);text-decoration:none;border-bottom:1px dotted}
   .rel-hist .date{color:var(--dim);font-size:10.5px}
 
-  .insight{background:linear-gradient(135deg,rgba(91,155,245,.1),rgba(167,139,250,.08));
-    border:1px solid rgba(91,155,245,.3);border-radius:9px;padding:13px 15px;margin-top:12px}
-  .insight-lbl{font-size:11px;color:var(--accent2);font-weight:700;letter-spacing:.5px;margin-bottom:6px}
-  .insight p{font-size:12.5px;color:var(--muted);line-height:1.7}
-  .insight b{color:var(--text)}
+  /* ===== 洞察 ===== */
+  .insight{background:linear-gradient(135deg,
+    color-mix(in srgb,var(--accent) 10%,transparent),
+    color-mix(in srgb,var(--accent-2) 8%,transparent));
+    border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
+    border-radius:10px;padding:14px 16px;margin-top:13px}
+  .insight-lbl{font-size:11px;color:var(--accent-2);font-weight:700;letter-spacing:.5px;margin-bottom:7px}
+  .insight p{font-size:13px;color:var(--text-soft);line-height:1.75}
+  .insight b{color:var(--text);font-weight:600}
 
-  .principle{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.3);
-    border-radius:9px;padding:14px 16px;margin-top:12px}
-  .principle h4{font-size:13.5px;color:var(--cyan);margin-bottom:10px;display:flex;align-items:center;gap:6px}
-  .principle h4::before{content:"📖";font-size:15px}
-  .principle p{font-size:12.5px;color:var(--muted);line-height:1.75;margin-bottom:8px}
+  /* ===== 原理扩展 ===== */
+  .principle{background:color-mix(in srgb,var(--cyan) 7%,var(--card));
+    border:1px solid color-mix(in srgb,var(--cyan) 30%,transparent);
+    border-radius:10px;padding:16px 18px;margin-top:13px}
+  .principle h4{font-size:14px;color:var(--cyan);margin-bottom:11px;
+    display:flex;align-items:center;gap:7px;font-weight:700}
+  .principle h4::before{content:"📖";font-size:16px}
+  .principle p{font-size:13px;color:var(--text-soft);line-height:1.8;margin-bottom:9px}
   .principle p:last-child{margin-bottom:0}
-  .principle b{color:var(--text)}
-  .principle .formula{background:var(--bg2);border:1px solid var(--border);border-radius:6px;
-    padding:8px 12px;font-family:"SF Mono",Consolas,monospace;font-size:11.5px;color:var(--green);
-    margin:8px 0;overflow-x:auto}
-  .principle .src{font-size:10.5px;color:var(--dim);margin-top:10px;opacity:.75}
-  .principle .src a{color:var(--accent2)}
+  .principle b{color:var(--text);font-weight:600}
+  .principle .one-liner{background:var(--bg-soft);border-radius:8px;padding:10px 13px;
+    margin:8px 0;font-size:13px;border-left:3px solid var(--cyan)}
+  .principle .one-liner b{color:var(--cyan)}
+  .principle .formula{background:var(--bg-soft);border:1px solid var(--border);border-radius:7px;
+    padding:10px 13px;font-family:"SF Mono",Consolas,monospace;font-size:12px;color:var(--green);
+    margin:9px 0;overflow-x:auto}
+  .principle .src{font-size:11px;color:var(--dim);margin-top:11px;opacity:.8}
+  .principle .src a{color:var(--accent-2)}
 
-  /* 关系图谱 */
-  .relmap{background:var(--card);border:1px solid var(--border);border-radius:14px;
-    padding:24px;margin:14px 0;box-shadow:var(--shadow)}
-  .relmap h2{font-size:17px;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:8px}
-  .relmap h2::before{content:"🔗";font-size:18px}
-  .relmap .desc{font-size:13px;color:var(--muted);margin-bottom:18px}
+  /* ===== 关系图谱 ===== */
+  .relmap{background:var(--card);border:1px solid var(--border);border-radius:16px;
+    padding:26px;margin:16px 0;box-shadow:var(--shadow)}
+  .relmap h2{font-size:18px;color:var(--accent);margin-bottom:10px;
+    display:flex;align-items:center;gap:9px;font-weight:700}
+  .relmap h2::before{content:"🔗";font-size:19px}
+  .relmap .desc{font-size:13.5px;color:var(--muted);margin-bottom:20px;line-height:1.7}
   .relmap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
-  .relmap-item{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:15px 17px}
-  .relmap-item h4{font-size:13.5px;color:var(--text);margin-bottom:8px;font-weight:600}
-  .relmap-item p{font-size:12.5px;color:var(--muted);line-height:1.7}
+  .relmap-item{background:var(--bg-soft);border:1px solid var(--border);border-radius:11px;padding:16px 18px}
+  .relmap-item h4{font-size:14px;color:var(--text);margin-bottom:9px;font-weight:700}
+  .relmap-item p{font-size:13px;color:var(--muted);line-height:1.75}
   .relmap-item .arrow{color:var(--accent);font-weight:700}
 
-  /* 时间线 */
-  .timeline{background:var(--card);border:1px solid var(--border);border-radius:14px;
-    padding:24px;margin:14px 0;box-shadow:var(--shadow)}
-  .timeline h2{font-size:17px;color:var(--accent);margin-bottom:16px;display:flex;align-items:center;gap:8px}
-  .timeline h2::before{content:"📅";font-size:18px}
-  .tl{position:relative;padding-left:24px}
-  .tl::before{content:"";position:absolute;left:6px;top:4px;bottom:4px;width:2px;background:var(--border2)}
-  .tl-item{position:relative;padding-bottom:16px}
+  /* ===== 时间线 ===== */
+  .timeline{background:var(--card);border:1px solid var(--border);border-radius:16px;
+    padding:26px;margin:16px 0;box-shadow:var(--shadow)}
+  .timeline h2{font-size:18px;color:var(--accent);margin-bottom:18px;
+    display:flex;align-items:center;gap:9px;font-weight:700}
+  .timeline h2::before{content:"📅";font-size:19px}
+  .tl{position:relative;padding-left:26px}
+  .tl::before{content:"";position:absolute;left:6px;top:5px;bottom:5px;width:2px;
+    background:linear-gradient(var(--accent),var(--accent-2));border-radius:1px}
+  .tl-item{position:relative;padding-bottom:18px}
   .tl-item:last-child{padding-bottom:0}
-  .tl-item::before{content:"";position:absolute;left:-21px;top:5px;width:10px;height:10px;
-    border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
-  .tl-date{font-size:11px;color:var(--accent);font-weight:600;margin-bottom:3px}
-  .tl-content{font-size:13px;color:var(--muted);line-height:1.65}
+  .tl-item::before{content:"";position:absolute;left:-23px;top:6px;width:11px;height:11px;
+    border-radius:50%;background:var(--accent);border:2px solid var(--bg);box-shadow:0 0 0 2px var(--accent)}
+  .tl-date{font-size:11.5px;color:var(--accent);font-weight:700;margin-bottom:4px}
+  .tl-content{font-size:13.5px;color:var(--text-soft);line-height:1.7}
 
-  /* 元数据放底部 */
-  .meta-footer{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
-    padding:18px 22px;margin:18px 0 10px}
-  .meta-footer h3{font-size:13px;color:var(--accent);margin-bottom:12px;font-weight:700}
-  .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
-  .meta-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
-    padding:7px 0;border-bottom:1px solid var(--border)}
-  .meta-row:last-child{border-bottom:none}
+  /* ===== 元数据 ===== */
+  .meta-footer{background:var(--bg-soft);border:1px solid var(--border);border-radius:14px;
+    padding:20px 24px;margin:18px 0 12px}
+  .meta-footer h3{font-size:14px;color:var(--accent);margin-bottom:14px;font-weight:700}
+  .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 20px}
+  .meta-row{display:flex;justify-content:space-between;gap:12px;font-size:13px;
+    padding:8px 0;border-bottom:1px solid var(--border)}
+  .meta-row:nth-last-child(-n+1){border-bottom:none}
   .meta-row .k{color:var(--dim)}
-  .meta-row .v{color:var(--text);font-weight:500;text-align:right}
+  .meta-row .v{color:var(--text);font-weight:600;text-align:right}
 
-  footer{text-align:center;padding:24px 0 20px;color:var(--dim);font-size:11.5px;
-    border-top:1px solid var(--border);margin-top:20px}
+  footer{text-align:center;padding:26px 0 22px;color:var(--dim);font-size:12px;
+    border-top:1px solid var(--border);margin-top:22px;line-height:1.7}
 
-  .totop{position:fixed;bottom:24px;right:24px;width:42px;height:42px;border-radius:50%;
-    background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:18px;
-    display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(91,155,245,.5);
-    opacity:0;transition:opacity .3s;pointer-events:none;z-index:50}
+  /* ===== 返回顶部 ===== */
+  .totop{position:fixed;bottom:26px;right:18px;width:46px;height:46px;border-radius:50%;
+    background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:19px;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 50%,transparent);
+    opacity:0;transition:opacity .3s,transform .2s;pointer-events:none;z-index:90}
   .totop.show{opacity:1;pointer-events:auto}
+  .totop:hover{transform:translateY(-2px)}
 
+  /* ===== 移动端 ===== */
   @media(max-width:768px){
-    body{font-size:14px}
-    .wrap{padding:0 14px}
-    header{padding:26px 0 16px}
-    h1{font-size:22px}
-    .subtitle{font-size:14px}
-    .grid{grid-template-columns:1fr;gap:14px}
-    .kp{padding:20px 18px}
-    .kp h3{font-size:15.5px}
-    .lead,.relmap,.timeline,.meta-footer{padding:18px}
+    body{font-size:15px;line-height:1.8}
+    .wrap{padding:0 16px}
+    header{padding:36px 0 22px}
+    h1{font-size:24px}
+    .subtitle{font-size:15px}
+    .grid{grid-template-columns:1fr;gap:16px}
+    .kp{padding:22px 20px}
+    .kp h3{font-size:16.5px}
+    .lead,.relmap,.timeline,.meta-footer{padding:22px}
     .legend-list{grid-template-columns:1fr}
-    .sec-title{font-size:17px;margin:22px 0 4px}
-    .totop{bottom:18px;right:18px;width:38px;height:38px;font-size:16px}
+    .sec-title{font-size:19px;margin:26px 0 4px}
+    .theme-toggle{top:14px;right:14px;width:40px;height:40px;font-size:16px}
+    .totop{bottom:20px;right:14px;width:42px;height:42px;font-size:17px}
   }
   @media(max-width:420px){
-    h1{font-size:19px}
-    .kp{padding:18px 16px}
-    .kp-tag{font-size:10px}
+    h1{font-size:20px}
+    .kp{padding:20px 17px}
+    .kp-tag{font-size:10.5px}
+    .lead,.relmap,.timeline,.meta-footer{padding:18px}
+    .meta-grid{grid-template-columns:1fr}
   }
+
+  /* 防止主题切换闪烁 */
+  script{display:none}
 </style>
 </head>
 <body>
+<button class="theme-toggle" id="themeBtn" aria-label="切换日间/夜间模式" title="切换日间/夜间模式">
+  <span class="icon-sun">☀</span>
+  <span class="icon-moon">🌙</span>
+</button>
+
 <div class="wrap">
 
   <header>
@@ -192,14 +263,12 @@
     <div class="subtitle">AI 时代的认知基础设施重构</div>
   </header>
 
-  <!-- 主线说明 紧跟标题 -->
   <div class="lead">
     <h2>本周认知主线</h2>
     <p>本周共采集 <b>12 条录音卡笔记</b>，提炼出 <b>6 个核心新认知</b>，通过 getnote 语义搜索从全部历史笔记中召回 <b>30 条相关笔记</b> 做关联分析，并对其中 3 个知识点补充了底层原理的扩展解释。</p>
     <p>本周所有认知可一句话概括：<span class="hl">AI 时代的认知基础设施正在重构</span>——当世界变化速度超过人类大脑的设计上限时，我们需要把"认知"外包给 AI 基础设施。这 6 个新认知看似分散，底层都指向同一个命题。</p>
   </div>
 
-  <!-- 关联类型清晰说明 -->
   <div class="legend">
     <div class="legend-title">关联类型说明（每个新认知与历史笔记的关系）</div>
     <div class="legend-list">
@@ -210,7 +279,6 @@
     </div>
   </div>
 
-  <!-- 六个核心新认知 -->
   <div class="sec-title">本周六个核心新认知</div>
   <div class="sec-sub">每张卡片包含：本周新观点 · 与历史笔记的具体关联（含解释）· 关联洞察 · 底层原理扩展（如有）</div>
 
@@ -224,18 +292,18 @@
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
-        <div class="rel-item type-增强">
-          <div class="rel-type type-增强">增强 · 上下文工程</div>
+        <div class="rel-item type-zeng">
+          <div class="rel-type type-zeng">增强 · 上下文工程</div>
           <div class="rel-explain">本周新认知<b>强化了</b>之前"上下文工程"的认知：原来上下文工程是讲"如何给 AI 喂信息"，本周进一步强调"采集整个人生上下文"也是上下文工程的核心，让这个概念更完整。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1892453399111818568">AI 的本质不是算力，而是「上下文革命」</a> <span class="date">（2025-11-07）</span></div>
         </div>
-        <div class="rel-item type-迭代">
-          <div class="rel-type type-迭代">迭代 · AI 经济决策链</div>
+        <div class="rel-item type-die">
+          <div class="rel-type type-die">迭代 · AI 经济决策链</div>
           <div class="rel-explain">本周新认知<b>升级了</b>之前"AI 经济决策链"的认知：从"AI 帮人收集信息做决策"升级到"AI 采集整个人生上下文做中立顾问"，决策辅助方式从被动响应演进到主动理解。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1885710367693475704">2025年AI经济的崛起</a> <span class="date">（2025-08-26）</span></div>
         </div>
-        <div class="rel-item type-扩展">
-          <div class="rel-type type-扩展">扩展 · 上下文革命本质</div>
+        <div class="rel-item type-kuo">
+          <div class="rel-type type-kuo">扩展 · 上下文革命本质</div>
           <div class="rel-explain">本周新认知<b>延伸了</b>之前"上下文革命"的应用边界：原来上下文革命主要讲产品层（Manus 给 Agent 喂产品上下文），本周把它扩展到个人生命层（AI 采集整个人生上下文）。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1898338532951477208">AI Agent 上下文工程：Manus 与 Cursor 的实践</a> <span class="date">（2026-01-09）</span></div>
         </div>
@@ -252,17 +320,17 @@
       <span class="kp-tag">认知科学 / 进化心理学</span>
       <h3>大脑是预测引擎，在指数化时代失效</h3>
       <div class="kp-desc">大脑本质是<b>预测引擎</b>，为资源匮乏的地域性、线性化进化环境而生。如今全球化+指数化变化远超大脑设计上限，导致<b>类比失效、末日论调盛行、认知眩晕</b>——这正是精神疾病高发的底层原因。</div>
-      <div class="kp-desc" style="background:var(--bg2);border-radius:8px;padding:10px 12px;margin-top:-6px"><b style="color:var(--orange)">通俗说</b>：我们用石器时代的大脑，应对火箭时代的世界。</div>
+      <div class="kp-quote"><b>通俗说</b>：我们用石器时代的大脑，应对火箭时代的世界。</div>
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
-        <div class="rel-item type-扩展">
-          <div class="rel-type type-扩展">扩展 · 指数型技术</div>
+        <div class="rel-item type-kuo">
+          <div class="rel-type type-kuo">扩展 · 指数型技术</div>
           <div class="rel-explain">本周新认知<b>延伸了</b>之前《吾辈如神》关于"指数型技术"的认知：原来只讲"技术指数化发展带来神明级能力"，本周扩展到"指数化变化超出了大脑的处理能力"，从技术现象延伸到对人类认知的影响。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1914653560004710808">《吾辈如神》深度解析：指数型技术</a> <span class="date">（2026-07-04）</span></div>
         </div>
-        <div class="rel-item type-增强">
-          <div class="rel-type type-增强">增强 · AI 时代认知抉择</div>
+        <div class="rel-item type-zeng">
+          <div class="rel-type type-zeng">增强 · AI 时代认知抉择</div>
           <div class="rel-explain">本周新认知<b>强化了</b>之前"成为驾驭者而非乘客"的认知：原来只说"AI 重塑认知技能定义"，本周补充了为什么需要驾驭 AI 的底层原因——大脑预测引擎本身已失效，不驾驭就会被甩开。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1884426427357654600">AI时代的认知抉择：成为驾驭者而非乘客</a> <span class="date">（2025-08-12）</span></div>
         </div>
@@ -271,7 +339,7 @@
       <div class="principle">
         <h4>底层原理扩展 · 自由能原理 (Free Energy Principle)</h4>
         <p>本周观点的底层原理是神经科学家 <b>Karl Friston</b> 提出的<b>自由能原理</b>与<b>预测编码 (Predictive Coding)</b> 理论。</p>
-        <p><b style="color:var(--cyan)">一句话理解</b>：大脑不是"接收器"而是"预测机"——它先预测会发生什么，再用实际感觉来修正预测。预测准了就轻松，预测错了就"惊讶"。</p>
+        <div class="one-liner"><b>一句话理解</b>：大脑不是"接收器"而是"预测机"——它先预测会发生什么，再用实际感觉来修正预测。预测准了就轻松，预测错了就"惊讶"。</div>
         <p><b>核心公式</b>：大脑持续最小化"自由能"（即预测与现实的差距）：</p>
         <div class="formula">自由能 F = 交叉熵(预测, 实际) + KL散度(内部模型, 先验经验)</div>
         <p><b>生物学证据</b>：大脑皮层中"反馈（预测）连接"与"前馈（误差）连接"比例约 <b>1:10</b>，说明预测是大脑的主要工作，而非被动接收。</p>
@@ -288,18 +356,18 @@
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
-        <div class="rel-item type-迭代">
-          <div class="rel-type type-迭代">迭代 · Agent 技术全景</div>
+        <div class="rel-item type-die">
+          <div class="rel-type type-die">迭代 · Agent 技术全景</div>
           <div class="rel-explain">本周新认知<b>升级了</b>之前"Agent 技术全景"的认知：原来 Agent 交互范式主要讲"工具集合进化为智能体系统"，本周推进到"人机共治"——基础设施不再是单给人或单给 Agent，而是两者共用。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1884871569579263704">AI Agent 技术全景：从设计方法到未来趋势</a> <span class="date">（2025-08-17）</span></div>
         </div>
-        <div class="rel-item type-扩展">
-          <div class="rel-type type-扩展">扩展 · Manus 上下文原则</div>
+        <div class="rel-item type-kuo">
+          <div class="rel-type type-kuo">扩展 · Manus 上下文原则</div>
           <div class="rel-explain">本周新认知<b>延伸了</b>之前 Manus"只追加不修改"原则的应用场景：原来这个原则用于 Agent 内部上下文管理，本周扩展到人机协作层——邮件作为追加式载体，正好契合这个原则。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1882534271999111720">Manus 团队上下文工程核心原则</a> <span class="date">（2025-07-23）</span></div>
         </div>
-        <div class="rel-item type-新立">
-          <div class="rel-type type-新立">新立 · 荣格原型 + 邮箱方案</div>
+        <div class="rel-item type-xin">
+          <div class="rel-type type-xin">新立 · 荣格原型 + 邮箱方案</div>
           <div class="rel-explain">本周新认知是<b>全新建立的</b>：用荣格原型理论为"邮箱作为人机共用载体"提供心理学依据，这是之前历史笔记中完全没有的视角，属于从零开始的创新观点。</div>
         </div>
       </div>
@@ -311,7 +379,7 @@
 
       <div class="principle">
         <h4>底层原理扩展 · 荣格原型理论 (Jungian Archetypes)</h4>
-        <p><b style="color:var(--cyan)">一句话理解</b>：荣格认为人类心灵深处有"集体无意识"——全人类共享的、天生的心理模式（原型），比如"英雄""智慧老人""伟大母亲"在不同文化的神话里反复出现。</p>
+        <div class="one-liner"><b>一句话理解</b>：荣格认为人类心灵深处有"集体无意识"——全人类共享的、天生的心理模式（原型），比如"英雄""智慧老人""伟大母亲"在不同文化的神话里反复出现。</div>
         <p><b>原型的关键特性</b>：① 非习得（天生遗传）；② 普遍模式（跨文化出现）；③ <b>形式无内容</b>（像空壳，由个人经验填充）；④ 被特定情境激活。</p>
         <p><b>与本周观点的连接</b>：邮件本身就是一种"原型化"的信息载体——<b>普遍性</b>（跨系统通用）、<b>形式无内容</b>（可承载任何事件）、<b>人类可读</b>（破除技术黑箱）、<b>追加式</b>（符合只增不改原则）。把荣格的"心理原型"迁移到 AI 设计：邮件成为人机协作的"集体可读协议"。</p>
         <div class="src">来源：Carl Jung《分析心理学》；详见 <a href="https://biji.com/note/1916414845564111824">追加子笔记·荣格原型理论</a></div>
@@ -326,18 +394,18 @@
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
-        <div class="rel-item type-增强">
-          <div class="rel-type type-增强">增强 · Agent 设计模式</div>
+        <div class="rel-item type-zeng">
+          <div class="rel-type type-zeng">增强 · Agent 设计模式</div>
           <div class="rel-explain">本周新认知<b>强化了</b>之前"从 GoF 到 Agent 设计模式"的认知：原来讲 Harness 工程 + 27 种 Agent 设计模式，本周进一步明确"LLM + Harness = Agent"的拆解公式，让设计模式的工程基础更清晰。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1907136715475966088">从GoF到Agent：设计模式30年演进与Harness革命</a> <span class="date">（2026-04-14）</span></div>
         </div>
-        <div class="rel-item type-迭代">
-          <div class="rel-type type-迭代">迭代 · Loop Engineering 数字办公室</div>
+        <div class="rel-item type-die">
+          <div class="rel-type type-die">迭代 · Loop Engineering 数字办公室</div>
           <div class="rel-explain">本周新认知<b>升级了</b>之前"Loop Engineering 实战"的认知：从"Agent 自主运行 + 一群 Agent 协同"升级到完整公式"Agent + Loop = 企业落地形态"，并新增"方法论蒸馏"这一关键环节。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1912604615792984632">我一个人管了7个AI员工：Loop Engineering 实战</a> <span class="date">（2026-06-12）</span></div>
         </div>
-        <div class="rel-item type-扩展">
-          <div class="rel-type type-扩展">扩展 · 智能体元年共识</div>
+        <div class="rel-item type-kuo">
+          <div class="rel-type type-kuo">扩展 · 智能体元年共识</div>
           <div class="rel-explain">本周新认知<b>延伸了</b>之前"智能体元年"的认知：从"2025 年是智能体加速起点"扩展到具体的企业落地方法论（LLM+Agent+Loop+方法论蒸馏），把宏观共识落到可操作层面。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1900514610513117488">AI智能体：从"对话"到"行动"的下一代AI革命</a> <span class="date">（2026-02-27）</span></div>
         </div>
@@ -345,7 +413,7 @@
 
       <div class="principle">
         <h4>底层原理扩展 · 具身认知与隐性知识</h4>
-        <p><b style="color:var(--cyan)">一句话理解</b>：哲学家 Polanyi 说"我们知道的远比能说出的多"（we know more than we can tell）。比如你会骑车，但很难用文字教会别人——这种"会做但说不清"的知识就是隐性知识。</p>
+        <div class="one-liner"><b>一句话理解</b>：哲学家 Polanyi 说"我们知道的远比能说出的多"（we know more than we can tell）。比如你会骑车，但很难用文字教会别人——这种"会做但说不清"的知识就是隐性知识。</div>
         <p><b>4E Cognition 框架</b>：认知不局限于大脑，而根植于<b>身体 + 环境 + 行动 + 工具</b>的交互。精英员工的"感觉"是长期实践中身体沉积的方法论（knowing-how），无法简单转成文字（knowing-that）。</p>
         <p><b>与本周观点的连接</b>：本周"AI 硬件采集过程→蒸馏方法论"的本质，是用技术手段把<b>隐性 knowing-how</b> 转化为<b>显性 knowing-that</b>。AI 录音卡捕获的不是"员工怎么说"，而是"员工怎么做"——捕获具身化的感知运动图式，再由 AI 分析提炼出可符号化的方法论。</p>
         <div class="src">来源：Varela (1991)《具身心智》；Polanyi (1967)《隐性维度》；详见 <a href="https://biji.com/note/1916414916428975056">追加子笔记·具身认知</a></div>
@@ -360,18 +428,18 @@
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
-        <div class="rel-item type-迭代">
-          <div class="rel-type type-迭代">迭代 · AI 短剧体验变化</div>
+        <div class="rel-item type-die">
+          <div class="rel-type type-die">迭代 · AI 短剧体验变化</div>
           <div class="rel-explain">本周新认知<b>升级了</b>之前"AI 短剧体验变化"的认知：从"观察刷剧体验"升级到"重新定位 AI 短剧为营销工具"，对 AI 短剧的认知从内容消费演进到主动商业应用。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1911157060415063352">AI短剧和AI工具的快速进步带来的体验变化</a> <span class="date">（2026-05-28）</span></div>
         </div>
-        <div class="rel-item type-扩展">
-          <div class="rel-type type-扩展">扩展 · 银发经济 + 老年人 AI</div>
+        <div class="rel-item type-kuo">
+          <div class="rel-type type-kuo">扩展 · 银发经济 + 老年人 AI</div>
           <div class="rel-explain">本周新认知<b>延伸了</b>之前两条笔记的边界：把"银发经济掘金方向"和"老年人拥抱 AI"两个原本独立的认知，扩展到"老年影视传记"这一具体新形态，三者交叉产生新机会。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1870710367693475704">拐点已至！消费市场两大掘金方向</a> <span class="date">（2025-03-18）</span>；<a href="https://biji.com/note/1886571531593594456">美国老年人拥抱AI：82岁创业的逆龄故事</a> <span class="date">（2025-09-05）</span></div>
         </div>
-        <div class="rel-item type-新立">
-          <div class="rel-type type-新立">新立 · 营销工具定位</div>
+        <div class="rel-item type-xin">
+          <div class="rel-type type-xin">新立 · 营销工具定位</div>
           <div class="rel-explain">本周新认知是<b>全新建立的</b>：把 AI 短剧从"影视创作"重新定位为"营销工具"，这是之前历史笔记中没有的观点，是从第一性原理出发的全新判断。</div>
         </div>
       </div>
@@ -390,18 +458,18 @@
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
-        <div class="rel-item type-增强">
-          <div class="rel-type type-增强">增强 · AI 时代认知跃迁</div>
+        <div class="rel-item type-zeng">
+          <div class="rel-type type-zeng">增强 · AI 时代认知跃迁</div>
           <div class="rel-explain">本周新认知<b>强化了</b>之前"顶尖 1% 学习者思维范式"的认知：原来讲个人学习层的认知跃迁，本周补充了企业战略层的认知转变，让"认知跃迁"从个人维度强化到组织维度。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1905114610513117488">AI时代的认知跃迁：顶尖1%学习者思维范式</a> <span class="date">（2026-03-23）</span></div>
         </div>
-        <div class="rel-item type-迭代">
-          <div class="rel-type type-迭代">迭代 · 认知抉择驾驭者</div>
+        <div class="rel-item type-die">
+          <div class="rel-type type-die">迭代 · 认知抉择驾驭者</div>
           <div class="rel-explain">本周新认知<b>升级了</b>之前"成为驾驭者而非乘客"的认知：从"驾驭 AI 工具"升级到"驾驭智能化思维范式"，驾驭的对象从工具层面演进到思维层面。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1884426427357654600">AI时代的认知抉择：成为驾驭者而非乘客</a> <span class="date">（2025-08-12）</span></div>
         </div>
-        <div class="rel-item type-扩展">
-          <div class="rel-type type-扩展">扩展 · 认知危机研报</div>
+        <div class="rel-item type-kuo">
+          <div class="rel-type type-kuo">扩展 · 认知危机研报</div>
           <div class="rel-explain">本周新认知<b>延伸了</b>之前"认知危机研报"的视角：研报关注"AI 带来思维同质化风险"，本周扩展到"AI 反而使大规模个性化成为天然能力"，从风险视角扩展到机遇视角。</div>
           <div class="rel-hist">关联笔记：<a href="https://biji.com/note/1914554102521148248">AI时代认知危机深度研报：判断力流失破局指南</a> <span class="date">（2026-07-03）</span></div>
         </div>
@@ -415,7 +483,6 @@
 
   </div>
 
-  <!-- 关系图谱 -->
   <div class="relmap">
     <h2>六个新认知之间的内在关系</h2>
     <div class="desc">本周 6 个新认知并非孤立，而是围绕"AI时代认知基础设施重构"这一主线构成一张关系网。下面用通俗语言说明它们如何相互关联。</div>
@@ -443,7 +510,6 @@
     </div>
   </div>
 
-  <!-- 时间线 -->
   <div class="timeline">
     <h2>认知演进时间线</h2>
     <div class="tl">
@@ -458,7 +524,6 @@
     </div>
   </div>
 
-  <!-- 元数据放底部 -->
   <div class="meta-footer">
     <h3>本期信息图元数据</h3>
     <div class="meta-grid">
@@ -478,10 +543,31 @@
 
 </div>
 
-<button class="totop" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="返回顶部">↑</button>
+<button class="totop" id="totopBtn" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="返回顶部">↑</button>
+
 <script>
-  const btn=document.querySelector('.totop');
-  window.addEventListener('scroll',()=>{btn.classList.toggle('show',window.scrollY>400)});
+(function(){
+  // 主题初始化（优先 localStorage，否则跟随系统）
+  var saved = localStorage.getItem('infographic-theme');
+  if(!saved){
+    saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  document.documentElement.setAttribute('data-theme', saved);
+
+  // 主题切换
+  document.getElementById('themeBtn').addEventListener('click', function(){
+    var cur = document.documentElement.getAttribute('data-theme');
+    var next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('infographic-theme', next);
+  });
+
+  // 返回顶部按钮
+  var btn = document.getElementById('totopBtn');
+  window.addEventListener('scroll', function(){
+    btn.classList.toggle('show', window.scrollY > 400);
+  }, {passive:true});
+})();
 </script>
 </body>
 </html>
