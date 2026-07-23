@@ -169,6 +169,58 @@
   .principle .src{font-size:11px;color:var(--dim);margin-top:11px;opacity:.8}
   .principle .src a{color:var(--accent-2)}
 
+  /* ===== 第一性原理解读 ===== */
+  .fp-legend{background:var(--card);border:1px solid color-mix(in srgb,var(--accent-2) 35%,transparent);
+    border-radius:14px;padding:18px 22px;margin:12px 0 22px;box-shadow:var(--shadow)}
+  .fp-legend-title{font-size:14px;color:var(--accent-2);font-weight:700;margin-bottom:12px;
+    display:flex;align-items:center;gap:8px;letter-spacing:.2px}
+  .fp-legend-title::before{content:"🔬";font-size:16px}
+  .fp-legend p{font-size:13.5px;color:var(--muted);line-height:1.8;margin-bottom:11px}
+  .fp-legend p:last-child{margin-bottom:0}
+  .fp-legend b{color:var(--text);font-weight:600}
+  .fp-legend .fp-steps{display:grid;grid-template-columns:repeat(2,1fr);gap:11px;margin-top:6px}
+  .fp-legend .fp-step-item{background:var(--bg-soft);border:1px solid var(--border);
+    border-radius:9px;padding:11px 13px;font-size:12.5px;color:var(--muted);line-height:1.6}
+  .fp-legend .fp-step-item .num{color:var(--accent-2);font-weight:700;margin-right:6px}
+  .fp-legend .fp-step-item b{color:var(--text);font-weight:600}
+
+  .principle-fp{background:color-mix(in srgb,var(--accent-2) 8%,var(--card));
+    border:1px solid color-mix(in srgb,var(--accent-2) 32%,transparent);
+    border-radius:10px;padding:16px 18px;margin-top:13px}
+  .principle-fp h4{font-size:14px;color:var(--accent-2);margin-bottom:13px;
+    display:flex;align-items:center;gap:7px;font-weight:700;letter-spacing:.2px}
+  .principle-fp h4::before{content:"🔬";font-size:16px}
+  .principle-fp .fp-step{margin-bottom:11px}
+  .principle-fp .fp-step:last-child{margin-bottom:0}
+  .principle-fp .fp-label{font-size:11px;color:var(--accent-2);font-weight:700;
+    letter-spacing:.5px;margin-bottom:5px;text-transform:uppercase}
+  .principle-fp .fp-content{font-size:13px;color:var(--text-soft);line-height:1.75}
+  .principle-fp .fp-content b{color:var(--text);font-weight:600}
+  .principle-fp .fp-constraints{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:5px}
+  .principle-fp .fp-constraint{background:var(--bg-soft);border:1px solid var(--border);
+    border-radius:8px;padding:10px 12px}
+  .principle-fp .fp-constraint h5{font-size:11.5px;font-weight:700;margin-bottom:7px;
+    display:flex;align-items:center;gap:6px}
+  .principle-fp .fp-constraint.phys h5{color:var(--green)}
+  .principle-fp .fp-constraint.conv h5{color:var(--orange)}
+  .principle-fp .fp-constraint.phys h5::before{content:"⚛";font-size:13px}
+  .principle-fp .fp-constraint.conv h5::before{content:"⚙";font-size:13px}
+  .principle-fp .fp-constraint ul{list-style:none;padding:0;margin:0}
+  .principle-fp .fp-constraint li{font-size:12px;color:var(--muted);line-height:1.7;
+    padding-left:12px;position:relative;margin-bottom:5px}
+  .principle-fp .fp-constraint li:last-child{margin-bottom:0}
+  .principle-fp .fp-constraint li::before{content:"•";position:absolute;left:0;color:var(--dim)}
+  .principle-fp .fp-constraint li b{color:var(--text-soft);font-weight:600}
+  .principle-fp .fp-insight{background:linear-gradient(135deg,
+    color-mix(in srgb,var(--accent-2) 12%,transparent),
+    color-mix(in srgb,var(--pink) 8%,transparent));
+    border:1px solid color-mix(in srgb,var(--accent-2) 30%,transparent);
+    border-radius:8px;padding:11px 14px;margin-top:11px}
+  .principle-fp .fp-insight-lbl{font-size:11px;color:var(--accent-2);font-weight:700;
+    letter-spacing:.5px;margin-bottom:5px}
+  .principle-fp .fp-insight p{font-size:13px;color:var(--text-soft);line-height:1.75}
+  .principle-fp .fp-insight b{color:var(--text);font-weight:600}
+
   /* ===== 关系图谱 ===== */
   .relmap{background:var(--card);border:1px solid var(--border);border-radius:16px;
     padding:26px;margin:16px 0;box-shadow:var(--shadow)}
@@ -233,6 +285,8 @@
     .kp h3{font-size:16.5px}
     .lead,.relmap,.timeline,.meta-footer{padding:22px}
     .legend-list{grid-template-columns:1fr}
+    .fp-legend .fp-steps{grid-template-columns:1fr}
+    .principle-fp .fp-constraints{grid-template-columns:1fr}
     .sec-title{font-size:19px;margin:26px 0 4px}
     .theme-toggle{top:14px;right:14px;width:40px;height:40px;font-size:16px}
     .totop{bottom:20px;right:14px;width:42px;height:42px;font-size:17px}
@@ -279,8 +333,19 @@
     </div>
   </div>
 
+  <div class="fp-legend">
+    <div class="fp-legend-title">🔬 关于第一性原理解读</div>
+    <p><b>第一性原理</b>是一种思维方式：不依赖类比和惯例，把问题拆解到<b>不可再分解的基本真理</b>，再从基本真理向上重新推导结论。关键判别标准：<b>这是物理必然，还是历史惯例？</b>下方每个认知卡片都附带了第一性原理解读，按以下 4 个步骤展开。</p>
+    <div class="fp-steps">
+      <div class="fp-step-item"><span class="num">①</span><b>质疑惯例假设</b>：找出"一直就是这样"的隐性假设</div>
+      <div class="fp-step-item"><span class="num">②</span><b>拆解到基本真理</b>：找到不可再分解的原子事实或物理约束</div>
+      <div class="fp-step-item"><span class="num">③</span><b>区分约束性质</b>：物理约束（真实不可移除）vs 惯例约束（可移除）</div>
+      <div class="fp-step-item"><span class="num">④</span><b>从基本真理重建</b>：基于真正的物理约束重新得出结论</div>
+    </div>
+  </div>
+
   <div class="sec-title">本周六个核心新认知</div>
-  <div class="sec-sub">每张卡片包含：本周新观点 · 与历史笔记的具体关联（含解释）· 关联洞察 · 底层原理扩展（如有）</div>
+  <div class="sec-sub">每张卡片包含：本周新观点 · 第一性原理解读 · 与历史笔记的具体关联（含解释）· 关联洞察 · 底层原理扩展（如有）</div>
 
   <div class="grid">
 
@@ -289,6 +354,52 @@
       <span class="kp-tag">认知科学 / AI</span>
       <h3>AI 采集人生上下文，成为中立决策顾问</h3>
       <div class="kp-desc">未来 AI 通过每日倾听、情绪识别、决策模式采集<b>整个人生上下文</b>，可能比"当局者迷"的人类更了解自己。但 AI 不替人做决策，而是在关键时刻<b>剥离情绪干扰、提供符合内心真实意愿的中立建议</b>——像一个永远在线、永远理性的"第二自我"。</div>
+
+      <div class="principle principle-fp">
+        <h4>🔬 第一性原理解读</h4>
+
+        <div class="fp-step">
+          <div class="fp-label">① 质疑的惯例假设</div>
+          <div class="fp-content">「决策必须由人自己做」「自己最了解自己」——这是<b>物理必然</b>还是<b>文化惯例</b>？</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">② 拆解到基本真理</div>
+          <div class="fp-content">决策 = <b>信息采集</b> + <b>价值判断</b> + <b>行动选择</b>（不可再分解）</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">③ 区分约束性质</div>
+          <div class="fp-constraints">
+            <div class="fp-constraint phys">
+              <h5>物理约束（不可移除）</h5>
+              <ul>
+                <li>人脑记忆容量有限</li>
+                <li>人在情绪状态下判断会失真</li>
+                <li>人无法完整回忆自己的人生轨迹</li>
+              </ul>
+            </div>
+            <div class="fp-constraint conv">
+              <h5>惯例约束（可移除）</h5>
+              <ul>
+                <li>「决策必须自己做」是<b>文化建构</b></li>
+                <li>「只能靠自己了解自己」是过去信息采集技术不足的<b>妥协</b></li>
+                <li>「情绪是决策的一部分」被允许存在并非必须</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">④ 从基本真理重建</div>
+          <div class="fp-content">把"信息采集"外包给 AI（AI 可记录全量数据、不受情绪干扰），保留"价值判断"和"行动选择"给人。<b>这不是放弃决策权</b>，而是让决策的信息基础达到物理上限。</div>
+        </div>
+
+        <div class="fp-insight">
+          <div class="fp-insight-lbl">★ 核心洞察</div>
+          <p>人脑不是决策系统的最优信息采集器。承认这一点，才是从基本真理出发的重建。</p>
+        </div>
+      </div>
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
@@ -322,6 +433,52 @@
       <div class="kp-desc">大脑本质是<b>预测引擎</b>，为资源匮乏的地域性、线性化进化环境而生。如今全球化+指数化变化远超大脑设计上限，导致<b>类比失效、末日论调盛行、认知眩晕</b>——这正是精神疾病高发的底层原因。</div>
       <div class="kp-quote"><b>通俗说</b>：我们用石器时代的大脑，应对火箭时代的世界。</div>
 
+      <div class="principle principle-fp">
+        <h4>🔬 第一性原理解读</h4>
+
+        <div class="fp-step">
+          <div class="fp-label">① 质疑的惯例假设</div>
+          <div class="fp-content">「人类大脑能应对一切环境变化」「人脑是终极认知工具」——这是<b>物理事实</b>还是<b>人类自我中心主义的投射</b>？</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">② 拆解到基本真理</div>
+          <div class="fp-content">大脑是<b>生物器官</b>，由神经元构成，通过进化形成。物理属性：进化周期万年~百万年尺度；环境变化速度指数化（月/年级别）；范围全球化。</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">③ 区分约束性质</div>
+          <div class="fp-constraints">
+            <div class="fp-constraint phys">
+              <h5>物理约束（不可移除）</h5>
+              <ul>
+                <li>大脑进化速度（万年级）远慢于环境变化速度（月年级）</li>
+                <li>大脑的预测编码机制是为<b>线性环境</b>设计的</li>
+                <li>神经递质响应有生理上限</li>
+              </ul>
+            </div>
+            <div class="fp-constraint conv">
+              <h5>惯例约束（可移除）</h5>
+              <ul>
+                <li>「人脑足够应对现代世界」是过去线性时代的经验，现已失效</li>
+                <li>「焦虑是心理问题」其实是<b>物理不匹配</b>的表征</li>
+                <li>「靠冥想/教育就能适应」无法改变大脑的物理设计</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">④ 从基本真理重建</div>
+          <div class="fp-content">大脑是有限生物硬件，其设计上限已被环境变化速度突破。解决路径只有两条：①改变环境变化速度（不可能，技术不可逆）②把超出大脑设计上限的认知任务外包给 AI（可行）。<b>这不是"承认人类无能"</b>，而是从物理事实出发的必然结论。</div>
+        </div>
+
+        <div class="fp-insight">
+          <div class="fp-insight-lbl">★ 核心洞察</div>
+          <p>人脑的失效不是缺陷，而是物理设计的边界条件被打破。承认物理边界，才能找到真正的解法。</p>
+        </div>
+      </div>
+
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
         <div class="rel-item type-kuo">
@@ -353,6 +510,52 @@
       <span class="kp-tag">AI 基础设施 / 协作范式</span>
       <h3>人机共治：基础设施为 Agent 与人类共同而建</h3>
       <div class="kp-desc">"基础设施是为人类还是为 Agent 而建"的二元对立<b>已经过时</b>。Agent 既是执行依据，也是人类判断的重要参考。本周创新方案：用<b>邮箱作为人类与 Agent 共同可读的上下文载体</b>，替代 MCP/CLI 黑箱接口，实现信息对齐与协作——邮件天然是追加式、可追溯的，对人类和机器都友好。</div>
+
+      <div class="principle principle-fp">
+        <h4>🔬 第一性原理解读</h4>
+
+        <div class="fp-step">
+          <div class="fp-label">① 质疑的惯例假设</div>
+          <div class="fp-content">「基础设施要么给人用，要么给 Agent 用」「人类界面和机器接口必须分开设计」——这是<b>物理必然</b>还是<b>分类惯性</b>？</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">② 拆解到基本真理</div>
+          <div class="fp-content">基础设施 = <b>信息/资源的传递载体</b>，与使用者物种无关。任何信息传递都需要一个可读协议，这是不可再分解的基本真理。</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">③ 区分约束性质</div>
+          <div class="fp-constraints">
+            <div class="fp-constraint phys">
+              <h5>物理约束（不可移除）</h5>
+              <ul>
+                <li>信息传递必须有协议</li>
+                <li>协议必须是发送方和接收方都能解析的</li>
+                <li>信息一旦发生应可追溯</li>
+              </ul>
+            </div>
+            <div class="fp-constraint conv">
+              <h5>惯例约束（可移除）</h5>
+              <ul>
+                <li>「给人用的界面要好看，给机器用的接口要高效」是两条平行设计路线的惯例</li>
+                <li>「机器接口应该是 MCP/CLI/API」是<b>工程文化惯例</b></li>
+                <li>「人类和机器不应该读同一份数据」是过去的工具能力限制</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">④ 从基本真理重建</div>
+          <div class="fp-content">既然信息传递需要发送方和接收方都能解析的协议，而人类可读协议（自然语言、邮件）和机器可读协议（JSON、API）本质都是符号系统，那么存在一种协议同时满足：<b>人类可直接读懂、机器可直接解析、追加式可追溯</b>——答案就是邮件。这不是技术妥协，而是从基本真理推出的最优解。</div>
+        </div>
+
+        <div class="fp-insight">
+          <div class="fp-insight-lbl">★ 核心洞察</div>
+          <p>二元对立（给人 vs 给 Agent）本身就是惯例。从"信息传递需要协议"这个基本真理出发，二元对立自然消解。</p>
+        </div>
+      </div>
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
@@ -392,6 +595,51 @@
       <h3>AI = LLM + Agent + Loop，方法论蒸馏</h3>
       <div class="kp-desc">AI 工程化的清晰拆解：<b>LLM（大脑）+ Harness（外挂流程）= Agent（数字员工）</b>；<b>Agent + Loop（自我反思校正循环）= 企业落地形态</b>。精英员工的"感觉"其实是具身认知中的隐性方法论——虽说不出来但确实存在。用 AI 硬件采集做事过程，可把方法论<b>蒸馏</b>为显性规则；无精英时则加载行业专家知识库。</div>
 
+      <div class="principle principle-fp">
+        <h4>🔬 第一性原理解读</h4>
+
+        <div class="fp-step">
+          <div class="fp-label">① 质疑的惯例假设</div>
+          <div class="fp-content">「精英员工的'感觉'无法复制」「经验只能通过师徒口传心授」——这是<b>物理必然</b>还是<b>技术不足的妥协</b>？</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">② 拆解到基本真理</div>
+          <div class="fp-content">"感觉"本质上是<b>神经活动模式</b>，由具身化的感知运动图式构成，这是不可再分解的物理事实。它确实存在，但确实无法用语言完整表达。</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">③ 区分约束性质</div>
+          <div class="fp-constraints">
+            <div class="fp-constraint phys">
+              <h5>物理约束（不可移除）</h5>
+              <ul>
+                <li>隐性知识（knowing-how）确实无法直接转成显性知识（knowing-that）</li>
+                <li>精英的能力部分根植于<b>身体记忆</b>，不是文字能涵盖的</li>
+              </ul>
+            </div>
+            <div class="fp-constraint conv">
+              <h5>惯例约束（可移除）</h5>
+              <ul>
+                <li>「只能通过师徒制/培训传承」是过去没有其他采集手段</li>
+                <li>「说不出来就等于不存在」是<b>符号中心主义</b>的偏见</li>
+                <li>「经验无法被技术捕获」是过去硬件能力的限制</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">④ 从基本真理重建</div>
+          <div class="fp-content">既然"感觉"是具身化的感知运动图式（物理事实），而隐性知识无法直接转成文字（物理约束），那么解决路径不是"逼精英说出来"，而是<b>"绕过语言，直接采集具身行为"</b>。用 AI 硬件（录音卡、动作捕捉、屏幕录制）捕获"员工怎么做"，再用 LLM 分析提炼为可符号化的方法论。这是从物理事实推出的技术路径，而非类比传统的师徒制。</div>
+        </div>
+
+        <div class="fp-insight">
+          <div class="fp-insight-lbl">★ 核心洞察</div>
+          <p>「无法言传」不等于「无法采集」。把采集维度从"语言"扩展到"具身行为"，就突破了惯例约束。</p>
+        </div>
+      </div>
+
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
         <div class="rel-item type-zeng">
@@ -426,6 +674,52 @@
       <h3>AI 短剧：从影视创作到营销工具与老年影视传记</h3>
       <div class="kp-desc">打破"AI 短剧=影视创作"的认知惯性，从第一性原理（抖音内容本质是吸引观众）重新定位为<b>更优的营销工具</b>；并衍生出<b>老年影视传记</b>新形态——用 AI 短剧让老人"穿越"弥补人生遗憾，把文字传记升级为影视表达。三条历史线索在此汇合。</div>
 
+      <div class="principle principle-fp">
+        <h4>🔬 第一性原理解读</h4>
+
+        <div class="fp-step">
+          <div class="fp-label">① 质疑的惯例假设</div>
+          <div class="fp-content">「AI 短剧 = 影视创作」「短剧的本质是叙事艺术」——这是<b>物理必然</b>还是<b>类比惯性</b>？</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">② 拆解到基本真理</div>
+          <div class="fp-content">抖音/短视频的本质不是"影视作品"，而是<b>"吸引观众注意力"</b>，这是不可再分解的基本真理。任何短视频（无论真人还是 AI 生成）的物理本质都是：用最低成本获取最长观看时长。</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">③ 区分约束性质</div>
+          <div class="fp-constraints">
+            <div class="fp-constraint phys">
+              <h5>物理约束（不可移除）</h5>
+              <ul>
+                <li>注意力是稀缺资源</li>
+                <li>内容必须高效触达观众情绪</li>
+                <li>观众的注意力阈值在持续上升</li>
+              </ul>
+            </div>
+            <div class="fp-constraint conv">
+              <h5>惯例约束（可移除）</h5>
+              <ul>
+                <li>「短剧是内容产品，要按影视逻辑做」是<b>产业分类惯例</b></li>
+                <li>「AI 短剧应该对标传统短剧」是<b>类比迁移</b></li>
+                <li>「内容创作和营销是两件事」是工业时代的分工惯例</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">④ 从基本真理重建</div>
+          <div class="fp-content">既然短视频的物理本质是"吸引注意力"，而 AI 短剧能用极低成本生成，那么 AI 短剧的真正定位不是"影视作品"，而是<b>"低成本的注意力吸引工具"</b>。营销的本质也是"吸引注意力→转化为行动"，所以 AI 短剧天然适合做营销工具。进一步推导：<b>老年影视传记 = AI 短剧能力 × 银发经济需求</b>，这是从基本真理推出的产品形态。</div>
+        </div>
+
+        <div class="fp-insight">
+          <div class="fp-insight-lbl">★ 核心洞察</div>
+          <p>「AI 短剧是影视创作」这个类比本身就是惯性。从"吸引注意力"的基本真理出发，AI 短剧的定位自然改写。</p>
+        </div>
+      </div>
+
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
         <div class="rel-item type-die">
@@ -454,7 +748,52 @@
     <div class="kp">
       <span class="kp-tag">企业战略 / 思维范式</span>
       <h3>AI 时代核心是"千人千面"，工业化思维必败</h3>
-      <div class="kp-desc">AI 时代企业最大障碍是<b>工业化认知</b>（标准化、规模化获客）。互联网时代已带来"千人千面"算法认知（字节跳动5年超BAT），AI 时代真正问题是<b>每个客户需求的个性化</b>。AI 使过去高成本的"千人千面"成为天然能力——正如农业思维败给工业思维，工业/信息思维也将败给智能化思维。</div>
+      <div class="kp-desc">AI 时代企业最大障碍是<b>工业化认知</b>（标准化、规模化获客）。互联网时代已带来"千人千面"算法认知（字节跳动5年超BAT），AI 时代真正问题是<b>每个客户需求的个性化</b>。AI 使过去高成本的"千人千面"成为天然能力——正如农业思维败给工业思维，工业/信息思也将败给智能化思维。</div>
+
+      <div class="principle principle-fp">
+        <h4>🔬 第一性原理解读</h4>
+
+        <div class="fp-step">
+          <div class="fp-label">① 质疑的惯例假设</div>
+          <div class="fp-content">「标准化、规模化是商业最优解」「规模化必须标准化」——这是<b>物理必然</b>还是<b>工业时代的技术约束</b>？</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">② 拆解到基本真理</div>
+          <div class="fp-content">商业 = <b>匹配需求与供给</b>，这是不可再分解的基本真理。需求侧的物理事实：每个人的需求都是独特的（个性化），这是物理约束不可移除。</div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">③ 区分约束性质</div>
+          <div class="fp-constraints">
+            <div class="fp-constraint phys">
+              <h5>物理约束（不可移除）</h5>
+              <ul>
+                <li>人的需求天然个性化</li>
+                <li>不同人对同一产品的期待不同</li>
+              </ul>
+            </div>
+            <div class="fp-constraint conv">
+              <h5>惯例约束（可移除）</h5>
+              <ul>
+                <li>「规模化必须标准化」是工业时代生产技术的限制（流水线只能做同款）</li>
+                <li>「获客要靠大众广告」是过去没有精准触达手段时的<b>妥协</b></li>
+                <li>「标准化降低成本」是规模经济的<b>工业时代公式</b></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="fp-step">
+          <div class="fp-label">④ 从基本真理重建</div>
+          <div class="fp-content">既然商业本质是匹配需求与供给，而需求天然个性化（物理事实），那么"标准化"从来不是商业的最优解，它只是工业时代技术能力不足的妥协。AI 时代的技术能力发生了物理变化：<b>生成成本趋近于零</b>（AI 可为每个人生成不同内容）；<b>匹配成本趋近于零</b>（算法可精准识别个体需求）。当"个性化"的成本低于"标准化"时，"千人千面"就从高成本能力变成天然能力，工业化思维的物理基础被打破了。</div>
+        </div>
+
+        <div class="fp-insight">
+          <div class="fp-insight-lbl">★ 核心洞察</div>
+          <p>「标准化是规模化的前提」这个公式，是工业时代的技术约束，不是商业的物理定律。当技术约束解除，公式自然失效。</p>
+        </div>
+      </div>
 
       <div class="block-label">与历史笔记的关联</div>
       <div class="rel-list">
