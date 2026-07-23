@@ -14,8 +14,10 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
-    line-height:1.7;font-size:15px;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:760px;margin:0 auto;padding:0 16px 56px}
+    line-height:1.7;font-size:15px;-webkit-font-smoothing:antialiased;
+    overflow-x:hidden;max-width:100%}
+  body{word-break:break-word;overflow-wrap:break-word}
+  .wrap{width:100%;max-width:760px;margin:0 auto;padding:0 14px 56px}
 
   /* 顶部结论卡 */
   .hero{margin:16px 0 18px;padding:22px 20px;border-radius:20px;
@@ -51,11 +53,13 @@
   ul.clean li{padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
   ul.clean li:last-child{border-bottom:0}
   ul.clean li b{color:var(--txt)}
-  .tag{font-size:10px;padding:2px 7px;border-radius:8px;margin-right:8px;vertical-align:1px;white-space:nowrap}
+  .li-row{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .li-row .txt{flex:1;min-width:0}
+  .tag{font-size:10px;padding:2px 7px;border-radius:8px;margin-right:8px;vertical-align:1px;white-space:nowrap;flex-shrink:0}
   .tag.new{color:var(--green);background:rgba(52,211,153,.12)}
   .tag.cont{color:var(--amber);background:rgba(251,191,36,.12)}
   .tag.done{color:var(--dim);background:rgba(107,114,128,.14);text-decoration:line-through}
-  .pri{float:right;font-size:11px;font-weight:700}
+  .pri{font-size:11px;font-weight:700;white-space:nowrap;flex-shrink:0}
   .p0{color:var(--red)} .p1{color:var(--amber)} .p2{color:var(--sub)}
 
   /* 角色贡献度 */
@@ -67,20 +71,19 @@
   .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--blue),var(--purple))}
   .role .note{font-size:11.5px;color:var(--sub);margin-top:4px}
 
-  /* 情绪时间线 */
-  .emo{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
-  .emo .node{flex:0 0 auto;min-width:130px;padding:10px 11px;border-radius:11px;background:var(--card2);
+  /* 情绪时间线 - 移动端竖向堆叠 */
+  .emo{display:flex;flex-direction:column;gap:8px}
+  .emo .node{padding:10px 11px;border-radius:11px;background:var(--card2);
     border:1px solid var(--line);font-size:12px}
   .emo .node .t{font-weight:700;color:var(--txt);margin-bottom:4px}
   .emo .node .m{font-size:11px;margin-bottom:4px}
   .e-pos{color:var(--green)} .e-neu{color:var(--sub)} .e-neg{color:var(--red)}
   .emo .node .it{font-size:11px;color:var(--dim)}
 
-  /* 第一性原理对照 */
+  /* 第一性原理对照 - 移动端标签块状 */
   .fp{display:grid;gap:10px}
-  .fp .row{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:start;
-    padding:11px;border-radius:10px;background:var(--card2);border:1px solid var(--line)}
-  .fp .lbl{font-size:11px;font-weight:700;padding-top:1px}
+  .fp .row{padding:11px;border-radius:10px;background:var(--card2);border:1px solid var(--line)}
+  .fp .lbl{display:block;font-size:11px;font-weight:700;margin-bottom:5px}
   .fp .lbl.assume{color:var(--red)}
   .fp .lbl.truth{color:var(--green)}
   .fp .lbl.rebuild{color:var(--blue)}
@@ -112,22 +115,32 @@
   .disagree .h .lvl{font-size:10px;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:1px}
   .disagree .b{font-size:12.5px;color:var(--sub);line-height:1.6}
 
-  /* 逻辑链 */
-  .chain{font-size:14px;line-height:1.8}
-  .chain .step{display:inline}
-  .chain .arrow{color:var(--blue);margin:0 4px;font-weight:700}
+  /* 逻辑链 - 竖向步骤堆叠，避免横向溢出 */
+  .chain{display:flex;flex-direction:column;gap:6px;font-size:14px}
+  .chain .step{padding:6px 10px;background:var(--card2);border-radius:8px;border-left:3px solid var(--blue)}
+  .chain .arrow{display:none}
 
   /* 洞察 */
   .insight-src{font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.7}
   .insight-src b{color:var(--amber)}
 
-  /* PC 两栏 */
+  /* PC 两栏 + 横向恢复 */
   @media(min-width:760px){
     .wrap{max-width:980px;padding:0 24px 64px}
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
     .grid-2 .full{grid-column:1/-1}
     .hero h1{font-size:22px}
     .conclusion{font-size:16px}
+    /* PC 端情绪卡恢复横排 */
+    .emo{flex-direction:row;flex-wrap:wrap}
+    .emo .node{flex:1 1 180px;min-width:0}
+    /* PC 端逻辑链恢复横排流式 */
+    .chain{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px}
+    .chain .step{padding:4px 8px;border-left:0;border:1px solid var(--line)}
+    .chain .arrow{display:inline;color:var(--blue);margin:0 2px;font-weight:700}
+    /* PC 端第一性原理恢复两列 */
+    .fp .row{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:start}
+    .fp .lbl{display:block;margin-bottom:0;padding-top:1px}
   }
 </style>
 </head>
@@ -242,13 +255,13 @@
       <h2><span class="n">4</span>决策与待办（结合历史，含行动优先级）</h2>
       <div class="card">
         <ul class="clean">
-          <li><span class="tag done">已完成</span>成本核算与毛利确认（7/15 决议，本场复核通过）<span class="pri p2">P2</span></li>
-          <li><span class="tag new">新决策</span>三档定价正式定档，8/1 全量上线 <span class="pri p0">P0</span></li>
-          <li><span class="tag cont">延续</span>年付折扣政策：<b>7/25 前</b>陈雪+林睿拍板 <span class="pri p0">P0·阻塞</span></li>
-          <li><span class="tag new">新增</span>销售折扣权限规则：<b>7/26 前</b>赵敏起草、陈雪审批 <span class="pri p1">P1</span></li>
-          <li><span class="tag cont">延续</span>销售话术与培训材料：<b>7/28 前</b>定稿 <span class="pri p1">P1</span></li>
-          <li><span class="tag cont">延续·推迟</span>企业版席位拆分计费 → 二期（原 7/8 提议） <span class="pri p2">P2</span></li>
-          <li><span class="tag new">新增</span>定价页 + 购买流程开发：<b>7/30 前</b>王皓负责 <span class="pri p1">P1</span></li>
+          <li><div class="li-row"><span class="txt"><span class="tag done">已完成</span>成本核算与毛利确认（7/15 决议，本场复核通过）</span><span class="pri p2">P2</span></div></li>
+          <li><div class="li-row"><span class="txt"><span class="tag new">新决策</span>三档定价正式定档，8/1 全量上线</span><span class="pri p0">P0</span></div></li>
+          <li><div class="li-row"><span class="txt"><span class="tag cont">延续</span>年付折扣政策：<b>7/25 前</b>陈雪+林睿拍板</span><span class="pri p0">P0·阻塞</span></div></li>
+          <li><div class="li-row"><span class="txt"><span class="tag new">新增</span>销售折扣权限规则：<b>7/26 前</b>赵敏起草、陈雪审批</span><span class="pri p1">P1</span></div></li>
+          <li><div class="li-row"><span class="txt"><span class="tag cont">延续</span>销售话术与培训材料：<b>7/28 前</b>定稿</span><span class="pri p1">P1</span></div></li>
+          <li><div class="li-row"><span class="txt"><span class="tag cont">延续·推迟</span>企业版席位拆分计费 → 二期（原 7/8 提议）</span><span class="pri p2">P2</span></div></li>
+          <li><div class="li-row"><span class="txt"><span class="tag new">新增</span>定价页 + 购买流程开发：<b>7/30 前</b>王皓负责</span><span class="pri p1">P1</span></div></li>
         </ul>
         <p style="margin:14px 0 0;font-size:12.5px;color:var(--red);line-height:1.7">
           ⚠ 历史待办追踪：7/8 的"竞品深度调研"至今<b>未完成</b>，本场未提及，存在遗漏风险。
