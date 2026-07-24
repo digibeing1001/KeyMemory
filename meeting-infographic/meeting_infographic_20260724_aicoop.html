@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>AI产品产业合作洽谈会 · 综合信息图</title>
+<style>
+:root{
+  --bg:#0b1020; --card:#141c33; --card2:#1a2542; --line:#2a375c;
+  --t1:#eaf0ff; --t2:#a9b6d8; --t3:#6f7da6;
+  --blue:#4ea1ff; --cyan:#36e0c8; --purple:#b07bff; --amber:#ffb454;
+  --red:#ff6b6b; --green:#4ade80; --orange:#ff9f43;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{background:linear-gradient(180deg,#070b18 0%,#0b1020 100%);color:var(--t1);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  line-height:1.7;font-size:15px;-webkit-font-smoothing:antialiased;padding:0 0 60px}
+.wrap{max-width:1180px;margin:0 auto;padding:14px}
+@media(min-width:760px){.wrap{padding:22px}}
+/* hero */
+.hero{position:relative;border-radius:22px;overflow:hidden;margin-bottom:18px;border:1px solid var(--line)}
+.hero img{width:100%;display:block;opacity:.55;min-height:170px;object-fit:cover}
+.hero .ov{position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,11,24,.35) 0%,rgba(7,11,24,.92) 88%)}
+.hero .cap{position:absolute;left:0;right:0;bottom:0;padding:20px 18px}
+@media(min-width:760px){.hero .cap{padding:26px 30px}}
+.hero h1{margin:0 0 6px;font-size:20px;font-weight:800;letter-spacing:.3px}
+@media(min-width:760px){.hero h1{font-size:26px}}
+.meta{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--t2)}
+.meta b{color:var(--cyan);font-weight:600}
+/* grid */
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media(min-width:760px){.grid{grid-template-columns:1fr 1fr;gap:18px}}
+.full{grid-column:1 / -1}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 16px 14px}
+@media(min-width:760px){.card{padding:20px 22px}}
+.card h2{margin:0 0 12px;font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px}
+.card h2 .n{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:7px;
+  background:linear-gradient(135deg,var(--blue),var(--purple));font-size:12px;font-weight:800;flex:none}
+@media(min-width:760px){.card h2{font-size:17px}}
+.lead{background:linear-gradient(135deg,rgba(78,161,255,.10),rgba(176,123,255,.10));
+  border:1px solid rgba(78,161,255,.35);border-radius:18px;padding:18px 16px}
+.lead h2 .n{background:linear-gradient(135deg,var(--amber),var(--red))}
+p{margin:0 0 8px;color:var(--t2)}
+strong{color:var(--t1);font-weight:600}
+.k{color:var(--cyan);font-weight:600}
+.kr{color:var(--red);font-weight:600}
+.kg{color:var(--green);font-weight:600}
+.ka{color:var(--amber);font-weight:600}
+.kp{color:var(--purple);font-weight:600}
+ul{margin:6px 0 10px;padding-left:18px}
+ul li{margin:4px 0;color:var(--t2)}
+ul li::marker{color:var(--blue)}
+/* logic chain */
+.chain{display:flex;flex-direction:column;gap:0}
+.chain .step{position:relative;padding:9px 12px 9px 38px;background:var(--card2);border-radius:10px;margin-bottom:6px;font-size:13.5px;color:var(--t2)}
+.chain .step b{color:var(--t1)}
+.chain .step::before{content:"";position:absolute;left:13px;top:13px;width:10px;height:10px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 3px rgba(78,161,255,.2)}
+.chain .step:not(:last-child)::after{content:"↓";position:absolute;left:17px;bottom:-12px;color:var(--blue);font-size:13px;z-index:2}
+/* emotion */
+.per{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line)}
+.per:last-child{border-bottom:0}
+.dot{width:11px;height:11px;border-radius:50%;flex:none;margin-top:7px}
+.per .nm{font-weight:700;color:var(--t1);font-size:14px}
+.per .fl{font-size:12.5px;color:var(--t3);margin-top:1px}
+.per .tx{font-size:13px;color:var(--t2);margin-top:3px}
+/* todo tags */
+.todo{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;background:var(--card2);border-radius:10px;margin-bottom:7px;font-size:13px}
+.tag{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;white-space:nowrap}
+.t-new{background:rgba(74,222,128,.15);color:var(--green)}
+.t-con{background:rgba(78,161,255,.15);color:var(--blue)}
+.t-done{background:rgba(54,224,200,.15);color:var(--cyan)}
+.t-delay{background:rgba(255,159,67,.15);color:var(--orange)}
+.pri{font-size:11px;padding:2px 7px;border-radius:6px;font-weight:800}
+.p0{background:#ff6b6b22;color:var(--red)}
+.p1{background:#ffb45422;color:var(--amber)}
+.p2{background:#4ea1ff22;color:var(--blue)}
+/* severity */
+.sev{font-size:11px;padding:1px 7px;border-radius:5px;font-weight:700;margin-left:6px}
+.s-high{background:#ff6b6b22;color:var(--red)}
+.s-mid{background:#ffb45422;color:var(--amber)}
+.s-low{background:#4ea1ff22;color:var(--blue)}
+/* progress bar */
+.bar-row{margin:10px 0}
+.bar-row .lbl{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
+.bar-row .lbl b{color:var(--t1)}
+.bar{height:9px;border-radius:6px;background:#0d1428;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--blue),var(--purple))}
+/* timeline */
+.tl{position:relative;padding-left:22px}
+.tl::before{content:"";position:absolute;left:7px;top:4px;bottom:4px;width:2px;background:linear-gradient(180deg,var(--blue),var(--purple))}
+.tl .ev{position:relative;padding:0 0 16px 16px}
+.tl .ev::before{content:"";position:absolute;left:-19px;top:4px;width:11px;height:11px;border-radius:50%;background:var(--card);border:2px solid var(--cyan)}
+.tl .ev .dt{font-size:12px;color:var(--cyan);font-weight:700}
+.tl .ev .tt{font-weight:700;color:var(--t1);font-size:13.5px;margin:2px 0}
+.tl .ev .ds{font-size:12.5px;color:var(--t2)}
+.tl .ev .ev-tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:5px;background:rgba(74,222,128,.15);color:var(--green);margin-left:5px;font-weight:700}
+/* first principles 3-col */
+.fp{margin-bottom:14px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.fp .fp-q{padding:9px 12px;background:var(--card2);font-weight:700;font-size:13.5px;color:var(--amber)}
+.fp .fp-grid{display:grid;grid-template-columns:1fr;gap:0}
+@media(min-width:560px){.fp .fp-grid{grid-template-columns:1fr 1fr 1fr}}
+.fp .col{padding:11px 12px;border-top:1px solid var(--line);font-size:12.5px}
+.fp .col h4{margin:0 0 6px;font-size:12px;letter-spacing:.4px}
+.fp .c1 h4{color:var(--red)} .fp .c2 h4{color:var(--cyan)} .fp .c3 h4{color:var(--green)}
+.fp .col p{margin:0;font-size:12.5px;color:var(--t2)}
+.fp .col p b{color:var(--t1)}
+/* insight list */
+.ins{padding:11px 12px;background:var(--card2);border-radius:10px;margin-bottom:8px;border-left:3px solid var(--purple)}
+.ins .src{font-size:11px;color:var(--purple);font-weight:700;margin-bottom:3px}
+.ins p{margin:0;font-size:13px}
+.sec-sum{font-size:14.5px;color:var(--t1);margin:0 0 10px;line-height:1.85}
+.blk{display:block;margin:7px 0;padding-left:12px;border-left:3px solid var(--blue)}
+.blk.amber{border-color:var(--amber)} .blk.red{border-color:var(--red)} .blk.green{border-color:var(--green)}
+small{color:var(--t3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- HERO -->
+<div class="hero">
+  <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=futuristic%20infographic%20hero%2C%20AI%20psychological%20counseling%20booth%20and%20elderly%20care%20AI%20collaboration%20meeting%2C%20deep%20blue%20purple%20gradient%2C%20data%20visualization%20style%2C%20digital%20human%20silhouette%2C%20mental%20health%20and%20silver%20technology%2C%20clean%20modern%20design&image_size=portrait_4_3" alt="">
+  <div class="ov"></div>
+  <div class="cap">
+    <h1>AI产品产业合作洽谈会：心理疏导AI、养老AI及相关业务对接</h1>
+    <div class="meta">
+      <span>📅 2026-07-24 16:41</span>
+      <span>⏱ 约 <b>1 小时 8 分</b></span>
+      <span>👥 约 <b>4 人</b></span>
+      <span>🏷 商务合作洽谈</span>
+    </div>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- 1 结论先行 -->
+  <div class="card lead full">
+    <h2><span class="n">1</span>结论先行 · 一眼建立判断</h2>
+    <p class="sec-sum">
+      本场是<strong>多团队 AI 产品的商务对接洽谈</strong>，由心理疏导 AI 舱产品方（陈教授团队）主场，<strong>哈工大南山智源研究所</strong>作为算法与整合方介入，<strong>深地集团李总（家政养老，20 家业主中心）</strong>为需求方，中间人撮合对接。
+    </p>
+    <span class="blk amber"><strong>关键决策方向：</strong>产品方明确“把心理产品做透、不接零散定制”的战略聚焦；哈工大抛出 <span class="k">FDE 工程师上门一对一落地</span>模式，补齐企业 AI 落地最后一公里。</span>
+    <span class="blk green"><strong>最成熟资产：</strong>心理疏导 AI 舱已沉淀 5 年，私有化部署、自研垂直模型、不联网不耗 TOKEN，成本显著低于华为/科大讯飞，已在宝安团委（“心理健身房”）落地。</span>
+    <span class="blk red"><strong>最大风险信号：</strong>政府回款恶化——民政局少儿心理项目“做了一年一分钱没拿到”；to C 基本判死（“除非做到张一鸣否则死掉”），to B 必须政商结合、成本高。</span>
+    <span class="blk"><strong>权力动态：</strong>产品方主导话语权（主场+产品+政商资源+政府客户 13 年）；哈工大借算法+整合能力谋求生态位；需求方被动、议价未启动、被边缘化。</span>
+    <span class="blk amber"><strong>情绪脉络：</strong>开场试探互探 → 产品现场演示后集体兴奋（“这个很有用”）→ 收尾转务实对接（月子中心、上门演示、九月参观）。</span>
+  </div>
+
+  <!-- 2 核心事项与核心观点 -->
+  <div class="card">
+    <h2><span class="n">2</span>核心事项与核心观点</h2>
+    <ul>
+      <li><span class="k">心理疏导 AI 舱</span>：独立封闭空间，自研心理大模型，结构化问卷按序收集信息、情绪感知、危机预警同步后台老师；支持数字人形象/语音定制、学号/手机登录、小程序预约开闸。</li>
+      <li><span class="k">私有化部署优势</span>：不联网、不消耗第三方 TOKEN，价格低于华为讯飞；福建高速服务区已替换科大讯飞数字人方案（因月租太贵）。</li>
+      <li><span class="k">养老 AI 场景</span>：独居老人摔倒手环+用电量异常监测、香港赛马会社区做菜教学机器人、香港内地养老多语言 AI 每日报到（需识别活人非录音）。</li>
+      <li><span class="k">企业 AI 落地 FDE 模式</span>：AI 已非卖标准化 SaaS 阶段，每企业需融入工作流，FDE 工程师上门一对一落地，整合多厂商拼成完整方案。</li>
+      <li><span class="k">AI 智能眼镜</span>：哈工大×沃克巴比×李卫可，采集工作记忆上下文，刚在 WVIC 发布。</li>
+      <li><span class="k">导诊数字人</span>：为华为开发香港中文大学医院导诊数字人，模型每年参加医生职业考试，仅建议不替代诊断。</li>
+      <li><span class="kp">核心观点</span>：AI 主要是企业付费（偏生产力工具、降本增效）；to C 难存活；to B 政商结合是必要条件；AI 仅做早筛与情绪疏导，重度必须转介专业医生。</li>
+    </ul>
+  </div>
+
+  <!-- 3 关键逻辑梳理 -->
+  <div class="card">
+    <h2><span class="n">3</span>关键逻辑梳理</h2>
+    <div class="chain">
+      <div class="step"><b>地方政府财政紧张</b> → 中标项目回款难（民政局少儿心理一分钱没拿到）</div>
+      <div class="step">回款不确定 → to B 必须<b>政商结合</b>才能落地，政商成本高、周期长</div>
+      <div class="step">故需筛选<b>决策风险低 + 预算确定</b>的场景：已发文强制要求（教育部心理筛查、广东家政 AI 普及）</div>
+      <div class="step"><b>私有化部署</b>削掉 TOKEN 持续成本 → 价格优势替换华为/讯飞 → 标准化复制（宝安团委“心理健身房”）</div>
+      <div class="step">产品方定调：<b>把一个产品做透</b>，不接零散定制 → 专注心理线</div>
+      <div class="step">哈工大补位：<b>FDE 工程师上门整合</b>多厂商 → 解决企业“只买一个产品不够”的最后一公里</div>
+    </div>
+  </div>
+
+  <!-- 4 情绪转变与意图识别 -->
+  <div class="card">
+    <h2><span class="n">4</span>对话者情绪转变与意图识别</h2>
+    <div class="per">
+      <span class="dot" style="background:var(--amber)"></span>
+      <div><div class="nm">产品方 · 陈教授团队</div><div class="fl">主导 · 主场</div>
+        <div class="tx">试探互探 → <span class="kg">自信</span>（5 年沉淀、私有化降本）→ <span class="ka">务实防御</span>（“把产品做透，不接定制”）。意图：守住标准化产品护城河，借政商资源变现，避免陷入定制泥潭。</div></div>
+    </div>
+    <div class="per">
+      <span class="dot" style="background:var(--blue)"></span>
+      <div><div class="nm">哈工大南山智源 · 说话人4</div><div class="fl">整合方</div>
+        <div class="tx">试探介绍算法（博弈/灵巧手）→ <span class="kg">兴奋</span>（体验产品“这个很有用”）→ <span class="kp">谋生态位</span>（FDE 模式切入、高校教学+科创学院背书）。意图：以“不做产品、只做整合落地”卡位企业 AI 落地通道。</div></div>
+    </div>
+    <div class="per">
+      <span class="dot" style="background:var(--purple)"></span>
+      <div><div class="nm">中间人 · 说话人2</div><div class="fl">撮合</div>
+        <div class="tx">全程撮合（连接哈工大 + 深地集团李总养老业务）。意图：促成上下游对接、嫁接自身政企人脉资源。</div></div>
+    </div>
+    <div class="per">
+      <span class="dot" style="background:var(--t3)"></span>
+      <div><div class="nm">深地集团李总 / 需求方</div><div class="fl">被动 · 议价未启动</div>
+        <div class="tx">提需求（员工心理疏导、数字人培训、养老场景）→ 被产品演示吸引 → 未进入议价。意图：用科技 AI 升级 20 家业主中心养老服务。<span class="kr">权力被边缘化</span>。</div></div>
+    </div>
+    <p style="margin-top:8px"><strong>权力动态：</strong>产品方 &gt; 哈工大（整合）&gt; 中间人 &gt; 需求方。话语权集中在掌握产品+政商资源的一方。</p>
+  </div>
+
+  <!-- 5 决策与待办 -->
+  <div class="card">
+    <h2><span class="n">5</span>决策与待办（结合历史）</h2>
+    <div class="todo"><span class="tag t-new">新决策</span><span class="pri p0">P0</span>战略聚焦：心理产品做透，不接零散定制</div>
+    <div class="todo"><span class="tag t-new">新决策</span><span class="pri p1">P1</span>月子中心心理疏导对接（服务人员+产后妈妈抑郁）</div>
+    <div class="todo"><span class="tag t-con">延续</span><span class="pri p1">P1</span>哈工大发人工智能课程资料（06-18 教学合作延续）</div>
+    <div class="todo"><span class="tag t-con">延续</span><span class="pri p0">P0</span>九月开学后参观哈工大南山智源研究所</div>
+    <div class="todo"><span class="tag t-con">延续</span><span class="pri p2">P2</span>有需求安排专人上门做产品演示</div>
+    <div class="todo"><span class="tag t-done">已完成</span><span class="pri p0">P0</span>现场演示：心理疏导舱 + 导诊数字人</div>
+    <div class="todo"><span class="tag t-delay">推迟</span><span class="pri p2">P2</span>养老 AI 定制场景（独居监测/做菜教学，“方案在论证”中）</div>
+  </div>
+
+  <!-- 6 分歧点与未决事项 -->
+  <div class="card">
+    <h2><span class="n">6</span>分歧点与未决事项</h2>
+    <ul style="list-style:none;padding-left:0">
+      <li>▸ <strong>标准化 vs 定制</strong>：产品方要做透一个标准产品 vs 需求方养老场景五花八门需个性化定制 <span class="sev s-mid">中</span></li>
+      <li>▸ <strong>智能体新规边界</strong>：哈工大担忧“禁止情感陪伴”波及产品 vs 产品方解读为“仅禁涉黄、允许合法情感陪伴与心理服务” <span class="sev s-mid">中</span></li>
+      <li>▸ <strong>政府回款不确定性</strong>：已有前科（民政局一分钱没拿到）<span class="sev s-high">高</span></li>
+      <li>▸ 月子中心合作模式未定 <span class="sev s-low">低</span></li>
+      <li>▸ 养老 AI 具体落地场景未选定 <span class="sev s-mid">中</span></li>
+      <li>▸ AI 智能眼镜与心理产品的协同路径未明确 <span class="sev s-low">低</span></li>
+    </ul>
+  </div>
+
+  <!-- 7 角色贡献度 -->
+  <div class="card">
+    <h2><span class="n">7</span>角色贡献度（结合历史累计）</h2>
+    <div class="bar-row"><div class="lbl"><b>产品方 · 陈教授团队</b><span class="kg">95%</span></div><div class="bar"><i style="width:95%"></i></div>
+      <small>03-06 心理健康AI机器人/出海 → 06-18 青少年心理初筛 → 07-24 心理疏导舱5年落地，持续产品输出，本场主导</small></div>
+    <div class="bar-row"><div class="lbl"><b>哈工大南山智源</b><span class="k">70%</span></div><div class="bar"><i style="width:70%;background:linear-gradient(90deg,var(--cyan),var(--blue))"></i></div>
+      <small>算法+整合+FDE+高校教学背书，本场资源整合方，生态位卡位</small></div>
+    <div class="bar-row"><div class="lbl"><b>中间人 · 说话人2</b><span class="ka">45%</span></div><div class="bar"><i style="width:45%;background:linear-gradient(90deg,var(--amber),var(--purple))"></i></div>
+      <small>撮合连接，历史多场会议中介角色，政企人脉资源</small></div>
+    <div class="bar-row"><div class="lbl"><b>深地集团李总 / 需求方</b><span style="color:var(--t2)">30%</span></div><div class="bar"><i style="width:30%;background:linear-gradient(90deg,#6f7da6,#a9b6d8)"></i></div>
+      <small>提供养老场景需求 + 20 家业主中心资源，议价未深入，本场边缘</small></div>
+  </div>
+
+  <!-- 8 上下文锚点 -->
+  <div class="card">
+    <h2><span class="n">8</span>上下文锚点 · 议题演进脉络</h2>
+    <div class="tl">
+      <div class="ev"><div class="dt">2026-03-06</div><div class="tt">AI智能产品业务合作与出海</div>
+        <div class="ds">心理健康AI机器人(自闭症·29000元)、出海分析、智能眼镜(骨传导/录音1299元)、AI硬件定制</div></div>
+      <div class="ev"><div class="dt">2026-06-18</div><div class="tt">AI项目业务讨论会</div>
+        <div class="ds">广东省<b>家政AI普及（生地集团）</b>、青少年心理初筛(深圳南山/成都七中/云南留守儿童)、数字人教学平台、AI临终关怀</div></div>
+      <div class="ev"><div class="dt">2026-07-24</div><div class="tt">本场：产业合作洽谈</div>
+        <div class="ds">心理疏导AI舱(5年·宝安团委)、养老AI对接(<b>深地集团李总</b>)、FDE模式、AI眼镜(WVIC)、导诊数字人(华为)</div></div>
+    </div>
+    <p style="margin-top:10px"><span class="kg">演进脉络：</span></p>
+    <ul>
+      <li>心理AI：自闭症机器人(03) → 对话式初筛(06) → 结构化问卷+危机预警疏导舱(07) <span class="ev-tag">持续深化</span></li>
+      <li>家政养老：<b>生地集团家政AI普及(06) → 深地集团李总养老对接(07)</b> <span class="ev-tag">同一合作方延续</span></li>
+      <li>智能眼镜：骨传导/录音(03) → 工作记忆上下文眼镜 WVIC(07) <span class="ev-tag">升级</span></li>
+      <li>数字人：展示+硬件定制(03) → 教学PPT(06) → 导诊数字人(07) <span class="ev-tag">场景扩展</span></li>
+    </ul>
+  </div>
+
+  <!-- 9 项目进度演进 -->
+  <div class="card">
+    <h2><span class="n">9</span>项目进度演进</h2>
+    <ul>
+      <li><span class="kg">推进</span>：心理AI从概念 → 5 年落地（宝安团委“心理健身房”）；养老AI从需求梳理 → 具体场景对接；智能眼镜从品类 → WVIC 发布。</li>
+      <li><span class="kr">回退/风险</span>：政府回款恶化（一分钱没拿到）；to C 方向基本放弃（“除非做到张一鸣否则死掉”）。</li>
+      <li><span class="kp">战略演变</span>：从“推多产品快速变现”(03) → “标准化做透聚焦一个产品”(07)；从“卖产品” → “FDE 上门整合落地”。</li>
+      <li>决策观点演变：早期重出海/订阅(03) → 重政府项目(06) → 重企业降本增效+FDE整合(07)，付费方认知收敛到“企业付费”。</li>
+    </ul>
+  </div>
+
+  <!-- 10 第一性原理 -->
+  <div class="card full">
+    <h2><span class="n">10</span>第一性原理解读</h2>
+    <p style="font-size:12.5px;color:var(--t3);margin-top:-6px">把议题剥到不可再分的基本事实与硬约束，剔除“行业惯例”经验假设，从底层真相重构。</p>
+
+    <div class="fp">
+      <div class="fp-q">议题一：“to B AI 项目必须政商结合才能落地”</div>
+      <div class="fp-grid">
+        <div class="col c1"><h4>经验假设</h4><p>to B 必须找领导打招呼、政商结合，否则产品再好也没用。</p></div>
+        <div class="col c2"><h4>底层真相</h4><p>政府采购本质是<b>“风险规避 + 预算执行”</b>，决策者首要约束是免责而非最优；预算受财政周期约束（地方财政紧张→回款难）。政商关系只是绕过“免责焦虑”的手段，不是目的。</p></div>
+        <div class="col c3"><h4>重构方案</h4><p>把“关系依赖”重构为<b>“合规 + 预算确定性”</b>：优先已发文强制场景（教育部心理筛查、广东家政AI普及）；用“结果对赌/效果付费”降低决策者风险；用入围/定点合规框架替代个人关系。可打破的“约束”：政商结合 → 合规+预算。</p></div>
+      </div>
+      <div class="col" style="border-top:1px solid var(--line)"><b>验证</b>：民政局少儿心理一分钱没拿到（财政约束✓）；宝安团委心理健身房成功落地（决策风险低场景可行✓）。</div>
+    </div>
+
+    <div class="fp">
+      <div class="fp-q">议题二：“养老 AI 场景五花八门，需要大量定制开发”</div>
+      <div class="fp-grid">
+        <div class="col c1"><h4>经验假设</h4><p>养老需求各不相同（独居监测、做菜教学、多语言报到），每个都要从零定制，工作量大。</p></div>
+        <div class="col c2"><h4>底层真相</h4><p>养老需求底层只有三类基本功能：<b>安全监护 + 情感陪伴 + 服务对接</b>。差异仅在“触发条件”和“交互形态”，底层能力（感知/对话/预警）完全可复用。</p></div>
+        <div class="col c3"><h4>重构方案</h4><p>做<b>“可配置平台”而非“定制项目”</b>：心理疏导舱核心（结构化问卷+情绪感知+危机预警+数字人）做成可配置引擎，养老场景只需配触发规则与话术。产品方“做透不接零散定制”方向正确，但应进一步把“不接定制”升级为“可配置即定制”。</p></div>
+      </div>
+      <div class="col" style="border-top:1px solid var(--line)"><b>验证</b>：福建高速替换讯飞（成本敏感✓）；Meela B端65美元/月标准化产品可行（✓）；浙江/西安30%补贴政策托底（✓）。</div>
+    </div>
+  </div>
+
+  <!-- 11 多维度综合洞察 -->
+  <div class="card full">
+    <h2><span class="n">11</span>多维度综合洞察</h2>
+
+    <div class="ins">
+      <div class="src">散念 · 个人观点</div>
+      <p>“AI 时代，快速出方案以替换抽象讨论的惯性思维”——出方案成本已降到极低，应<strong>对着方案讨论</strong>而非用抽象语言对齐。本场恰是此逻辑的实证：产品方现场演示心理疏导舱+导诊数字人，与会者一句“这个很有用”瞬间达成共识；哈工大 FDE 模式本质也是“把方案拼成工作流再落地”。<span class="k">推论：后续对接应默认“先出原型/演示，再讨论”</span>，跳过概念博弈。</p>
+    </div>
+
+    <div class="ins">
+      <div class="src">收藏 · 政策托底</div>
+      <p>国务院《人工智能+行动意见》（2025-08）明确推动 AI 在居家/社区/机构养老应用，目标 2027 年智能终端普及率超 70%、2030 年超 90%。适老化智能科技 2025 年市场约 5554 亿、2030 年近万亿。本场养老 AI 需求<strong>不是孤立点状需求，而是国家级战略落地的具体承接</strong>，政策确定性高、回款风险低于普通政府项目。</p>
+    </div>
+
+    <div class="ins">
+      <div class="src">收藏 · 标杆案例 Meela</div>
+      <p>AI 银发陪伴产品 Meela：B 端养老机构 65 美元/月/人，可减少抗抑郁药使用、降低医疗成本，3 个月月留存 82%。证明<strong>“标准化产品 + B 端订阅”养老 AI 模式成立</strong>，反向验证产品方“标准化做透”方向正确；亦提示“降低医疗成本”是可对赌的效果付费切入点。</p>
+    </div>
+
+    <div class="ins">
+      <div class="src">收藏 · 平安居家养老</div>
+      <p>平安“三位一体”养老管家（智能管家+生活管家+医生管家）覆盖“医食住行财康养乐护安”十场景。揭示养老 AI 真正壁垒是<b>服务对接网络</b>而非单点硬件。深地集团李总握 20 家业主中心 = 现成的服务交付网络，<span class="kg">这是需求方被低估的筹码</span>，议价时不应被边缘化。</p>
+    </div>
+
+    <div class="ins">
+      <div class="src">收藏 · 补贴通道</div>
+      <p>浙江将外骨骼机器人纳入居家适老化改造（30% 补贴、单件最高 3000 元），西安按成交价 30% 一次性补贴，财政部发养老服务消费补贴。<strong>养老 AI 产品可借补贴通道降用户门槛、提回款确定性</strong>，缓解“政府回款难”痛点。</p>
+    </div>
+
+    <div class="ins">
+      <div class="src">交叉洞察 · 综合</div>
+      <p>把散念（快速出方案）+ 政策（70% 普及）+ Meela（标准化订阅）+ 补贴（30% 托底）叠在一起：<span class="k">最优路径 = 用心理疏导舱可配置引擎 + 深地集团 20 家业主中心网络 + 养老补贴通道 + 效果付费对赌</span>，一次打通“产品-渠道-补贴-回款”闭环，避开纯政商关系的脆弱性。</p>
+    </div>
+  </div>
+
+</div>
+</div>
+</body>
+</html>
