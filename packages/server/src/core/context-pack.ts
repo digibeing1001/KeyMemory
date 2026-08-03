@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, HistoricalReference, MailThreadContext, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
+import { MEMORY_POLICY } from '@keymemory/shared';
 import { getMemory, listMemories } from './atom.js';
 import { searchHybrid } from './query.js';
 import { findProjectRef, getProject } from './project.js';
@@ -63,6 +64,24 @@ function layerWeight(memory: Memory): number {
   return 0;
 }
 
+// KM-102/D1：结构性权重（类型/层级/热度）归一化到 [0,1] 后只做乘性微调，
+// 不再加性盖过检索主分。无检索分的候选（list 路径）以 LIST_BASE_SCORE 为基底，
+// 保证它们仍能按结构质量排序，但绝不可能压过有真实检索分的候选（基底×1.15 < RRF 首位分≈0.0082）。
+const LIST_BASE_SCORE = 0.002;
+
+function structuralBoost(memory: Memory): number {
+  const kind = memoryKindOf(memory);
+  const kindNorm = (KIND_WEIGHT.get(kind) ?? 0) / 0.1;
+  const layerNorm = layerWeight(memory) / 0.012;
+  const hitNorm = Math.min(0.01, Math.log1p(memory.hitCount) * 0.002) / 0.01;
+  return Math.max(0, Math.min(1, (kindNorm + layerNorm + hitNorm) / 3));
+}
+
+function candidateScore(memory: Memory, searchScore: number): number {
+  const base = searchScore > 0 ? searchScore : LIST_BASE_SCORE;
+  return base * (1 + MEMORY_POLICY.rankBoostFactor * structuralBoost(memory));
+}
+
 function projectPathOf(memory: Memory): string | undefined {
   if (!memory.projectId) return undefined;
   return getProject(memory.projectId)?.path;
@@ -100,6 +119,7 @@ function addCandidate(
   accessibleSpaces?: Set<string>,
   temporal?: { asOf: string; includeExpired: boolean },
   scope?: { path: string; includeDescendants: boolean },
+  expansionIds?: Set<string>,
 ): void {
   // 隔离过滤：若指定了可见空间集合，非可见记忆一律不进入候选池。
   // 这覆盖了 search/list/related/superseders 所有引入路径，防止跨 agent 私有空间泄露。
@@ -109,7 +129,8 @@ function addCandidate(
   // 确保其他项目的记忆不会混入当前项目的上下文包。
   if (scope && !matchesSourceProject(memory, scope.path, scope.includeDescendants)) return;
   const kind = memoryKindOf(memory);
-  const finalScore = score + (KIND_WEIGHT.get(kind) ?? 0) + layerWeight(memory) + Math.min(0.01, Math.log1p(memory.hitCount) * 0.002);
+  // KM-102：检索主分为准，结构权重只做乘性微调（见 candidateScore）。
+  const finalScore = candidateScore(memory, score);
   const existing = map.get(memory.id);
   if (existing && existing.score >= finalScore) return;
   map.set(memory.id, {
@@ -127,6 +148,7 @@ function addCandidate(
     updatedAt: memory.updatedAt,
     score: Number(finalScore.toFixed(6)),
   });
+  expansionIds?.add(memory.id);
 }
 
 function activeSuperseders(asOf: string): Map<string, string> {
@@ -160,7 +182,8 @@ function promoteSupersedingMemories(
     const sourceId = superseders.get(item.id);
     if (!sourceId || candidates.has(sourceId)) continue;
     const source = getMemory(sourceId);
-    if (source?.status === 'active') addCandidate(candidates, source, item.score + 0.05, accessibleSpaces, temporal, scope);
+    // KM-102：替代版本以乘性加分进入，保持“新版本排旧版本之前”的原意。
+    if (source?.status === 'active') addCandidate(candidates, source, item.score * 1.15, accessibleSpaces, temporal, scope);
   }
 }
 
@@ -168,22 +191,28 @@ function expandRelatedMemories(
   candidates: Map<string, AgentContextItem>,
   accessibleSpaces?: Set<string>,
   temporal?: { asOf: string; includeExpired: boolean },
-): void {
+): Set<string> {
   // 关系扩展刻意不套项目范围过滤：显式建立的 relates_to/derived_from 等关系
   // 是用户/Agent 确认过的跨项目线索，应随种子记忆进入上下文包；
   // agent 空间隔离仍然生效，不会跨私有空间泄露。
+  const expansionIds = new Set<string>();
   const seeds = Array.from(candidates.values());
   for (const item of seeds) {
+    if (expansionIds.has(item.id)) continue; // 扩展项不再作为种子，防止多级噪声放大
     const related = findRelatedMemories(item.id)
+      // KM-208/D4：共现噪声边不得直接进入上下文——只扩展 strength ≥ 0.5 的边。
       .filter(rel => ['relates_to', 'derived_from', 'references', 'part_of'].includes(rel.relationType))
+      .filter(rel => rel.strength >= MEMORY_POLICY.coHitRelations.expandMinStrength)
       .slice(0, 4);
     for (const rel of related) {
       if (candidates.has(rel.memoryId)) continue;
       const memory = getMemory(rel.memoryId);
       if (memory?.status !== 'active') continue;
-      addCandidate(candidates, memory, item.score + Math.min(0.04, rel.strength * 0.04), accessibleSpaces, temporal);
+      // KM-102：扩展项分数 = 种子分 × (1 + 0.5×strength)，永远低于种子且受关系强度调制。
+      addCandidate(candidates, memory, item.score * (1 + 0.5 * Math.min(1, rel.strength)), accessibleSpaces, temporal, undefined, expansionIds);
     }
   }
+  return expansionIds;
 }
 
 function enrichRelations(items: AgentContextItem[]): AgentContextItem[] {
@@ -378,7 +407,25 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
   }
 
   promoteSupersedingMemories(candidates, superseders, accessibleSpaces, temporal, projectScope);
-  expandRelatedMemories(candidates, accessibleSpaces, temporal);
+  const expansionIds = expandRelatedMemories(candidates, accessibleSpaces, temporal);
+
+  // KM-208：关系扩展项在候选池占比不得超过 30%，先在候选阶段裁减（保证主检索项的入选名额），
+  // 从低分端裁减扩展项。
+  if (expansionIds.size > 0 && candidates.size > 0) {
+    const maxExpansion = Math.max(1, Math.floor(candidates.size * 0.3));
+    let expansionCount = Array.from(candidates.values()).filter(item => expansionIds.has(item.id)).length;
+    if (expansionCount > maxExpansion) {
+      const expansionItems = Array.from(candidates.values())
+        .filter(item => expansionIds.has(item.id))
+        .sort((a, b) => a.score - b.score);
+      for (const item of expansionItems) {
+        if (expansionCount <= maxExpansion) break;
+        candidates.delete(item.id);
+        expansionIds.delete(item.id);
+        expansionCount -= 1;
+      }
+    }
+  }
 
   const sorted = Array.from(candidates.values())
     .filter(item => !allowedKinds || allowedKinds.has(item.memoryKind))

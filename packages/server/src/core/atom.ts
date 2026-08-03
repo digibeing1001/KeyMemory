@@ -7,6 +7,7 @@ import { extractEntities, ensureEntity, linkMemoryEntity, processContent, autoAs
 import { normalizeMemoryInput, normalizeMemoryUpdate } from './memory-schema.js';
 import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
 import { removeFromFts, insertIntoFts, refreshFts } from './fts-helpers.js';
+import { appendCjkBigrams } from './cjk.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
 import { resolveAsOf } from './temporal.js';
 import { assessCompleteness, assessValue, ContentQualityError } from './content-quality.js';
@@ -122,8 +123,9 @@ export function createMemory(input: CreateMemoryInput): Memory {
       VALUES ((SELECT rowid FROM memories WHERE id = @id), @title, @content, @project)
     `).run({
       id: mem.id,
-      title: mem.title,
-      content: `${mem.content}${mem.tags && mem.tags.length > 0 ? ' ' + mem.tags.join(' ') : ''}`,
+      // KM-103：中文 bigram 入索引，保证中文 FTS 可命中。
+      title: appendCjkBigrams(mem.title),
+      content: appendCjkBigrams(`${mem.content}${mem.tags && mem.tags.length > 0 ? ' ' + mem.tags.join(' ') : ''}`),
       project: projectName,
     });
 
@@ -413,8 +415,9 @@ export function updateMemory(id: string, input: UpdateMemoryInput, changeReason?
         VALUES ((SELECT rowid FROM memories WHERE id = @id), @title, @content, @project)
       `).run({
         id,
-        title: afterUpdate.title,
-        content: `${afterUpdate.content}${afterUpdate.tags && afterUpdate.tags.length > 0 ? ' ' + afterUpdate.tags.join(' ') : ''}`,
+        // KM-103：中文 bigram 入索引，保证中文 FTS 可命中。
+        title: appendCjkBigrams(afterUpdate.title),
+        content: appendCjkBigrams(`${afterUpdate.content}${afterUpdate.tags && afterUpdate.tags.length > 0 ? ' ' + afterUpdate.tags.join(' ') : ''}`),
         project: updatedProjectName,
       });
     }

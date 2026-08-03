@@ -4,6 +4,8 @@ import os from 'os';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { DATA_DIR_NAME, DB_NAME } from '@keymemory/shared';
+import { containsCjk } from '../core/cjk.js';
+import { refreshFts } from '../core/fts-helpers.js';
 
 let db: Database.Database | null = null;
 const DEFAULT_PROJECT_NAME = '未分类';
@@ -528,6 +530,14 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE loop_runs ADD COLUMN cost_usd_used REAL NOT NULL DEFAULT 0',
     'ALTER TABLE loop_runs ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE loop_runs ADD COLUMN last_error_signature TEXT',
+    // KM-001：检索可观测性——query_logs 记录完整排序过程，支撑检索质量评测
+    'ALTER TABLE query_logs ADD COLUMN query_id TEXT',
+    'ALTER TABLE query_logs ADD COLUMN rank INTEGER',
+    'ALTER TABLE query_logs ADD COLUMN score REAL',
+    'ALTER TABLE query_logs ADD COLUMN latency_ms INTEGER',
+    'ALTER TABLE query_logs ADD COLUMN candidate_count INTEGER',
+    'ALTER TABLE query_logs ADD COLUMN degraded_reason TEXT',
+    'ALTER TABLE query_logs ADD COLUMN feedback INTEGER',
   ];
   for (const stmt of alterStatements) {
     try {
@@ -545,6 +555,7 @@ function runMigrations(db: Database.Database): void {
   migrateMemoryRelationData(db);
   migrateLegacyProjectsToMailboxPool(db);
   ensureMemoryFtsSchema(db);
+  backfillCjkFts(db);
 
   // Create indexes for new columns (must run after ALTER TABLE)
   db.exec(`
@@ -571,6 +582,32 @@ CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id
   `);
 
   ensureWelcomeMemory(db);
+}
+
+/**
+ * KM-103：存量中文记忆的 FTS bigram 回填（一次性）。
+ * 新写入在 createMemory/updateMemory 已带 bigram；旧数据的 FTS 条目里中文仍是
+ * 整句单 token，需重建一次索引后中文检索才能对存量内容生效。
+ */
+function backfillCjkFts(db: Database.Database): void {
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS schema_flags (key TEXT PRIMARY KEY, value TEXT)`);
+    const done = db.prepare(`SELECT 1 FROM schema_flags WHERE key = 'cjk_fts_backfill_v1'`).get();
+    if (done) return;
+    const rows = db.prepare(`SELECT id, title, content FROM memories WHERE status != 'deleted'`).all() as { id: string; title: string; content: string }[];
+    let rebuilt = 0;
+    for (const row of rows) {
+      if (containsCjk(`${row.title ?? ''}\n${row.content ?? ''}`)) {
+        refreshFts(db, row.id);
+        rebuilt += 1;
+      }
+      if (rebuilt >= 20000) break;
+    }
+    db.prepare(`INSERT OR REPLACE INTO schema_flags (key, value) VALUES ('cjk_fts_backfill_v1', ?)`).run(new Date().toISOString());
+    if (rebuilt > 0) console.log(`[Migration] CJK FTS backfill: rebuilt ${rebuilt} memories with bigram index`);
+  } catch (err) {
+    console.error('[Migration] CJK FTS backfill failed (non-fatal):', (err as Error).message);
+  }
 }
 
 /**

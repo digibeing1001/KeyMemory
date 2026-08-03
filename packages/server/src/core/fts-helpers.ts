@@ -6,6 +6,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { appendCjkBigrams } from './cjk.js';
 
 /**
  * 从 FTS 索引中删除指定记忆的条目
@@ -43,8 +44,9 @@ export function insertIntoFts(db: Database.Database, memoryId: string): void {
     VALUES ((SELECT rowid FROM memories WHERE id = @id), @title, @content, @project)
   `).run({
     id: memoryId,
-    title: row.title,
-    content: `${row.content}${tagText}`,
+    // KM-103：中文 bigram 追加进索引，使 FTS 能命中中文词元。
+    title: appendCjkBigrams(row.title),
+    content: appendCjkBigrams(`${row.content}${tagText}`),
     project: row.project_name,
   });
 }

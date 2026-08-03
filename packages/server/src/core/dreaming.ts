@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamReport, DreamReportDetails, ConsolidationAction, DreamTodoItem } from '@keymemory/shared';
-import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, analyzeMemoryQuality, isSpecificProjectName } from '@keymemory/shared';
+import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, MEMORY_POLICY, analyzeMemoryQuality, isSpecificProjectName } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
 import { getMemory, updateMemory } from './atom.js';
@@ -107,6 +107,23 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
       };
     } catch (err) {
       console.error('[Dream] Quality audit failed (non-fatal):', (err as Error).message);
+    }
+
+    // KM-207/D4：共现边治理——每个 dream 周期对搜索共现边强度衰减，
+    // 低于剪枝阈值的弱边删除，防止关系图被共现噪声永久占据。
+    try {
+      const db = getDatabase();
+      const coHitCondition = "relation_type = 'relates_to' AND reason = 'co-hit in search results'";
+      db.prepare(`UPDATE memory_relations SET strength = strength * ? WHERE ${coHitCondition}`)
+        .run(MEMORY_POLICY.coHitRelations.dreamDecayFactor);
+      const pruned = db.prepare(`DELETE FROM memory_relations WHERE ${coHitCondition} AND strength < ?`)
+        .run(MEMORY_POLICY.coHitRelations.pruneBelow);
+      (details as unknown as Record<string, unknown>).coHitRelations = {
+        decayFactor: MEMORY_POLICY.coHitRelations.dreamDecayFactor,
+        relationsPruned: pruned.changes,
+      };
+    } catch (err) {
+      console.error('[Dream] Co-hit relation pruning failed (non-fatal):', (err as Error).message);
     }
 
     // Phase 4 & 5: 非关键阶段，失败不影响前面结果

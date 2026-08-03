@@ -20,6 +20,7 @@
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm --filter @keymemory/shared build && pnpm -r run typecheck",
     "eval:memory": "node scripts/eval-memory.mjs",
+    "eval:retrieval": "node scripts/eval-retrieval.mjs",
     "perf:memory": "node scripts/perf-memory.mjs",
     "smoke": "node scripts/smoke-keymemory.mjs",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",

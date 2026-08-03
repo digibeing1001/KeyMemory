@@ -6,6 +6,7 @@ const commands = [
   `${pnpm} build`,
   `${pnpm} smoke:agent-connect`,
   `${pnpm} eval:memory`,
+  `${pnpm} eval:retrieval`,
   `${pnpm} smoke:mcp`,
   `${pnpm} smoke:loop`,
   `${pnpm} smoke:mailbox`,

@@ -1,11 +1,33 @@
 import type { HealthReport, Layer, Memory } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
-import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
+import { cosineSimilarity, bufferToEmbedding, isEmbeddingAvailable } from '../embed/onnx.js';
 import { getMemory, listMemories, updateMemory } from './atom.js';
 import { findProjectRef } from './project.js';
 import { searchHybrid } from './query.js';
 import { findConflictMatch } from './conflict-detector.js';
+import { isLLMAvailable } from './llm-provider.js';
+
+/**
+ * KM-004/D14：当前生效的降级路径清单。降级本身是容错设计，
+ * 但必须可见——UI 据此渲染 DegradedBanner，绝不静默。
+ */
+function collectDegradedPaths(db: ReturnType<typeof getDatabase>): string[] {
+  const paths: string[] = [];
+  if (!isEmbeddingAvailable()) paths.push('embeddings_unavailable');
+  if (!isLLMAvailable()) paths.push('llm_unavailable');
+  try {
+    const recentFtsDegraded = db.prepare(`
+      SELECT COUNT(*) as cnt FROM query_logs
+      WHERE degraded_reason = 'fts_unavailable'
+        AND created_at >= datetime('now', '-1 day')
+    `).get() as { cnt: number };
+    if (recentFtsDegraded.cnt > 0) paths.push('fts_unavailable');
+  } catch {
+    // query_logs.degraded_reason 为 KM-001 新增列，旧库尚未迁移时忽略
+  }
+  return paths;
+}
 
 export async function getHealthReport(): Promise<HealthReport> {
   const db = getDatabase();
@@ -83,6 +105,7 @@ export async function getHealthReport(): Promise<HealthReport> {
     conflictCount,
     decayingCount,
     privacyRedactedCount,
+    degradedPaths: collectDegradedPaths(db),
     layerDistribution,
     shortActive,
     flashActive,

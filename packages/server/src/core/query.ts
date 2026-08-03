@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { SearchResult, Layer, MemoryStatus, EntityType } from '@keymemory/shared';
-import { SEARCH_WEIGHTS, SEARCH_CONFIG } from '@keymemory/shared';
+import { SEARCH_WEIGHTS, SEARCH_CONFIG, MEMORY_POLICY } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { embed, embeddingToBuffer, cosineSimilarity, getEmbeddingDim, getCurrentModelInfo, isEmbeddingAvailable } from '../embed/onnx.js';
 import { recordHit } from './atom.js';
@@ -9,6 +9,7 @@ import { getCachedEmbedding, getCachedChunkEmbedding, warmupEmbeddingCache, warm
 import { scheduleChunkAndEmbed } from './chunking.js';
 import { redactSensitiveText } from './privacy.js';
 import { resolveAsOf } from './temporal.js';
+import { cjkTrigrams, containsCjk } from './cjk.js';
 
 type SearchOptions = {
   layer?: Layer;
@@ -37,17 +38,36 @@ type SearchOptions = {
   updatedBefore?: string;
   lastHitAfter?: string;
   lastHitBefore?: string;
+  /** KM-001：searchHybrid 统一记录含完整指标的日志时，抑制单路内部的重复记录。 */
+  suppressQueryLog?: boolean;
 };
 
-function logQuery(query: string, memoryId: string, matchType: string): void {
+type QueryLogMetrics = {
+  queryId?: string;
+  rank?: number;
+  score?: number;
+  latencyMs?: number;
+  candidateCount?: number;
+  degradedReason?: string;
+};
+
+function logQuery(query: string, memoryId: string, matchType: string, metrics: QueryLogMetrics = {}): void {
   try {
     const db = getDatabase();
     const now = new Date().toISOString();
     const safeQuery = redactSensitiveText(query.trim()).text.slice(0, 200);
     db.prepare(`
-      INSERT INTO query_logs (id, query, memory_id, match_type, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(uuid(), safeQuery, memoryId, matchType, now);
+      INSERT INTO query_logs (id, query, memory_id, match_type, created_at, query_id, rank, score, latency_ms, candidate_count, degraded_reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      uuid(), safeQuery, memoryId, matchType, now,
+      metrics.queryId ?? null,
+      metrics.rank ?? null,
+      metrics.score ?? null,
+      metrics.latencyMs ?? null,
+      metrics.candidateCount ?? null,
+      metrics.degradedReason ?? null,
+    );
   } catch {
     // 查询日志失败不应影响搜索功能
   }
@@ -280,6 +300,26 @@ function buildSafeFtsQuery(query: string): string {
     if (wildcard) return wildcard;
   }
 
+  // KM-103/D3：memories_fts 用 trigram 分词器（substring 匹配，最小 3 字符）。
+  // 中文 query 拆为 trigram 词元做 OR 匹配；双字词无法命中 trigram 索引，
+  // 从 FTS 词元中剔除（交给 LIKE 降级路），避免整串 0 命中。
+  if (containsCjk(normalized)) {
+    const rawTerms = normalized.split(/\s+/).filter(Boolean);
+    const terms = new Set<string>();
+    for (const term of rawTerms) {
+      if (!containsCjk(term)) {
+        if (/^[\p{L}\p{N}_-]{2,}$/u.test(term)) terms.add(term);
+        continue;
+      }
+      if (term.length >= 3) {
+        for (const gram of cjkTrigrams(term)) terms.add(gram);
+      }
+      // <3 字的中文词：trigram 不可索引，不进 FTS 词元
+    }
+    if (terms.size === 0) return '""';
+    return Array.from(terms).slice(0, 24).map(quoteFtsPhrase).join(' OR ');
+  }
+
   const terms = normalized.match(/[\p{L}\p{N}_-]{2,}/gu)?.slice(0, 12) ?? [];
   const clauses = [quoteFtsPhrase(normalized), ...terms.map(quoteFtsPhrase)];
   return Array.from(new Set(clauses)).join(' OR ');
@@ -314,23 +354,25 @@ export async function searchFulltext(query: string, options?: SearchOptions): Pr
       matchType: 'fulltext' as const,
     }));
 
-    for (const r of results) {
-      logQuery(query, r.memory.id, 'fulltext');
+    if (!options?.suppressQueryLog) {
+      for (const r of results) {
+        logQuery(query, r.memory.id, 'fulltext');
+      }
     }
 
     if (results.length > 0) return results;
     // FTS 命中 0 条 → 仍回退到 LIKE，但记录原因便于排查
     console.warn(`[Query] FTS 命中 0 条，回退 LIKE。query=${query.slice(0, 80)}, matchQuery=${matchQuery.slice(0, 80)}`);
-    return searchLikeFallback(query, conditions, params);
+    return searchLikeFallback(query, conditions, params, options);
   } catch (err) {
     // FTS 查询失败（如特殊字符触发语法错误）→ 记录日志后回退 LIKE，避免阻断搜索
     // 之前静默吞错，难以排查 FTS 索引损坏或查询语法问题
     console.error(`[Query] FTS 查询失败，回退 LIKE。query=${query.slice(0, 80)}, error=${(err as Error).message}`);
-    return searchLikeFallback(query, conditions, params);
+    return searchLikeFallback(query, conditions, params, options);
   }
 }
 
-function searchLikeFallback(query: string, conditions: string[], params: Record<string, unknown>): SearchResult[] {
+function searchLikeFallback(query: string, conditions: string[], params: Record<string, unknown>, options?: SearchOptions): SearchResult[] {
   const db = getDatabase();
   const terms = query
     .split(/[\s,，。；;]+/)
@@ -362,13 +404,18 @@ function searchLikeFallback(query: string, conditions: string[], params: Record<
     LIMIT @limit
   `).all(likeParams) as Record<string, unknown>[];
 
+  // KM-106/D14：LIKE 降级必须可见——结果打 degraded 标记，日志写 degraded_reason，
+  // 前端可据此渲染“中文检索已降级为模糊匹配，排序不准确”提示。
   const results = rows.map(r => ({
     memory: rowToMemory(r),
     score: 0.01,
     matchType: 'fulltext' as const,
+    degraded: 'fts_unavailable' as const,
   }));
-  for (const r of results) {
-    logQuery(query, r.memory.id, 'like');
+  if (!options?.suppressQueryLog) {
+    for (const r of results) {
+      logQuery(query, r.memory.id, 'like', { degradedReason: 'fts_unavailable' });
+    }
   }
   return results;
 }
@@ -393,17 +440,25 @@ export async function searchSemantic(query: string, options?: SearchOptions): Pr
   if (options?.status) params.status = options.status;
   addSearchFilters(conditions, params, options);
 
-  // 1. 只取有 embedding 的记忆（INNER JOIN embeddings），避免对无向量记忆做无效 cosine 计算。
-  //    按 hit_count / last_hit_at / updated_at 排序，让高频/近期命中的重要记忆优先进入 500 限额，
-  //    防止"随机 500 条"漏掉最相关的记忆。
-  const rows = db.prepare(`
-    SELECT m.*
+  // KM-104/D2：候选窗口改分层抽样，消除“按热度截断导致新记忆永远进不了候选”的系统性偏差：
+  //   热度 Top300 ∪ 最近写入 Top200 ∪ 当前过滤范围内全量（上限 1000）。
+  // 旧方案按 hit_count 排序截断 500，hit_count=0 的新记忆在库超过 500 条后永远召不回。
+  const candidateSelectBase = `
     FROM memories m
     INNER JOIN embeddings e ON e.memory_id = m.id
     WHERE ${conditions.join(' AND ')}
-    ORDER BY m.hit_count DESC, m.last_hit_at DESC, m.updated_at DESC
-    LIMIT 500
-  `).all(params) as Record<string, unknown>[];
+  `;
+  const hotIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.hit_count DESC, m.last_hit_at DESC LIMIT 300`).all(params) as { id: string }[]).map(r => r.id);
+  const recentIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.created_at DESC LIMIT 200`).all(params) as { id: string }[]).map(r => r.id);
+  const scopedIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.updated_at DESC LIMIT 1000`).all(params) as { id: string }[]).map(r => r.id);
+  const candidateIds = Array.from(new Set([...hotIds, ...recentIds, ...scopedIds]));
+  if (candidateIds.length === 0) return [];
+
+  const rows = (db.prepare(`
+    SELECT m.*
+    FROM memories m
+    WHERE m.id IN (${candidateIds.map(() => '?').join(',')})
+  `).all(...candidateIds) as Record<string, unknown>[]);
 
   // 2. 批量获取所有相关记忆的分块 ID（一次查询代替 N 次）
   const memoryIds = rows.map(r => (r as { id: string }).id);
@@ -522,11 +577,25 @@ function productionRankBoost(memory: SearchResult['memory']): {
   };
 }
 
+// KM-101/D1：旧实现把 boost（上限 0.011）直接加到 RRF 主分（典型 0.004–0.012）上，
+// 加成上限 ≥ 主分满值，高 hit_count 的老记忆可直接压过精准命中。
+// 现改为乘性微调：score × (1 + rankBoostFactor × normalizedBoost)，影响被限制在 ±15% 内。
+const RANK_BOOST_MAX = 0.006 + 0.003 + 0.002;
+
+function qualityMultiplier(memory: SearchResult['memory']): { multiplier: number; boost: ReturnType<typeof productionRankBoost> } {
+  const boost = productionRankBoost(memory);
+  const normalizedBoost = Math.max(0, Math.min(1, boost.total / RANK_BOOST_MAX));
+  return { multiplier: 1 + MEMORY_POLICY.rankBoostFactor * normalizedBoost, boost };
+}
+
 export async function searchHybrid(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   const limit = options?.limit ?? 20;
   // Full-text and semantic branches must evaluate the same instant. Resolving
   // "now" once avoids millisecond boundary disagreements around validFrom/To.
-  const effectiveOptions = { ...options, asOf: resolveAsOf(options?.asOf) };
+  // KM-001：统一记录完整排序过程（query_id 串联同一次检索的多条命中）。
+  const effectiveOptions = { ...options, asOf: resolveAsOf(options?.asOf), suppressQueryLog: true };
+  const startedAt = Date.now();
+  const queryId = uuid();
 
   const [fulltextResults, semanticResults] = await Promise.all([
     searchFulltext(query, { ...effectiveOptions, limit: limit * 2 }),
@@ -549,39 +618,55 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
   });
 
   const k = SEARCH_CONFIG.rrfK;
+  // KM-106：全文路是否降级为 LIKE 必须在结果与日志中可见。
+  const ftsDegraded = fulltextResults.some(r => r.degraded === 'fts_unavailable');
+  const degradedReason = ftsDegraded ? 'fts_unavailable' : undefined;
+
   const fused = Array.from(rrfMap.entries()).map(([id, data]) => {
     const fulltextContribution = data.fulltextRank ? SEARCH_WEIGHTS.fulltext / (k + data.fulltextRank) : 0;
     const semanticContribution = data.semanticRank ? SEARCH_WEIGHTS.semantic / (k + data.semanticRank) : 0;
-    const boosts = productionRankBoost(data.memory);
-    const score = fulltextContribution + semanticContribution + boosts.total;
+    // KM-101：乘性质量微调，不再加性叠加。
+    const { multiplier, boost } = qualityMultiplier(data.memory);
+    const score = (fulltextContribution + semanticContribution) * multiplier;
     return {
       memory: data.memory,
       score,
       matchType: 'hybrid' as const,
-      ...(options?.explain ? {
-        scoreBreakdown: {
-          fulltextRank: data.fulltextRank,
-          semanticRank: data.semanticRank,
-          fulltextContribution: Number(fulltextContribution.toFixed(8)),
-          semanticContribution: Number(semanticContribution.toFixed(8)),
-          hitBoost: Number(boosts.hitBoost.toFixed(8)),
-          confidenceBoost: Number(boosts.confidenceBoost.toFixed(8)),
-          durableLayerBoost: Number(boosts.durableLayerBoost.toFixed(8)),
-          finalScore: Number(score.toFixed(8)),
-        },
-      } : {}),
+      ...(degradedReason ? { degraded: degradedReason } : {}),
+      // KM-002：breakdown 无条件产出（写入 query_logs 与 API 返回都依赖它），
+      // explain 仅控制是否在响应中展示。等式：finalScore = (ft+sem) × qualityMultiplier。
+      scoreBreakdown: {
+        fulltextRank: data.fulltextRank,
+        semanticRank: data.semanticRank,
+        fulltextContribution: Number(fulltextContribution.toFixed(8)),
+        semanticContribution: Number(semanticContribution.toFixed(8)),
+        hitBoost: Number(boost.hitBoost.toFixed(8)),
+        confidenceBoost: Number(boost.confidenceBoost.toFixed(8)),
+        durableLayerBoost: Number(boost.durableLayerBoost.toFixed(8)),
+        qualityMultiplier: Number(multiplier.toFixed(6)),
+        finalScore: Number(score.toFixed(8)),
+      },
     };
   });
 
   fused.sort((a, b) => b.score - a.score);
 
   const limited = fused.slice(0, limit);
+  const latencyMs = Date.now() - startedAt;
+  const candidateCount = rrfMap.size;
   const hitIds: string[] = [];
-  for (const r of limited) {
+  limited.forEach((r, idx) => {
     recordHit(r.memory.id);
-    logQuery(query, r.memory.id, 'hybrid');
+    logQuery(query, r.memory.id, 'hybrid', {
+      queryId,
+      rank: idx + 1,
+      score: r.score,
+      latencyMs,
+      candidateCount,
+      degradedReason,
+    });
     hitIds.push(r.memory.id);
-  }
+  });
 
   // 异步增强共同命中的记忆间关系（不阻塞返回）
   setImmediate(() => {
@@ -592,6 +677,10 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
     }
   });
 
+  // 非 explain 调用不对外暴露 breakdown，但日志中已完整留存。
+  if (!options?.explain) {
+    return limited.map(({ scoreBreakdown: _omit, ...rest }) => rest as SearchResult);
+  }
   return limited;
 }
 
@@ -602,22 +691,36 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
  * - 仅处理前 5 条命中（最多 10 对），避免大结果集产生 O(n²) 写入
  * 任何异常在调用方已捕获，此处保持纯同步、无副作用外抛。
  */
+// KM-206/D4：共现计数门槛——同一对记忆共现 ≥ minCoOccurrences(3) 次才落库建边，
+// 避免单次搜索噪声直接污染关系图（旧实现 1 次即建边，数月后图谱退化为共现噪声网）。
+const CO_HIT_COUNTERS = new Map<string, number>();
+const CO_HIT_COUNTER_MAX = 5000;
+
 function reinforceCoHitRelations(db: ReturnType<typeof getDatabase>, hitIds: string[]): void {
   if (hitIds.length < 2) return;
   const ids = hitIds.slice(0, 5);
   const now = new Date().toISOString();
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
+      const pairKey = `${ids[i]}|${ids[j]}`;
       const existing = db.prepare(
         "SELECT id FROM memory_relations WHERE source_memory_id = ? AND target_memory_id = ? AND relation_type = 'relates_to'",
       ).get(ids[i], ids[j]) as { id: string } | undefined;
       if (existing) {
+        CO_HIT_COUNTERS.delete(pairKey);
         db.prepare('UPDATE memory_relations SET strength = MIN(1.0, strength + 0.05) WHERE id = ?').run(existing.id);
-      } else {
-        db.prepare(
-          'INSERT INTO memory_relations (id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ).run(uuid(), ids[i], ids[j], 'relates_to', 0.2, 'co-hit in search results', now);
+        continue;
       }
+      const count = (CO_HIT_COUNTERS.get(pairKey) ?? 0) + 1;
+      if (count < MEMORY_POLICY.coHitRelations.minCoOccurrences) {
+        if (CO_HIT_COUNTERS.size >= CO_HIT_COUNTER_MAX) CO_HIT_COUNTERS.clear();
+        CO_HIT_COUNTERS.set(pairKey, count);
+        continue;
+      }
+      CO_HIT_COUNTERS.delete(pairKey);
+      db.prepare(
+        'INSERT INTO memory_relations (id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(uuid(), ids[i], ids[j], 'relates_to', 0.2, 'co-hit in search results', now);
     }
   }
 }

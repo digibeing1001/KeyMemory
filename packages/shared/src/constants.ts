@@ -26,10 +26,39 @@ export const SELFCHECK_THRESHOLDS = {
   suggest: 0.60,
 } as const;
 
+/**
+ * KM-205：记忆策略单一真源。同一语义的阈值只允许在此定义一次，
+ * 其余配置对象（EVOLUTION_THRESHOLDS / CONSOLIDATION_CONFIG / DREAM_CONFIG）
+ * 中的重复项改为从这里派生，避免“行为取决于哪条代码路径先跑到”。
+ */
+export const MEMORY_POLICY = {
+  /** 唯一固化阈值：short 层命中达此次数后候选固化。 */
+  solidifyMinHits: 8,
+  duplicateSimilarity: {
+    /** 检出候选（去重扫描）。 */
+    detect: 0.78,
+    /** 建议合并（dream 提议）。 */
+    suggest: 0.88,
+    /** 自动合并（上调避免误合）。 */
+    autoMerge: 0.92,
+  },
+  /** 乘性质量微调系数：score × (1 + factor × normalizedBoost)，normalizedBoost ∈ [0,1]。 */
+  rankBoostFactor: 0.15,
+  /** 共现边治理：最小共现次数、dream 周期衰减、剪枝阈值、扩展下限。 */
+  coHitRelations: {
+    minCoOccurrences: 3,
+    dreamDecayFactor: 0.97,
+    pruneBelow: 0.2,
+    expandMinStrength: 0.5,
+  },
+  contextBudget: { maxTokens: 2000, hardMaxTokens: 8000 },
+} as const;
+
 export const EVOLUTION_THRESHOLDS = {
   flashUnsortedDays: 7,
-  shortSolidifyHits: 10,
-  duplicateSimilarity: 0.9,
+  // KM-205：从 MEMORY_POLICY 派生，不再独立定义（原值 10 与固化真源 8 矛盾）。
+  shortSolidifyHits: MEMORY_POLICY.solidifyMinHits,
+  duplicateSimilarity: MEMORY_POLICY.duplicateSimilarity.autoMerge,
 } as const;
 
 /**
@@ -87,10 +116,11 @@ export const SEARCH_CONFIG = {
 } as const;
 
 export const CONSOLIDATION_CONFIG = {
-  duplicateSimilarity: 0.78,
+  // KM-205：从 MEMORY_POLICY 派生，消除重复定义。
+  duplicateSimilarity: MEMORY_POLICY.duplicateSimilarity.detect,
   staleDays: 60,
-  flashMaxDays: 14,
-  solidifyMinHits: 8,
+  flashMaxDays: LAYER_CONFIG.flash.decayDays,
+  solidifyMinHits: MEMORY_POLICY.solidifyMinHits,
   maxActionsPerPlan: 100,
 } as const;
 
@@ -118,10 +148,12 @@ export const DREAM_CONFIG = {
   defaultCron: '0 3 * * *',
   minIntervalHours: 4,
   minSessionsBeforeDream: 3,
-  semanticMergeThreshold: 0.72,
-  semanticAutoMergeThreshold: 0.88,
+  // KM-205：从 MEMORY_POLICY 派生并上调（原 0.72/0.88 误合风险高）。
+  semanticMergeThreshold: MEMORY_POLICY.duplicateSimilarity.suggest,
+  semanticAutoMergeThreshold: MEMORY_POLICY.duplicateSimilarity.autoMerge,
   // 从 2000 降至 500：O(n²) 检测在 2000 条时需 ~2M 次比较（~200s 阻塞），
   // 500 条仅需 ~125K 次（~12s）。配合优先级排序确保最相关的记忆进入扫描窗口。
+  // KM-204 将用近似 O(n log n) 方案替代，届时恢复至 2000。
   fullScanLimit: 500,
   // 快速梦境：仅扫描 flash+short 层（最需紧急清理），可高频运行。
   // 完整梦境扫描所有层，按 cron 低频运行。

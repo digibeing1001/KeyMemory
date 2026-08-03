@@ -244,6 +244,8 @@ export interface SearchResult {
   matchType: 'fulltext' | 'semantic' | 'hybrid';
   /** Optional, caller-requested explanation of hybrid ranking contributions. */
   scoreBreakdown?: SearchScoreBreakdown;
+  /** KM-106/D14：降级标记。如 'fts_unavailable' 表示全文路退化为 LIKE，排序不准确。降级必须可见，绝不静默。 */
+  degraded?: string;
 }
 
 export interface SearchScoreBreakdown {
@@ -254,6 +256,8 @@ export interface SearchScoreBreakdown {
   hitBoost: number;
   confidenceBoost: number;
   durableLayerBoost: number;
+  /** KM-101：质量微调为乘性，记录实际乘数（≥1）；finalScore = (fulltext+semantic) × qualityMultiplier。 */
+  qualityMultiplier?: number;
   finalScore: number;
 }
 
@@ -264,6 +268,8 @@ export interface HealthReport {
   conflictCount: number;
   decayingCount: number;
   privacyRedactedCount: number;
+  /** KM-004/D14：当前生效的降级路径清单（如 fts_unavailable / embeddings_unavailable / llm_unavailable）。 */
+  degradedPaths?: string[];
   layerDistribution: Record<Layer, number>;
   /** 数据流动度明细：短期层 active 数量；为 0 说明短期层空转 */
   shortActive?: number;
