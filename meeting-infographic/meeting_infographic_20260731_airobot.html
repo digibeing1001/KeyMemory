@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
+<title>会议综合信息图 · AI与机器人创业项目交流讨论 · 2026-07-31</title>
+<style>
+  :root{
+    --bg:#0b1220; --bg2:#0f1a2e; --card:#15243f; --card2:#1b2e4f;
+    --line:#2a3f63; --ink:#e8eefc; --sub:#9fb3d8; --mut:#6b80a8;
+    --teal:#2ee6c8; --teal2:#1aa990; --blue:#5aa2ff; --pur:#9d7bff;
+    --amber:#ffb454; --red:#ff6b6b; --green:#46d18a; --y:#ffd166;
+  }
+  *{box-sizing:border-box;-webkit-text-size-adjust:100%}
+  html,body{margin:0;padding:0}
+  body{
+    background:radial-gradient(1200px 600px at 50% -10%,#16284a 0%,var(--bg) 55%) fixed;
+    color:var(--ink); font:16px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    padding:0 0 60px;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:0 14px}
+  /* hero */
+  .hero{position:relative;border-radius:18px;overflow:hidden;margin:14px 0 18px;border:1px solid var(--line)}
+  .hero img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover}
+  .hero .ov{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,18,32,.15) 0%,rgba(11,18,32,.55) 55%,rgba(11,18,32,.95) 100%)}
+  .hero .cap{position:absolute;left:0;right:0;bottom:0;padding:16px 18px}
+  .hero .tag{display:inline-block;font-size:12px;letter-spacing:1px;color:#062019;background:var(--teal);padding:3px 10px;border-radius:20px;font-weight:700}
+  .hero h1{margin:8px 0 4px;font-size:21px;line-height:1.35;font-weight:800}
+  .hero .meta{font-size:13px;color:var(--sub)}
+  /* layout grid */
+  .grid{display:grid;grid-template-columns:1fr;gap:14px}
+  @media(min-width:760px){
+    .grid{grid-template-columns:1fr 1fr;gap:16px}
+    .full{grid-column:1/-1}
+  }
+  .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:15px 16px;break-inside:avoid}
+  .card h2{margin:0 0 10px;font-size:15.5px;font-weight:800;color:var(--teal);display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .card h2 .n{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:var(--teal2);color:#062019;font-size:12px;font-weight:800}
+  .card h3{margin:14px 0 6px;font-size:14px;color:var(--blue);font-weight:700}
+  p{margin:6px 0}
+  .sub{color:var(--sub)} .mut{color:var(--mut)}
+  ul{margin:6px 0;padding-left:20px} li{margin:3px 0}
+  .conclusion{font-size:15.5px;line-height:1.85}
+  .conclusion p{margin:9px 0}
+  .conclusion b{color:var(--teal)}
+  .lead{font-size:14px;color:var(--sub);border-left:3px solid var(--teal);padding:4px 0 4px 12px;margin:8px 0}
+  /* logic chain */
+  .chain{display:flex;flex-direction:column;gap:6px}
+  .step{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:14px}
+  .arrow{text-align:center;color:var(--teal);font-size:15px;line-height:1}
+  /* chips */
+  .chip{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:12px;margin:0 4px 4px 0;font-weight:700;white-space:nowrap}
+  .c-new{background:rgba(70,209,138,.16);color:var(--green);border:1px solid rgba(70,209,138,.4)}
+  .c-cont{background:rgba(90,162,255,.16);color:var(--blue);border:1px solid rgba(90,162,255,.4)}
+  .c-done{background:rgba(107,128,168,.18);color:var(--mut);border:1px solid rgba(107,128,168,.4)}
+  .c-delay{background:rgba(255,180,84,.16);color:var(--amber);border:1px solid rgba(255,180,84,.4)}
+  .p0{background:rgba(255,107,107,.18);color:var(--red);border:1px solid rgba(255,107,107,.45)}
+  .p1{background:rgba(255,180,84,.18);color:var(--amber);border:1px solid rgba(255,180,84,.45)}
+  .p2{background:rgba(90,162,255,.16);color:var(--blue);border:1px solid rgba(90,162,255,.4)}
+  .sev{font-size:11px;padding:1px 7px;border-radius:10px;font-weight:700;margin-left:6px}
+  .sev-h{background:rgba(255,107,107,.2);color:var(--red)}
+  .sev-m{background:rgba(255,180,84,.2);color:var(--amber)}
+  .sev-l{background:rgba(70,209,138,.18);color:var(--green)}
+  .row{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:7px 0;font-size:14px}
+  .item{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:6px 0;font-size:14px}
+  .item .t{font-weight:700;color:var(--ink)}
+  /* progress bars */
+  .bar-wrap{margin:9px 0}
+  .bar-lab{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+  .bar-lab .nm{color:var(--ink);font-weight:600}
+  .bar-lab .pc{color:var(--teal);font-weight:700}
+  .bar{height:9px;background:#0a1426;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--teal2),var(--teal));border-radius:6px}
+  .bar.b2 > i{background:linear-gradient(90deg,#2a5bb0,var(--blue))}
+  .bar.b3 > i{background:linear-gradient(90deg,#6a3fb0,var(--pur))}
+  .bar.b4 > i{background:linear-gradient(90deg,#8a6a3a,var(--amber))}
+  .bar.b5 > i{background:linear-gradient(90deg,#3a6a5a,var(--green))}
+  /* timeline */
+  .tl{position:relative;margin:6px 0 0 0;padding-left:16px;border-left:2px solid var(--line)}
+  .tl .ev{position:relative;padding:0 0 12px 6px}
+  .tl .ev::before{content:"";position:absolute;left:-21px;top:3px;width:11px;height:11px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 3px rgba(46,230,200,.18)}
+  .tl .ev.now::before{background:var(--y);box-shadow:0 0 0 4px rgba(255,209,102,.25)}
+  .tl .d{font-size:12px;color:var(--teal);font-weight:700}
+  .tl .tt{font-size:13.5px;color:var(--ink);font-weight:600;margin:1px 0}
+  .tl .ds{font-size:12.5px;color:var(--sub)}
+  /* 3-col first principles */
+  .fp{margin:8px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .fp .fpt{padding:8px 11px;background:rgba(157,123,255,.12);font-weight:700;color:var(--pur);font-size:13.5px;border-bottom:1px solid var(--line)}
+  .fp .fpr{display:grid;grid-template-columns:1fr;gap:1px;background:var(--line)}
+  @media(min-width:560px){.fp .fpr{grid-template-columns:1fr 1fr 1fr}}
+  .fp .c{background:var(--card2);padding:9px 10px;font-size:13px}
+  .fp .c .h{font-size:11px;font-weight:800;letter-spacing:.5px;margin-bottom:4px;text-transform:uppercase}
+  .fp .c.a .h{color:var(--amber)} .fp .c.b .h{color:var(--teal)} .fp .c.c .h{color:var(--blue)}
+  /* insight */
+  .ins{background:var(--card2);border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin:7px 0;font-size:13.5px}
+  .ins .ih{font-weight:700;color:var(--y);font-size:13px;margin-bottom:3px}
+  .quote{font-style:italic;color:var(--sub);border-left:3px solid var(--pur);padding:3px 0 3px 10px;margin:7px 0;font-size:13.5px}
+  .tagline{text-align:center;color:var(--mut);font-size:12px;margin-top:18px}
+  .kvs{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13.5px;margin:6px 0}
+  .kvs .k{color:var(--mut)}
+  .kvs .v{color:var(--ink)}
+  .pill{display:inline-block;background:rgba(46,230,200,.1);border:1px solid rgba(46,230,200,.3);color:var(--teal);font-size:11.5px;padding:2px 8px;border-radius:10px;margin-right:4px}
+  .arc{display:grid;grid-template-columns:90px 1fr;gap:8px;align-items:start;margin:8px 0}
+  .arc .who{font-weight:800;color:var(--teal);font-size:13.5px}
+  .arc .stages{display:flex;flex-wrap:wrap;gap:5px}
+  .arc .st{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12px}
+  .arc .st b{color:var(--blue)}
+  a.lk{color:var(--teal);text-decoration:none;border-bottom:1px dotted var(--teal)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <img src="https://raw.githubusercontent.com/digibeing1001/KeyMemory/master/meeting-infographic/hero_airobot_20260731.jpg" alt="AI与机器人创业项目交流讨论 信息图">
+    <div class="ov"></div>
+    <div class="cap">
+      <span class="tag">录音卡笔记 · 会议综合信息图</span>
+      <h1>AI与机器人创业项目交流讨论</h1>
+      <div class="meta">2026-07-31 16:11–17:32 · 时长约1小时20分 · 2人商务洽谈 · 郭润华 × 顾泽鑫</div>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- 1. 结论先行 -->
+    <section class="card full">
+      <h2><span class="n">1</span>结论先行 · 一眼抓住本场关键</h2>
+      <div class="conclusion">
+        <p><b>主线：</b>这是一场「资源 × 认知」的互补型商务洽谈。郭润华带着老乡发起的<b>智能机器人初创项目</b>找技术专家挂名融资，顾泽鑫以哈工大资源 + AI落地方法论入场，双方把机器人项目、深圳新技术应用研究所、AI教培、大模型Token聚合、无人机外贸五条线一次性对齐了合作意向与下一步动作。</p>
+        <p><b>核心决策观点：</b>①不与大厂正面竞争，做「整合 + 落地 + 背书」的送水人；②企业落地AI<b>先建认知、小试点，不直接上大系统</b>；③AI产品自研风险过高，<b>不如整合大厂产品做落地服务</b>；④用户对AI无判断力，最终<b>看名头买单</b>，背书即定价权。</p>
+        <p><b>人物意图：</b>郭润华意在借顾泽鑫的专家资源为机器人项目补「融资信号」、并把自己的Token平台/沃克巴蒂渠道接入顾的教培与研究所网络；顾泽鑫意在把研究所、教培、FDE落地三条业务线接入郭的硬件项目与Token供给，形成可复制的商业闭环。</p>
+        <p><b>情绪走向：</b>双方从开场信息同步 → 中段资源互换（顾推荐老师芦东昕、郭展示Token平台与沃克巴蒂渠道）→ 后段战略共鸣（AI方向判断一致），整体<b>积极互信、合作意向强</b>，无实质冲突。</p>
+        <p><b>权力动态：</b>顾泽鑫是<b>认知与方法论主导者</b>（掌控专家资源、商业模式设计、融资建议），郭润华是<b>资源与执行主导者</b>（掌控机器人项目、Token技术、沃克巴蒂渠道、腾讯活动）。双方对等结盟，项目发起方（摄像头模组老板）不在场、被动等待，芦东昕/邢超待激活、暂无话语权。</p>
+        <p><b>最值得记住的一句话：</b>「不管是企业还是家长，对AI产品都没判断能力，最后就是看名头买单，有正规背书就够了。」——它同时解释了本场所有合作（专家挂名、研究所背书、名校课程）的底层逻辑。</p>
+      </div>
+    </section>
+
+    <!-- 2. 核心事项与核心观点 -->
+    <section class="card">
+      <h2><span class="n">2</span>核心事项与核心观点</h2>
+      <div class="item"><span class="t">智能机器人初创项目</span><div class="sub">手机摄像头模组老板（年营收三四千万、现约100人）厌倦项目制、转做机器人；方向聚焦大脑/智能控制/运动控制，需哈工大背景博导级专家<b>仅挂名</b>满足融资与品牌。</div></div>
+      <div class="item"><span class="t">技术专家对接</span><div class="sub">顾泽鑫推荐老师<b>芦东昕</b>（哈工大博导、原中兴移动总经理、CCF深圳主席、医疗机器人）；多渠道并行：官网筛选 + CCF深圳群 + 邢超推荐。</div></div>
+      <div class="item"><span class="t">深圳新技术应用研究所</span><div class="sub">民非机构；选址市区优先、大活动放深汕；需3–5位计算机专家挂名（郭润华同意、拟邀芦东昕）；收益<b>51%归站台领导 / 49%归管理团队</b>，业务导入关联商业公司。</div></div>
+      <div class="item"><span class="t">AI企业家培训 + 企业AI落地</span><div class="sub">付费课程 + 模型选型评测落地服务；与<b>沃克巴蒂</b>合作（其不建销售、寻FBE能力方）；顾泽鑫获企业版溢价收益。</div></div>
+      <div class="item"><span class="t">中小学AI普惠课程</span><div class="sub">与哈工大、深职大共建；教培机构成会员单位即可获课程授权、自主销售；靠名校背书让家长买单。</div></div>
+      <div class="item"><span class="t">大模型Token聚合服务</span><div class="sub">聚合阿里/腾讯等、<b>五六折</b>、支持海外模型；规划智能路由控预算；学校采购用「课程/服务器/捐赠」名目迂回。</div></div>
+      <div class="item"><span class="t">无人机外贸</span><div class="sub">中东/中非出海，整合国内民用无人机做整体方案，定位<b>消防/植保</b>规避出口限制；对方打款即成立项目公司。</div></div>
+      <div class="item"><span class="t">机器人项目选址</span><div class="sub">流仙洞（产业配套全、氛围好）vs 智谱园区 vs 哈森资产 → <b>优先流仙洞</b>。</div></div>
+      <div class="item"><span class="t">融资建议</span><div class="sub">推荐<b>更新资本</b>做FA（筛选严、号称100%成功、不乱扩散BP）；BP需补具体落地场景与商业模式。</div></div>
+    </section>
+
+    <!-- 3. 关键逻辑梳理 -->
+    <section class="card">
+      <h2><span class="n">3</span>关键逻辑梳理（推理路径）</h2>
+      <div class="chain">
+        <div class="step"><b>① 痛点</b>：机器人初创项目融资缺技术领军信号 → 投资人需要「博导级背书」降低信息不对称</div>
+        <div class="arrow">▼</div>
+        <div class="step"><b>② 资源匹配</b>：顾泽鑫的哈工大师承 → 芦东昕（博导+产业背景+医疗机器人）满足挂名与方向双重需求</div>
+        <div class="arrow">▼</div>
+        <div class="step"><b>③ 杠杆放大</b>：同一专家资源复用 → 既挂名机器人项目融资，又挂名研究所注册 → 一份资源撬动两条业务线</div>
+        <div class="arrow">▼</div>
+        <div class="step"><b>④ 闭环变现</b>：研究所（背书）+ Token聚合（引流）+ FDE/教培（落地服务）→ 「背书获信任 → Token引流 → 服务赚钱」</div>
+        <div class="arrow">▼</div>
+        <div class="step"><b>⑤ 战略基座</b>：用户无判断力 → 看名头买单 → 名校/专家/研究所=定价权 → 故所有动作都围绕「积累背书而非自研技术」</div>
+      </div>
+      <div class="lead">逻辑闭环：背书（信号）→ 信任（订单）→ 整合落地（变现）→ 数据/案例（再背书）。与历史「送水人」「不做产品做整合」战略完全自洽。</div>
+    </section>
+
+    <!-- 4. 情绪转变与意图 + 权力动态 -->
+    <section class="card">
+      <h2><span class="n">4</span>情绪转变 · 意图识别 · 权力动态</h2>
+      <div class="arc">
+        <div class="who">郭润华</div>
+        <div class="stages">
+          <div class="st">开场：<b>求助式</b>提出专家挂名需求</div>
+          <div class="st">中段：<b>展示资源</b>（官网筛教授/Token平台/沃克巴蒂/腾讯活动）</div>
+          <div class="st">后段：<b>接纳建议</b>（FA、BP改进、选址）情绪转积极</div>
+        </div>
+      </div>
+      <div class="arc">
+        <div class="who">顾泽鑫</div>
+        <div class="stages">
+          <div class="st">开场：<b>专业同步</b>研究所筹备</div>
+          <div class="st">中段：<b>投入资源</b>（推荐老师芦东昕=真实资源下注）</div>
+          <div class="st">后段：<b>战略自信</b>（输出AI行业判断与融资建议）</div>
+        </div>
+      </div>
+      <h3>权力动态</h3>
+      <ul>
+        <li><b>主导方</b>：顾泽鑫主导认知/方法论/专家资源；郭润华主导项目资源/技术执行/渠道。双向依赖、对等结盟。</li>
+        <li><b>联盟</b>：顾×郭形成「认知 × 资源」互补联盟，共同推进机器人/研究所/Token/教培。</li>
+        <li><b>边缘化</b>：项目发起方（摄像头模组老板）不在场、被动等专家对接；芦东昕/邢超待激活、无话语权。</li>
+        <li><b>对立</b>：无明显对立；唯一张力在「机器人BP偏空泛技术」的隐含认知差（见分歧点）。</li>
+      </ul>
+    </section>
+
+    <!-- 5. 决策与待办 -->
+    <section class="card">
+      <h2><span class="n">5</span>决策与待办（结合历史）</h2>
+      <div class="row"><span class="chip c-new">新决策</span><span class="chip p0">P0</span> 机器人项目专家挂名走芦东昕路线，下周共见芦东昕+邢超</div>
+      <div class="row"><span class="chip c-new">新决策</span><span class="chip p0">P0</span> Token聚合平台由郭润华推进、<b>两周内上线</b></div>
+      <div class="row"><span class="chip c-new">新决策</span><span class="chip p1">P1</span> 机器人项目<b>优先落地流仙洞</b></div>
+      <div class="row"><span class="chip c-new">新决策</span><span class="chip p1">P1</span> 选<b>更新资本</b>做FA、BP补场景与商业模式</div>
+      <div class="row"><span class="chip c-new">新决策</span><span class="chip p2">P2</span> 无人机外贸：对方打款即成立项目公司</div>
+      <div class="row"><span class="chip c-new">新决策</span><span class="chip p2">P2</span> 8月中腾讯企鹅岛沃克巴蒂专场，郭邀顾参加</div>
+      <div class="row"><span class="chip c-cont">延续</span><span class="chip p0">P0</span> 顾泽鑫整理AI普惠课程资料、<b>提交研究所注册申请</b>（6/5提出至今未完成）</div>
+      <div class="row"><span class="chip c-cont">延续</span><span class="chip p1">P1</span> 哈工大/深职大课程合作与证书背书（7/12→7/20→本场持续）</div>
+      <div class="row"><span class="chip c-cont">延续</span><span class="chip p1">P1</span> 沃克巴蒂代理权限 + 工作流编排师认证（7/2提出）</div>
+      <div class="row"><span class="chip c-delay">推迟</span><span class="chip p2">P2</span> 研究所大活动放深汕（待市区落地后）</div>
+      <div class="row"><span class="chip c-done">已完成</span> 李未可AI记忆眼镜已发布（7/20确认完成）</div>
+      <div class="row"><span class="chip c-done">已完成</span> 哈工大南山智园产业基地合作挂出（7/24确认）</div>
+      <div class="row"><span class="chip c-done">已完成</span> API聚合解决学校算力方案获深职大认可（7/20）</div>
+      <div class="kvs" style="margin-top:10px"><span class="k">负责人</span><span class="v">郭润华：发项目背景资料、推Token平台、邀专场<br>顾泽鑫：索芦东昕简历、整理课程资料、提交注册<br>双方：下周共见芦东昕+邢超</span></div>
+    </section>
+
+    <!-- 6. 分歧点与未决事项 -->
+    <section class="card">
+      <h2><span class="n">6</span>分歧点与未决事项</h2>
+      <div class="item"><span class="t">机器人项目BP偏空泛技术</span><span class="sev sev-m">中</span><div class="sub">顾泽鑫指出BP只讲技术、缺落地场景与商业模式，难以获投资人认可。本质是项目方「技术思维 vs 资本思维」认知差。需补场景与模式后再推FA。</div></div>
+      <div class="item"><span class="t">专家挂名=融资信号 vs 真实技术能力</span><span class="sev sev-m">中</span><div class="sub">项目方只要专家「挂名不参与日常」。短期可解融资信号，但投资人尽调深化后存在信号失效风险（见第一性原理模块）。</div></div>
+      <div class="item"><span class="t">研究所收益桌底协议（51/49）</span><span class="sev sev-l">低·合规</span><div class="sub">民非机构用桌底协议分配收益、业务导入关联商业公司，存在合规与治理灰区，需法律结构把关。</div></div>
+      <div class="item"><span class="t">Token聚合的合规与上游风险</span><span class="sev sev-h">高</span><div class="sub">海外模型接入涉翻墙/封禁风险；倒闭公司额度流转三四折属灰色供应链、不可持续；厂商可随时调价/切断代理。</div></div>
+      <div class="item"><span class="t">选址最终拍板</span><span class="sev sev-l">低</span><div class="sub">初步定流仙洞，但需实地遴选与租约谈判，未最终签约。</div></div>
+      <div class="item"><span class="t">无人机外贸打款时点</span><span class="sev sev-m">中</span><div class="sub">需等「相关领导出差回来」确认需求与打款，存在时点与金额不确定性。</div></div>
+      <div class="item"><span class="t">多线并行精力分散</span><span class="sev sev-m">中</span><div class="sub">机器人/研究所/教培/Token/无人机/FA六线并推，核心壁垒（资源整合）本身可被模仿，存在执行稀释风险。</div></div>
+    </section>
+
+    <!-- 7. 角色贡献度 -->
+    <section class="card">
+      <h2><span class="n">7</span>角色贡献度（结合历史累计）</h2>
+      <div class="bar-wrap">
+        <div class="bar-lab"><span class="nm">顾泽鑫 · 认知/方法论/资源整合</span><span class="pc">92%</span></div>
+        <div class="bar"><i style="width:92%"></i></div>
+        <div class="sub" style="font-size:12px">几乎所有会议的核心提案人：研究所定位、教培体系、FDE方法论、专家资源、Token需求、融资建议。战略思考最深、产出最多。</div>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-lab"><span class="nm">郭润华 · 项目资源/技术执行/渠道</span><span class="pc">78%</span></div>
+        <div class="bar b2"><i style="width:78%"></i></div>
+        <div class="sub" style="font-size:12px">本场核心：机器人项目（老乡）、Token平台技术执行、沃克巴蒂渠道、腾讯企鹅岛活动、北京办公室。提供落地能力与项目入口。</div>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-lab"><span class="nm">芦东昕 · 潜在专家/挂名（待激活）</span><span class="pc">25%</span></div>
+        <div class="bar b3"><i style="width:25%"></i></div>
+        <div class="sub" style="font-size:12px">哈工大博导、原中兴移动总经理、医疗机器人方向。挂名+研究所专家双用，尚未实际参与。</div>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-lab"><span class="nm">邢超 · 专家推荐渠道（待激活）</span><span class="pc">12%</span></div>
+        <div class="bar b4"><i style="width:12%"></i></div>
+        <div class="sub" style="font-size:12px">辅助推荐哈工大专家，下周面见后激活。</div>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-lab"><span class="nm">陈亚冰 / 邱邱 / 亚斌 / 张院 / 祝云才 / 李总（历史网络）</span><span class="pc">55%</span></div>
+        <div class="bar b5"><i style="width:55%"></i></div>
+        <div class="sub" style="font-size:12px">历史贡献：教培落地（亚斌招商执行）、院校资源（张院/深职大）、产品对接（陈亚冰）、场地与政企（祝云才/李总）。各自在专项议题发挥作用。</div>
+      </div>
+    </section>
+
+    <!-- 8. 上下文锚点 -->
+    <section class="card full">
+      <h2><span class="n">8</span>上下文锚点 · 议题演进脉络（时间线）</h2>
+      <div class="tl">
+        <div class="ev"><div class="d">2025-06-25</div><div class="tt">智能机器人市场探讨与产品合作机会</div><div class="ds">6人合作洽谈，哈工大背景 × 渠道方。机器人合作<b>最早起点</b>。</div></div>
+        <div class="ev"><div class="d">2025-08-02</div><div class="tt">场地合作与资源整合交流</div><div class="ds">顾泽鑫 × 深圳软协郭总；提出组建<b>出海咨询</b>团队。</div></div>
+        <div class="ev"><div class="d">2026-01-30</div><div class="tt">郭润华电话会：Kickstarter出海服务</div><div class="ds">200万预算支持10个项目、目标5个上Kickstarter。出海线延续。</div></div>
+        <div class="ev"><div class="d">2026-05-17</div><div class="tt">香港展会 · AI课程合作</div><div class="ds">署名哈工大南山产业基地 + 深职大；课程合作与背书署名首次成型。</div></div>
+        <div class="ev"><div class="d">2026-06-05</div><div class="tt">新技术应用研究所AI产学研商业方案</div><div class="ds">命名「深圳市新技术应用研究所」；零现金赞助模式；外部专家分成（肖老师/陈鹏教授）。</div></div>
+        <div class="ev"><div class="d">2026-06-29</div><div class="tt">半年企业AI落地复盘</div><div class="ds">确立 <b>Agent+Skills+Data</b> 方法论、一把手核心、超级个体。FDE/送水人定位成型。</div></div>
+        <div class="ev"><div class="d">2026-07-02</div><div class="tt">研究所科研布局与商业故事</div><div class="ds">科研=背书非真研究；<b>哈工大博士挂名署名</b>方案首次提出 → 本场「专家挂名融资」的直系前身。</div></div>
+        <div class="ev"><div class="d">2026-07-12</div><div class="tt">AI少儿教培项目合作洽谈</div><div class="ds">哈工大/深职大背书、会员1万、长期主义、建立壁垒。教培线方案化。</div></div>
+        <div class="ev"><div class="d">2026-07-20</div><div class="tt">AI教育课程校企合作</div><div class="ds">会员费5–10万；<b>API聚合解决学校算力</b>；李未可AI眼镜发布。Token聚合方案化。</div></div>
+        <div class="ev"><div class="d">2026-07-24</div><div class="tt">心理疏导AI/养老AI产业对接</div><div class="ds">4人；哈工大南山智园；FDE落地；政商结合必要。<span class="pill">已有信息图</span></div></div>
+        <div class="ev now"><div class="d">2026-07-31 · 本场</div><div class="tt">AI与机器人创业项目交流讨论</div><div class="ds">机器人项目专家挂名（接07-02挂名逻辑）+ Token聚合产品化（接07-20方案）+ 教培共建（接07-12/20）+ 研究所选址/分配（接06-05/07-02）+ 无人机外贸/融资建议（新增）。</div></div>
+      </div>
+    </section>
+
+    <!-- 9. 项目进度演进 -->
+    <section class="card full">
+      <h2><span class="n">9</span>项目进度演进（相对历史）</h2>
+      <div class="grid">
+        <div class="item"><span class="t">机器人创业项目</span> <span class="chip c-new">推进</span><div class="sub">从「市场探讨(25/6)」「AI桌面机器人(7/6)」→ 首次进入<b>具体初创项目落地</b>：专家、选址、融资三线并行。重大节点。</div></div>
+        <div class="item"><span class="t">深圳新技术应用研究所</span> <span class="chip c-cont">缓进</span><div class="sub">命名(6/5)→科研背书定位(7/2)→供应链服务定位(7/11)→本场定选址+51/49分配。<b>注册申请仍未提交</b>，推进缓慢。</div></div>
+        <div class="item"><span class="t">大模型Token聚合</span> <span class="chip c-new">跃进</span><div class="sub">中转站认知(7/7)→学校API聚合方案(7/20)→本场<b>产品化、两周内上线</b>。从认知到产品，本周最快推进项。</div></div>
+        <div class="item"><span class="t">AI教培/课程</span> <span class="chip c-cont">渐进</span><div class="sub">会员1万(7/12)→5–10万+教研中心(7/20)→哈工大/深职大共建(本场)。模式持续细化、待注册后落地。</div></div>
+        <div class="item"><span class="t">FDE/企业AI落地</span> <span class="chip c-cont">稳定</span><div class="sub">送水人定位(7/9)→FDE落地(7/24)→沃克巴蒂FBE合作(本场)。战略清晰、稳定延伸。</div></div>
+        <div class="item"><span class="t">出海/无人机外贸</span> <span class="chip c-new">新增</span><div class="sub">出海咨询(25/8)→Kickstarter(26/1)→无人机外贸中东中非(本场)。延续出海线、具体化为无人机方案。</div></div>
+        <div class="item"><span class="t">专家挂名/背书体系</span> <span class="chip c-cont">具象</span><div class="sub">博士署名(7/2)→本场芦东昕博导挂名融资+研究所专家。<b>从研究所背书扩展到项目融资挂名</b>，资源复用。</div></div>
+        <div class="item"><span class="t">回退/风险点</span> <span class="chip c-delay">回退</span><div class="sub">研究所注册长期未落地；多线并行稀释执行；Token合规灰区扩大。整体战略推进但落地节奏滞后于规划。</div></div>
+      </div>
+    </section>
+
+    <!-- 10. 第一性原理解读 -->
+    <section class="card full">
+      <h2><span class="n">10</span>第一性原理解读</h2>
+      <div class="fp">
+        <div class="fpt">议题一 · 「博导级技术专家挂名融资」</div>
+        <div class="fpr">
+          <div class="c a"><div class="h">经验假设</div>创业融资必须有技术领军人物（博导/教授）挂名，且优先哈工大背景，专家无需参与日常运营。</div>
+          <div class="c b"><div class="h">底层真相</div>融资本质=投资人评估「能力×机会×执行×护城河」并为之定价。挂名只是<b>信号传递</b>以降低信息不对称，<b>不创造真实技术能力</b>；投资人尽调会核实专家真实参与度，纯挂名信号脆弱。</div>
+          <div class="c c"><div class="h">重构方案</div>短期：挂名可解融资燃眉，但必须把专家绑成<b>真顾问+真股权</b>（非纯挂名），让其声誉与项目绑定、有背书激励。长期：用<b>可验证的技术demo/原型</b>证明能力，信号让位于证据。硬约束是「能力无法被名字替代」。</div>
+        </div>
+      </div>
+      <div class="fp">
+        <div class="fpt">议题二 · 「大模型Token聚合转售」</div>
+        <div class="fpr">
+          <div class="c a"><div class="h">经验假设</div>聚合多厂商API、五六折转售、加智能路由，是稳定商业模式。</div>
+          <div class="c b"><div class="h">底层真相</div>Token是按量计价的<b>商品资源</b>，聚合本质=「批零差价+垫资+合规风险」。硬约束：①厂商可随时调价/切断代理（上游）；②海外模型接入涉翻墙合规；③倒闭公司额度流转是灰色供应链、不可持续；④智能路由易被复制。</div>
+          <div class="c c"><div class="h">重构方案</div>护城河不在差价（会被上游压扁），而在<b>基于Token的增值服务</b>：企业工作流定制(FDE)、成本优化算法、数据沉淀。Token聚合作<b>获客入口（低价引流）</b>，利润来自落地服务——与已确立的「送水人/FDE」定位协同。可行性高。</div>
+        </div>
+      </div>
+      <div class="lead">两条议题的共同底层真相：「信号/差价」都是表层，可被时间与上游压缩；真正的护城河是「可验证的能力 + 难以复制的资源整合」。这与本场及历史所有战略判断一致。</div>
+    </section>
+
+    <!-- 11. 多维度综合洞察 -->
+    <section class="card full">
+      <h2><span class="n">11</span>多维度综合洞察（结合个人观点与收藏内容）</h2>
+
+      <div class="ins">
+        <div class="ih">洞察① · 战略高度自洽</div>
+        顾泽鑫的散念观点贯穿全部历史会议——「做生意要做有门槛的事」「长期主义」「身份是自己给的」「高阶销售=制造放大需求」「自主做AI产品风险太大，不如整合大厂产品做落地服务」。本场每一个决策（选沃克巴蒂合作而非自研、研究所背书模式、更新资本FA、Token引流+服务变现）都是这套战略的再落地。<b>风险在于：多线并行（机器人/研究所/教培/Token/无人机/FA）可能稀释执行，且「资源整合能力」本身可被模仿。</b>
+      </div>
+
+      <div class="ins">
+        <div class="ih">洞察② · 收藏文章与会议观点互证</div>
+        <span class="pill">收藏·FDE能力(7/28)</span><span class="pill">收藏·卖Token(7/28)</span><span class="pill">收藏·中转站灰产/WorkBuddy(7/7)</span><span class="pill">收藏·半年AI落地复盘(6/29)</span><span class="pill">收藏·具身智能iPhone时刻(7/13)</span>
+        「比模型更稀缺的FDE能力」直接支撑顾的FDE/送水人定位；「大模型公司最后变成卖Token」印证Token可计量、可纳入ARR的商业逻辑；「中转站灰产」揭示了Token转售的灰色底色（数据变现才是真利润）——这与第一性原理模块对Token聚合的判断一致：差价不持久、增值服务才是护城河。
+      </div>
+
+      <div class="ins">
+        <div class="ih">洞察③ · Agent+Skills+Data 方法论落地映射</div>
+        半年复盘(6/29)提出 <b>Agent(复用)+Skills(企业流程)+Data(终极胜负手)</b>。本场可映射：Token聚合=Data采集入口；FDE/教培=Skills沉淀；研究所=信任基础设施。三者闭环正是顾泽鑫整套业务的底层架构——会议不是孤立决策，而是方法论的又一次实例化。
+      </div>
+
+      <div class="ins">
+        <div class="ih">洞察④ · 「背书即定价权」的统一解释力</div>
+        个人散念「用户无判断力，看名头买单」+ 收藏「酒香也怕巷子深，小机构报30万、腾讯报300万也觉腾讯靠谱」+ 本场「专家挂名/研究所/名校课程」——三者同源。<b>所有合作都是在积累「定价权资产」而非技术资产。</b>这是理解顾泽鑫全部业务布局的钥匙，也指向最大风险：一旦AI认知普及、用户判断力上升，背书溢价会被压缩，需提前向「可验证能力」迁移。
+      </div>
+
+      <div class="ins">
+        <div class="ih">洞察⑤ · 机器人项目的演进信号</div>
+        收藏「具身智能iPhone时刻(7/13)」「大疆神话/硬件创业黄金时代」与会议机器人线（25/6市场探讨→7/6桌面机器人→7/13具身智能→本场初创项目）形成<b>行业趋势 × 个人布局</b>共振。本场是机器人线从「讨论」转向「真实创业项目落地」的关键拐点，但项目方BP偏空泛、专家仅挂名，技术能力短板需在融资窗口期内补齐。
+      </div>
+
+      <div class="quote">「我们做这个东西是要谋利的，不是做研究的。」「工具只是那层皮，光有那层皮没有你去做的，一定会被弄死的。」——历史散念，恰好是本场「整合而非自研」决策的最佳注脚。</div>
+    </section>
+
+  </div>
+  <div class="tagline">— 信息图基于本场会议录音转写总结 + 同项目全量历史录音卡笔记 + 个人散念与收藏内容综合生成 —</div>
+</div>
+</body>
+</html>
