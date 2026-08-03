@@ -32,22 +32,6 @@ import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation,
 import path from 'path';
 import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
 import { supersedeMemory } from '../core/supersession.js';
-import { connectAgentIntegration, discoverAgentIntegrations } from '../core/agent-discovery.js';
-import {
-  createMailThread,
-  getMailboxMigrationReport,
-  getMailboxStats,
-  getMailThreadContext,
-  getMailThreadDetail,
-  linkMemoryToThread,
-  listMailThreads,
-  replyToMailThread,
-  syncMailbox,
-  syncMailThread,
-  unlinkMemoryFromThread,
-  updateMailThread,
-} from '../core/mailbox.js';
-import type { MailSenderType, MailThreadFolder, MailThreadKind, MailThreadStatus } from '@keymemory/shared';
 
 /**
  * 校验导入路径安全性，防止 null byte 注入和明显的路径攻击
@@ -100,16 +84,6 @@ function getVisibleMemoryForRequest(request: FastifyRequest, id: string) {
   const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode | undefined) ?? 'hybrid';
   const visible = new Set(visibleSpacesFor(agentId, isolationMode));
   return visible.has(memory.agentSpace) ? memory : null;
-}
-
-function mailboxIdentityForRequest(request: FastifyRequest): { recipientId: string; agentSpaces?: string[] } {
-  const agentId = request.headers['x-agent-id'];
-  if (typeof agentId !== 'string' || !agentId.trim()) return { recipientId: 'human:local' };
-  const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode | undefined) ?? 'hybrid';
-  return {
-    recipientId: agentId.startsWith('agent:') ? agentId : `agent:${agentId}`,
-    agentSpaces: visibleSpacesFor(agentId.replace(/^agent:/, ''), isolationMode),
-  };
 }
 
 export function registerRoutes(app: FastifyInstance): void {

@@ -6,8 +6,8 @@ import { findProjectRef, getProject } from './project.js';
 import { getDatabase } from '../db/sqlite.js';
 import { findRelatedMemories } from '../graph/entity.js';
 import { getPendingTodosForContext } from './dreaming.js';
+import { getPendingInjectionForProject, getLatestProjectJournal } from './project-journal.js';
 import { isMemoryValidAt, resolveAsOf } from './temporal.js';
-import { getMailThreadContext, listMailThreads } from './mailbox.js';
 
 const MAILBOX_OPERATING_GUIDE = `## Mailbox Continuity Rule
 
@@ -322,8 +322,6 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
   const projectMissing = Boolean((input.projectId || input.project) && !project && !projectKnownBySource);
   const projectId = input.projectId ?? project?.id;
   const projectName = project?.path ?? input.project;
-  const sourceProjectScope = input.project ?? project?.path;
-  const includeSourceDescendants = input.includeDescendants !== false;
   const asOf = resolveAsOf(input.asOf);
   const temporal = { asOf, includeExpired: input.includeExpired === true };
   const allowedKinds = input.memoryKinds && input.memoryKinds.length > 0 ? new Set(input.memoryKinds) : null;
@@ -336,22 +334,15 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
 
   if (input.query?.trim() && !projectMissing) {
     const results = await searchHybrid(input.query, {
-      // 邮箱版本中，具体工作的边界由邮件线程提供；原子记忆来自当前 Agent
-      // 可见的共享池。保留 projectId 只用于找到邮件和旧调用兼容，不再用它
-      // 排除已经从旧项目目录打散出来的通用事实、偏好和经验。
-      projectId: undefined,
-      includeDescendants: false,
+      projectId,
+      includeDescendants,
       includeSuperseded: input.includeSuperseded,
       asOf,
       includeExpired: temporal.includeExpired,
       limit: maxItems * 3,
       agentSpaces: input.agentSpaces,
     });
-    for (const result of results) {
-      if (matchesSourceProject(result.memory, sourceProjectScope, includeSourceDescendants)) {
-        addCandidate(candidates, result.memory, result.score, accessibleSpaces, temporal);
-      }
-    }
+    for (const result of results) addCandidate(candidates, result.memory, result.score, accessibleSpaces, temporal);
   }
 
   if (!projectMissing) {
@@ -364,11 +355,7 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
       limit: maxItems * 5,
       agentSpaces: input.agentSpaces,
     });
-    for (const memory of scoped) {
-      if (matchesSourceProject(memory, sourceProjectScope, includeSourceDescendants)) {
-        addCandidate(candidates, memory, 0, accessibleSpaces, temporal);
-      }
-    }
+    for (const memory of scoped) addCandidate(candidates, memory, 0, accessibleSpaces, temporal);
   }
 
   promoteSupersedingMemories(candidates, superseders, accessibleSpaces, temporal);

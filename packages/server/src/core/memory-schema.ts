@@ -314,9 +314,6 @@ export function normalizeMemoryInput(input: CreateMemoryInput): CreateMemoryInpu
       source: input.source ?? suppliedEvidence.source ?? 'manual',
       sourceId: input.sourceId ?? suppliedEvidence.sourceId,
     },
-    // 邮箱版本不再根据 projectPath 创建文件夹，但保留它作为可搜索的来源线索，
-    // 供旧 Agent 的 project-scoped Context Pack 兼容读取。
-    ...(inferredProjectPath ? { sourceProjectPath: inferredProjectPath } : {}),
     ...(inferredProjectPath && !input.projectPath ? { projectRouting: { inferredPath: inferredProjectPath, method: 'content-pattern' } } : {}),
     ...(privacy ? { privacy } : {}),
   };

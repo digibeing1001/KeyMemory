@@ -73,7 +73,9 @@ KeyMemory 会把下面的规则写入 MCP 工具说明、自动生成的 Agent �
 
 完整协议见 [记忆邮箱与 Agent 使用协议](docs/mailbox.md)。
 
-## 其他核心能力
+事实变化不会破坏历史：每条记忆都有 `validFrom / validTo` 有效期。`memory_supersede` 会在同一时刻启用新事实、关闭旧事实并保留取代原因；普通查询只看当前事实，`asOf` 可回看任意历史时点，`includeExpired + includeSuperseded` 可做完整审计。需要排查排序时，`memory_search(explain=true)` 会返回全文/语义 RRF 与质量加权明细。
+
+### 6. Context Pack：给 Agent 的紧凑上下文包
 
 - 本地 SQLite：数据默认只保存在本机，服务默认监听 `127.0.0.1`。
 - 混合检索：SQLite FTS5 全文检索、本地语义检索和记忆关系扩展。
@@ -147,13 +149,29 @@ keymemory onboard --yes --run-dream --agent-target all
 
 | 工具 | 用途 |
 | --- | --- |
-| `memory_inbox_list` | 列出当前 Agent 可见的收件箱和工作主题 |
-| `memory_thread_create` | 为一项明确工作建立唯一邮件主题 |
-| `memory_thread_read` | 读取完整往来和折叠附件，并标记已读 |
-| `memory_thread_context` | 获取适合接力的紧凑上下文 |
-| `memory_thread_reply` | 写回进展、决定、问题或更正 |
-| `memory_thread_link_memory` | 将原子记忆作为依据关联到主题 |
-| `memory_mailbox_sync` | 让记忆秘书检查新变化并去重整理 |
+| `memory_create` | 创建记忆 |
+| `memory_search` | 按项目、类型、有效时间搜索；可选返回排序解释 |
+| `memory_context_pack` | 生成当前或 `asOf` 历史时点的分组上下文包 |
+| `memory_auto_remember` | 自检评估并保存重要对话内容 |
+| `memory_loop_start` | 启动一个长期任务（重复调用同一任务会返回原任务，不会重复创建） |
+| `memory_loop_context` | 读取当前断点、新增事件和预算化的记忆上下文 |
+| `memory_loop_checkpoint` | 安全保存断点（带版本号和锁，多人/多 worker 不会互相覆盖） |
+| `memory_loop_finish` | 结束任务，写入最终断点和事件记录 |
+| `memory_migration_discover` | 发现旧记忆来源 |
+| `memory_migration_import` | 导入并重组旧记忆 |
+| `memory_backup_create` | 迁移或整理前创建备份 |
+| `memory_backup_inspect` | 检查备份结构与校验和 |
+| `memory_backup_restore_dry_run` | 验证备份是否可恢复 |
+| `memory_relate` | 创建记忆之间的关系（相关、取代、衍生、引用等） |
+| `memory_related` | 查看相关记忆 |
+| `memory_supersede` | 可信地取代旧事实：关闭旧有效期、保留历史与原因 |
+| `memory_project_suggestions` | 查看自动整理生成的项目整理建议 |
+| `memory_project_suggestion_accept` | 接受项目整理建议 |
+| `memory_project_suggestion_reject` | 拒绝项目整理建议 |
+| `memory_secret_set` / `keymemory_secret_set` | 加密保存工具 API key |
+| `memory_secret_get` / `keymemory_secret_get` | 工具需要时解密读取一条凭据 |
+| `memory_secret_list` / `keymemory_secret_list` | 列出凭据元数据（不返回明文） |
+| `memory_secret_delete` / `keymemory_secret_delete` | 删除一条工具凭据 |
 
 CLI 也提供对应命令：
 
@@ -212,7 +230,19 @@ docs              用户、Agent、隐私、备份与架构文档
 - 对外监听时必须配置 `KEYMEMORY_API_KEY`，并按需设置 `KEYMEMORY_ALLOWED_ORIGINS`。
 - 每个读写操作都遵守 `agent_space`；私有内容不会因为邮件引用而越权共享。
 
-## 本次更新
+- [迁移指南](MIGRATION_GUIDE.md)
+- [Agent 配置](docs/agent-configuration.md)
+- [Agent Context Pack](docs/agent-context-pack.md)
+- [Loop Harness 接入](docs/loop-harness.md)
+- [Loop Patterns 配方](docs/loop-patterns.md)
+- [备份与恢复](docs/backup-and-recovery.md)
+- [记忆关系](docs/memory-relations.md)
+- [时间记忆、可信更新与可解释检索](docs/temporal-memory.md)
+- [隐私与安全](docs/privacy-and-safety.md)
+- [性能预算](docs/performance.md)
+- [项目命名规范](docs/project-naming-convention.md)
+- [发布就绪检查](docs/release-readiness.md)
+- [产品发布审计](docs/product-release-audit.md)
 
 ### 记忆邮箱版本
 

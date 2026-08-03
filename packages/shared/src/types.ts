@@ -254,7 +254,6 @@ export interface SearchScoreBreakdown {
   hitBoost: number;
   confidenceBoost: number;
   durableLayerBoost: number;
-  decayBoost: number;
   finalScore: number;
 }
 

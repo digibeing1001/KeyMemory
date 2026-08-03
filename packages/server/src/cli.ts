@@ -23,7 +23,6 @@ import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security
 import type { Layer, MemoryKind, MemoryStatus, ForgetMethod } from '@keymemory/shared';
 import { DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
 import { supersedeMemory } from './core/supersession.js';
-import { createMailThread, getMailThreadContext, getMailThreadDetail, listMailThreads, replyToMailThread, syncMailbox, syncMailThread } from './core/mailbox.js';
 
 type OutputFormat = 'json' | 'table' | 'compact';
 

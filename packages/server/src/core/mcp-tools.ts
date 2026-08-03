@@ -59,7 +59,7 @@ const memoryCreateSchema = {
     content: { type: 'string', description: 'Full durable memory content. Markdown is supported.' },
     layer: { type: 'string', enum: LAYERS, description: 'Memory layer: flash, short, long, or entity. Optional; inferred from content/metadata when omitted. Default short.' },
     projectId: { type: 'string', description: 'Optional KeyMemory project ID.' },
-    projectPath: { type: 'string', description: 'Optional legacy/source path hint. It is retained for compatible scoped retrieval but does not create folders; concrete work belongs in one mailbox thread.' },
+    projectPath: { type: 'string', description: 'Optional project path, such as Product/Backend/Memory. Missing folders are created automatically.' },
     confidence: { type: 'number', minimum: 0, maximum: 1, description: 'Evidence-calibrated confidence. Explicit writes default to 1.' },
     validFrom: { type: 'string', description: 'ISO 8601 start of the fact validity window. Defaults to creation time.' },
     validTo: { type: 'string', description: 'ISO 8601 exclusive end of the fact validity window.' },
