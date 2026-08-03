@@ -150,7 +150,10 @@ function parseAgentTarget(val?: string): ReturnType<typeof listAgentConfigTarget
 
 function ensureInit(): void {
   initDatabase();
-  initEmbedding().catch(() => {});
+  // E7：嵌入初始化失败不再静默吞掉：降级为全文搜索可用，但向用户提示原因。
+  initEmbedding().catch(err => {
+    writeFileSync(process.stderr.fd, `[keymemory] 语义嵌入初始化失败，已降级为全文搜索：${(err as Error).message}\n`);
+  });
 }
 
 function printTextAndExit(text: string, exitCode = 0): void {
@@ -1214,4 +1217,132 @@ program
     program.help();
   });
 
-program.parse();
+/* ================= E4: CLI 指令回退链 =================
+ * 当首个位置参数不是已知子命令时，依次尝试：
+ *   1) 记忆/搜索指令前缀（remember/记住…，find/搜索…）
+ *   2) 含“记住/remember”意图的自然语言 → autoRemember（受质量门禁保护）
+ *   3) 未命中 → 按编辑距离给出最近子命令建议
+ * 全部走真实写入/检索链路，无模拟。
+ */
+const REMEMBER_DIRECTIVE_HEADS = new Set(['remember', 'remember-that', 'save', '记住', '记下', '记录']);
+const SEARCH_DIRECTIVE_HEADS = new Set(['find', 'recall', 'lookup', '搜索', '查找', '检索']);
+
+function stripQuotes(text: string): string {
+  return text.replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, '').trim();
+}
+
+function levenshtein(a: string, b: string): number {
+  const dp: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+
+function suggestCommands(input: string): string[] {
+  const lower = input.toLowerCase();
+  return program.commands
+    .map(cmd => ({ name: cmd.name(), distance: levenshtein(lower, cmd.name()) }))
+    .filter(item => item.distance <= Math.max(2, Math.floor(item.name.length / 3)) || item.name.startsWith(lower))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 3)
+    .map(item => item.name);
+}
+
+async function handleDirectiveFallback(positional: string[]): Promise<void> {
+  program.parseOptions(process.argv);
+  const format: OutputFormat = (program.opts().format as OutputFormat) || 'json';
+  const head = positional[0] ?? '';
+  const rest = stripQuotes(positional.slice(1).join(' '));
+  ensureInit();
+
+  if (REMEMBER_DIRECTIVE_HEADS.has(head) && rest) {
+    const result = await autoRemember({ content: rest, agentId: 'cli-directive' });
+    printAndExit(result, format);
+    return;
+  }
+  if (SEARCH_DIRECTIVE_HEADS.has(head) && rest) {
+    const results = await searchHybrid(rest, { limit: 10 });
+    printAndExit(results.map(r => ({
+      id: r.memory.id,
+      title: r.memory.title,
+      score: Number(r.score.toFixed(4)),
+      matchType: r.matchType,
+    })), format);
+    return;
+  }
+
+  // 整句指令：含记忆意图 → 去掉动词前缀后写入；否则当作查询词检索。
+  const joined = stripQuotes(positional.join(' '));
+  if (/(记住|记一下|帮我记|remember)/i.test(joined)) {
+    const content = joined.replace(/^(请|帮我|麻烦)?(记住|记一下|记录|remember)([:：]|\s)*/i, '').trim();
+    if (content) {
+      const result = await autoRemember({ content, agentId: 'cli-directive' });
+      printAndExit(result, format);
+      return;
+    }
+  }
+  if (joined) {
+    const results = await searchHybrid(joined, { limit: 10 });
+    if (results.length > 0) {
+      writeFileSync(process.stderr.fd, `[keymemory] 未识别指令，已按搜索处理: ${joined}\n`);
+      printAndExit(results.map(r => ({
+        id: r.memory.id,
+        title: r.memory.title,
+        score: Number(r.score.toFixed(4)),
+        matchType: r.matchType,
+      })), format);
+      return;
+    }
+  }
+
+  const suggestions = suggestCommands(head);
+  const hint = suggestions.length > 0 ? ` Did you mean: ${suggestions.join(', ')}?` : '';
+  printError(`Unknown command or directive: ${head}.${hint} 运行 keymemory --help 查看全部命令；也可直接用 "remember <内容>" 或 "搜索 <关键词>"。`);
+}
+
+// 提取真正的首个位置参数：跳过选项及其值（如 --format json），避免把选项值误判为指令。
+function findFirstPositional(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') return args[i + 1];
+    if (arg.startsWith('--')) {
+      if (!arg.includes('=')) i += 1; // 选项值在下一个参数
+      continue;
+    }
+    if (arg.startsWith('-') && arg.length > 1) {
+      if (!arg.includes('=') && args[i + 1] && !args[i + 1].startsWith('-')) i += 1;
+      continue;
+    }
+    return arg;
+  }
+  return undefined;
+}
+
+const rawArgs = process.argv.slice(2);
+const firstPositional = findFirstPositional(rawArgs);
+const isKnownCommand = firstPositional
+  ? program.commands.some(cmd => cmd.name() === firstPositional || cmd.aliases().includes(firstPositional))
+  : false;
+if (firstPositional && !isKnownCommand && !['help', '--help', '-h', '--version', '-V'].includes(firstPositional)) {
+  // 指令回退只取位置参数（选项由 program.parseOptions 解析）。
+  const positional: string[] = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (arg === '--') { positional.push(...rawArgs.slice(i + 1)); break; }
+    if (arg.startsWith('--')) { if (!arg.includes('=')) i += 1; continue; }
+    if (arg.startsWith('-') && arg.length > 1) { if (!arg.includes('=') && rawArgs[i + 1] && !rawArgs[i + 1].startsWith('-')) i += 1; continue; }
+    positional.push(arg);
+  }
+  handleDirectiveFallback(positional).catch(err => {
+    printError((err as Error).message);
+  });
+} else {
+  program.parse();
+}

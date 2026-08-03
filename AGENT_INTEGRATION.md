@@ -100,28 +100,38 @@ Claude Code 首次执行 `keymemory` 命令时会请求 Bash 权限：
 cp claude_desktop_config.json %APPDATA%\Claude\
 ```
 
-配置内容：
+配置内容（推荐用 launcher，会自动检测构建产物并记录日志）：
 ```json
 {
   "mcpServers": {
     "keymemory": {
       "command": "node",
       "args": [
-        "packages/server/dist/mcp-server.js"
-      ],
+        "<KeyMemory项目路径>/bin/keymemory-mcp.js"
+      ]
     }
   }
 }
 ```
 
-### 2. 可用的 MCP 工具
+> 说明：`bin/keymemory-mcp.js` 是 MCP stdio 通道 launcher（设置 `KEYMEMORY_STDIO=1` 后启动 `packages/server/dist/mcp-server.js`）。不要直接用 `dist/index.js`（那是 Web/REST 服务入口）。
+
+### 2. 可用的 MCP 工具（节选，共 62 个，含 `keymemory_*` 别名）
 
 | 工具名 | 说明 |
 |--------|------|
-| `memory_create` | 创建新记忆 |
+| `memory_connection_status` | 连接自检（接入验收必调） |
+| `memory_create` / `memory_read` / `memory_list` / `memory_update` / `memory_delete` | 记忆增删改查 |
 | `memory_search` | 搜索记忆（全文+语义混合） |
-| `memory_read` | 读取特定记忆 |
-| `memory_delete` | 删除记忆 |
+| `memory_context_pack` | 项目路由的上下文包 |
+| `memory_auto_remember` | 自动评估并记录记忆（带质量门禁） |
+| `memory_inbox_list` / `memory_thread_*` / `memory_mailbox_sync` | 邮箱线程读写 |
+| `memory_loop_start` / `memory_loop_context` / `memory_loop_checkpoint` / `memory_loop_finish` | 长任务 Loop Harness |
+| `memory_migration_discover` / `memory_migration_import` | 本地 Memory 发现与迁移 |
+| `memory_backup_create` / `memory_backup_inspect` / `memory_backup_restore_dry_run` | 备份与恢复 |
+| `memory_secret_set` / `memory_secret_get` / `memory_secret_list` / `memory_secret_delete` | 凭据保险箱（密钥不入普通记忆） |
+| `memory_relate` / `memory_related` / `memory_supersede` | 记忆关系与版本替代 |
+| `memory_isolation_rule_*` / `memory_entity_*` | 隔离规则与实体治理 |
 
 示例使用：
 ```
@@ -427,7 +437,7 @@ Windows 用户可双击 `install-default-memory.bat` 运行。
   "mcpServers": {
     "keymemory": {
       "command": "node",
-      "args": ["<KeyMemory项目路径>/packages/server/dist/mcp-server.js"]
+      "args": ["<KeyMemory项目路径>/bin/keymemory-mcp.js"]
     }
   }
 }
@@ -453,7 +463,7 @@ Windows 用户可双击 `install-default-memory.bat` 运行。
   "mcpServers": {
     "keymemory": {
       "command": "node",
-      "args": ["<KeyMemory项目路径>/packages/server/dist/mcp-server.js"]
+      "args": ["<KeyMemory项目路径>/bin/keymemory-mcp.js"]
     }
   },
   "memory": {
@@ -474,7 +484,7 @@ Windows 用户可双击 `install-default-memory.bat` 运行。
   "mcpServers": {
     "keymemory": {
       "command": "node",
-      "args": ["<KeyMemory项目路径>/packages/server/dist/mcp-server.js"]
+      "args": ["<KeyMemory项目路径>/bin/keymemory-mcp.js"]
     }
   }
 }
@@ -482,18 +492,20 @@ Windows 用户可双击 `install-default-memory.bat` 运行。
 
 ### 可用的 MCP 工具
 
+完整列表以运行时为准（共 62 个，见上文“方式一”工具表）。接入验收必调：
+
 | 工具 | 用途 |
 |------|------|
-| `memory_create` | 创建新记忆（替代写入 MEMORY.md） |
+| `memory_connection_status` | 返回 `status: connected` 才表示真实连通 |
+| `memory_create` | 创建新记忆（替代写入 MEMORY.md；受质量门禁保护） |
 | `memory_search` | 搜索记忆（全文+语义混合搜索） |
 | `memory_read` | 按 ID 读取特定记忆 |
-| `memory_delete` | 删除记忆 |
-| `memory_auto_remember` | 自动评估并记录记忆 |
+| `memory_auto_remember` | 自动评估并记录记忆（拒绝套话/残缺内容会被标记） |
 
 ---
 
 ## 下一步
 
-1. 先启动服务器：`pnpm start:mcp`
-2. 访问 Web UI 创建一些测试记忆：`http://localhost:5173`
-3. 配置到你的 Agent 工具
+1. 启动 Web 服务与 UI：`node start-ui.js`（默认端口 3210，自动打开浏览器；`--no-open` 或 `KEYMEMORY_AUTO_OPEN_BROWSER=0` 可关闭自动打开）
+2. 访问 Web UI：`http://127.0.0.1:3210`，在“接入”页一键接入并运行三层验证
+3. MCP 通道由 Agent 配置自动拉起（`bin/keymemory-mcp.js`），无需单独启动

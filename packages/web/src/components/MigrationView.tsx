@@ -5,8 +5,9 @@ import {
   discoverMigrationSources,
   importDiscoveredMemories,
   importMemoryPath,
+  previewMigrationSource,
 } from '../lib/api';
-import type { MigrationResult, MigrationSourceCandidate } from '../lib/api';
+import type { MigrationPreview, MigrationResult, MigrationSourceCandidate } from '../lib/api';
 import { Inbox, Sparkles, CheckCircle, XCircle, FileSearch, RefreshCw, Folder } from './Icons';
 import { useI18n } from '../i18n';
 
@@ -43,6 +44,7 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
   const [loading, setLoading] = useState<string | null>(null);
   const [sources, setSources] = useState<MigrationSourceCandidate[]>([]);
   const [result, setResult] = useState<MigrationResult | null>(null);
+  const [preview, setPreview] = useState<MigrationPreview | null>(null);
 
   const commonOptions = {
     defaultLayer,
@@ -97,8 +99,25 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
     }
   };
 
-  const importCandidate = async (candidate: MigrationSourceCandidate, dryRun = false) => {
-    setLoading(dryRun ? `${candidate.id}:preview` : candidate.id);
+  // 只读逐条预览（AG3）：展示将迁移内容、跳过原因与重复候选，不写入任何数据。
+  const previewCandidate = async (candidate: MigrationSourceCandidate) => {
+    setLoading(`${candidate.id}:preview`);
+    setPreview(null);
+    try {
+      const res = await previewMigrationSource(candidate.id);
+      setPreview(res);
+      if (!res.exists) {
+        onToast(t('migration.previewMissing') || '来源路径不存在', 'error');
+      }
+    } catch (err) {
+      onToast((err as Error).message || t('migration.errorPreview'), 'error');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const importCandidate = async (candidate: MigrationSourceCandidate) => {
+    setLoading(candidate.id);
     setResult(null);
     try {
       const res = await importMemoryPath({
@@ -106,7 +125,7 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
         source: candidate.source,
         format: candidate.format,
         recursive: candidate.kind === 'directory',
-        ...writeOptions(dryRun),
+        ...writeOptions(false),
         defaultProjectPath: defaultProjectPath.trim() || candidate.defaultProjectPath,
       });
       setResult(res);
@@ -235,14 +254,42 @@ export default function MigrationView({ onImported, onToast }: MigrationViewProp
                       </div>
                     )}
                   </div>
-                  <button type="button" className="btn" onClick={() => importCandidate(candidate, true)} disabled={loading !== null} style={{ minWidth: 88 }}>
+                  <button type="button" className="btn" onClick={() => previewCandidate(candidate)} disabled={loading !== null} style={{ minWidth: 88 }}>
                     {loading === `${candidate.id}:preview` ? <Sparkles size={14} /> : <FileSearch size={14} />}
                     {t('common.preview')}
                   </button>
-                  <button type="button" className="btn" onClick={() => importCandidate(candidate, false)} disabled={loading !== null} style={{ minWidth: 88 }}>
+                  <button type="button" className="btn" onClick={() => importCandidate(candidate)} disabled={loading !== null} style={{ minWidth: 88 }}>
                     {loading === candidate.id ? <Sparkles size={14} /> : <RefreshCw size={14} />}
                     {t('common.import')}
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {preview && (
+            <div style={{ display: 'grid', gap: 8, border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 14, background: 'var(--bg-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>{t('migration.previewTitle') || '迁移预览（只读，不写入）'}</strong>
+                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                  {preview.importable} {t('migration.importable') || '可导入'} · {preview.skipped} {t('migration.skipped')} · {preview.duplicateCandidates} {t('migration.duplicates') || '疑似重复'}
+                  {preview.truncated ? ' · …' : ''}
+                </span>
+              </div>
+              {!preview.exists && <p style={{ color: 'var(--danger)', fontSize: 12, margin: 0 }}>{t('migration.previewMissing') || '来源路径不存在'}</p>}
+              {preview.items.map((item) => (
+                <div key={item.index} style={{ display: 'grid', gap: 4, borderTop: '1px solid var(--border)', paddingTop: 8, opacity: item.willSkip ? 0.65 : 1 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--text-primary)', fontSize: 12.5, fontWeight: 600 }}>
+                    <span>#{item.index} {item.title}</span>
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{item.layer}{item.projectPath ? ` · ${item.projectPath}` : ''} · {item.contentLength} {t('common.chars') || '字'}</span>
+                  </div>
+                  {item.contentSnippet && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>{item.contentSnippet}</p>}
+                  {item.willSkip && item.skipReason && <p style={{ margin: 0, color: 'var(--warning, #b58a2e)', fontSize: 11.5 }}>{item.skipReason}</p>}
+                  {item.duplicates.length > 0 && (
+                    <p style={{ margin: 0, color: 'var(--warning, #b58a2e)', fontSize: 11.5 }}>
+                      {(t('migration.similarExisting') || '库中已有相似记忆')}: {item.duplicates.map(d => `${d.title} (${d.matchType})`).join('；')}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

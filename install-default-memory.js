@@ -766,7 +766,11 @@ function instructionPathForAgent(agentId) {
 }
 
 async function configureAgent(agent) {
-  if (installMode !== 'skill') return agent.configure();
+  if (installMode !== 'skill') {
+    await agent.configure();
+    await runPostInstallSelfCheck(agent);
+    return;
+  }
   const skillPath = skillPathForAgent(agent.id);
   if (!skillPath) throw new Error(`${agent.label} 不支持规则包连接，请改用自动连接。`);
   if (!await confirmWrite(`${agent.label} KeyMemory Skill`)) return;
@@ -780,6 +784,40 @@ async function configureAgent(agent) {
   console.log(`\n${agent.label} KeyMemory Skill ${skillChanged ? '已写入' : '已是最新'}: ${skillPath}`);
   if (instructionPath) console.log(`持久加载指引: ${instructionPath}`);
   console.log('请重启 Agent，并让它调用 keymemory_connection_status 或执行一次只读搜索来验证连接。');
+  await runPostInstallSelfCheck(agent);
+}
+
+/**
+ * E5：接入后自检。配置写入完成后立即运行真实探针（配置检测 + 读取验证），
+ * 不伪造结果：overall=connected 才表示探针真实连通；未通过时逐条展示原因与修复建议。
+ * 写入探针默认不执行（避免未经确认写入用户记忆库）。
+ */
+async function runPostInstallSelfCheck(agent) {
+  const { pathToFileURL } = require('node:url');
+  try {
+    const moduleUrl = pathToFileURL(path.join(projectPath, 'packages', 'server', 'dist', 'core', 'connection-verify.js')).href;
+    const { verifyAgentIntegrationAsync } = await import(moduleUrl);
+    console.log(`\nSelf-check ${agent.label}: running real probes (config + read)...`);
+    const result = await verifyAgentIntegrationAsync(agent.id, { allowWriteProbe: false, timeoutMs: 30000 });
+    const stepLine = (label, s) => {
+      const state = s.skipped ? 'SKIP ' : s.passed ? 'PASS ' : 'FAIL ';
+      const detail = s.detail ? ` — ${s.detail}` : '';
+      const fix = !s.passed && !s.skipped && s.failure ? `\n        原因: ${s.failure.reason}\n        修复: ${s.failure.fix}` : '';
+      return `  [${state}] ${label}${detail}${fix}`;
+    };
+    console.log(`Self-check overall: ${result.overall}`);
+    console.log(stepLine('配置检测', result.steps.config));
+    console.log(stepLine('读取验证', result.steps.read));
+    console.log(stepLine('写入验证', result.steps.write));
+    if (result.overall === 'connected') {
+      console.log('接入自检通过：MCP/CLI 通道已真实连通（写入验证需在真实工作节点完成）。');
+    } else {
+      console.log('接入自检未完全通过：请按上方 FAIL 项的原因与修复建议处理后，在 Web UI“接入”页重跑三层验证。');
+    }
+  } catch (err) {
+    console.warn(`Self-check unavailable: ${err.message}`);
+    console.warn('请先运行 pnpm build，然后在 Web UI“接入”页手动运行三层验证。');
+  }
 }
 
 function buildFutureAgentPrompt() {

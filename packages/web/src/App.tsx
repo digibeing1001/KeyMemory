@@ -32,6 +32,7 @@ import {
   listRecycleBin,
   restoreFromRecycleBin,
   permanentlyDeleteMemory,
+  discoverAgentIntegrations,
 } from './lib/api';
 import type { MemoryGraphData, TagCloudData, UserRole } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
@@ -122,6 +123,21 @@ function AppInner() {
     setGuideFirstRun(false);
     setGuideOpen(false);
   };
+
+  // AG5：无任何已接入 Agent 时，每次会话自动展示一次引导（用户关闭后本会话不再重弹）。
+  // 真实检测：以 /integrations/discover 的 connectedCount 为准，不伪造状态。
+  useEffect(() => {
+    let cancelled = false;
+    discoverAgentIntegrations()
+      .then(report => {
+        if (cancelled) return;
+        if (report.connectedCount > 0) return;
+        if (sessionStorage.getItem('keymemory_connect_guide_dismissed_v1') === 'true') return;
+        setGuideOpen(true);
+      })
+      .catch(() => { /* 服务暂不可用时不自动弹出，可经顶部“使用说明”手动打开 */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -582,6 +598,21 @@ function AppInner() {
               <UsersView />
             </div>
           )}
+
+          <UserGuide
+            open={guideOpen}
+            firstRun={guideFirstRun}
+            onClose={() => {
+              sessionStorage.setItem('keymemory_connect_guide_dismissed_v1', 'true');
+              setGuideOpen(false);
+            }}
+            onComplete={dismissGuide}
+            onOpenIntegrations={() => {
+              sessionStorage.setItem('keymemory_connect_guide_dismissed_v1', 'true');
+              setGuideOpen(false);
+              setViewMode('integrations');
+            }}
+          />
 
           {viewMode === 'recycle' && (
             <div className="flex-1 overflow-y-auto px-8 py-6">

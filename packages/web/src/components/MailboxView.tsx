@@ -99,10 +99,11 @@ function senderLabel(type: string, senderId: string | undefined, zh: boolean): s
   return zh ? '我' : 'Me';
 }
 
-function senderInitial(type: string): string {
-  if (type === 'secretary') return '秘';
+function senderInitial(type: string, zh: boolean): string {
+  // E10：头像首字母随语言切换，英文模式下不再显示中文字符。
+  if (type === 'secretary') return zh ? '秘' : 'S';
   if (type === 'agent') return 'A';
-  return '我';
+  return zh ? '我' : 'M';
 }
 
 function formatMailboxDate(value: string | undefined, zh: boolean, full = false): string {
@@ -725,7 +726,7 @@ export default function MailboxView() {
                     const typeConfig = MESSAGE_TYPE_CONFIG[msg.messageType];
                     const avatarColor = avatarColors[msg.senderType] || avatarColors.human;
                     const avatarTextColor = avatarTextColors[msg.senderType] || avatarTextColors.human;
-                    const avatarLetter = senderInitial(msg.senderType);
+                    const avatarLetter = senderInitial(msg.senderType, zh);
                     const sLabel = senderLabel(msg.senderType, msg.senderId, zh);
                     const timeStr = formatRelativeTime(msg.sentAt || msg.createdAt || '', language);
                     const fullTimeStr = (msg.sentAt || msg.createdAt) ? new Date(msg.sentAt || msg.createdAt).toLocaleString(zh ? 'zh-CN' : 'en-US') : '';

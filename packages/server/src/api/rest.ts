@@ -18,7 +18,7 @@ import { getLLMConfig, saveLLMConfig, verifyLLMConnection, saveLLMVerifyResult, 
 import { runRelationReasonerBatch, getScanStats, resetScanStatus, resetAllScanStatus } from '../core/relation-reasoner.js';
 import { scanProjectJournalInjections, listInjections, getInjectionStats, resetInjection } from '../core/project-journal.js';
 import { getSchedulerConfig, updateSchedulerConfig, restartScheduler } from '../core/scheduler.js';
-import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from '../core/migration.js';
+import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources, previewMigrationSource } from '../core/migration.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from '../core/backup.js';
 import type { BackupSummary } from '../core/backup.js';
 import { routeMemory, createAgentContext, visibleSpacesFor } from '../adapters/base.js';
@@ -1068,6 +1068,26 @@ export function registerRoutes(app: FastifyInstance): void {
     });
   });
 
+  /**
+   * 只读预览某个已发现迁移来源的导入结果（AG3）：逐条展示将迁移内容、
+   * 去重跳过与重复候选，不写入任何数据。maxItems 默认 50，上限 500。
+   */
+  app.get('/api/migration/sources/:sourceId/preview', async (request, reply) => {
+    const { sourceId } = request.params as { sourceId: string };
+    const query = request.query as Record<string, string>;
+    const roots = query.root
+      ? query.root.split(/[;,]/g).map(root => root.trim()).filter(Boolean)
+      : undefined;
+    const sources = discoverMigrationSources({ roots, includeHome: query.includeHome !== 'false' });
+    const candidate = sources.find(item => item.id === sourceId);
+    if (!candidate) {
+      reply.code(404);
+      return { error: `Migration source not found: ${sourceId}` };
+    }
+    const maxItems = query.maxItems ? Math.min(Math.max(parseInt(query.maxItems, 10) || 50, 1), 500) : undefined;
+    return previewMigrationSource(candidate, maxItems ? { maxItems } : undefined);
+  });
+
   app.post('/api/migration/import-path', async (request, reply) => {
     const body = request.body as {
       path?: string;
@@ -1185,14 +1205,13 @@ export function registerRoutes(app: FastifyInstance): void {
    * 三层连接验证：配置检测 → 读取验证 → 写入验证。
    * 全部探针真实执行；allowWriteProbe=true 才会真实写入并清理一条探针记忆。
    * overall=connected 才代表真正连通，configured-only 仅表示配置存在。
+   * 统一返回 200 + 完整报告：未连通也是合法验证结果，UI 需要展示逐项探针结论。
    */
   app.post('/api/integrations/:agentId/verify', async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
     const { allowWriteProbe, timeoutMs } = (request.body ?? {}) as { allowWriteProbe?: boolean; timeoutMs?: number };
     try {
-      const result = await verifyAgentIntegrationAsync(agentId, { allowWriteProbe: allowWriteProbe === true, timeoutMs });
-      reply.code(result.overall === 'connected' ? 200 : result.overall === 'configured-only' ? 200 : 409);
-      return result;
+      return await verifyAgentIntegrationAsync(agentId, { allowWriteProbe: allowWriteProbe === true, timeoutMs });
     } catch (error) {
       reply.code(500);
       return { error: (error as Error).message };

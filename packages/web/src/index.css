@@ -1028,6 +1028,17 @@ textarea:focus-visible,
 .integration-verification-card strong { color: var(--text-primary); font-size: 12px; }
 .integration-verification-card ol { display: grid; gap: 5px; margin: 0; padding-left: 20px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
 .integration-verification-card li.is-passed { color: var(--success); }
+.integration-verification-card li.is-failed { color: var(--danger); }
+.integration-verification-card li.is-skipped { color: var(--text-muted); }
+.integration-verification-card li .verify-step-line { display: inline-flex; align-items: center; gap: 5px; }
+.integration-verification-card li small { display: block; margin-top: 2px; color: var(--text-muted); }
+.integration-verification-card li .verify-step-fix { color: var(--danger); }
+.verify-overall-chip { font-size: 11.5px; font-weight: 600; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border); }
+.verify-overall-chip.is-connected { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); background: color-mix(in srgb, var(--success) 9%, transparent); }
+.verify-overall-chip.is-configured-only { color: var(--warning, #b58a2e); border-color: color-mix(in srgb, #b58a2e 40%, transparent); background: color-mix(in srgb, #b58a2e 9%, transparent); }
+.verify-overall-chip.is-disconnected { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+.verify-error { font-size: 11.5px; color: var(--danger); }
+.verify-write-consent { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); cursor: pointer; }
 .integration-verification-card button {
   display: inline-flex;
   align-items: center;

@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, CheckCircle, Copy, Plug, RefreshCw, Terminal, User, Zap } from './Icons';
+import { Activity, AlertTriangle, CheckCircle, Copy, Plug, RefreshCw, Terminal, User, XCircle, Zap } from './Icons';
 import {
   connectAgentIntegration,
   discoverAgentIntegrations,
+  verifyAgentIntegration,
   type AgentConnectResult,
   type AgentConnectMode,
   type AgentDiscoveryReport,
   type AgentIntegrationStatus,
+  type VerifyAgentResult,
+  type VerifyStepResult,
 } from '../lib/api';
 import { useI18n } from '../i18n';
 import { AGENT_LOGOS } from './BrandLogos';
@@ -107,12 +110,14 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <button type="button" className="integration-copy-button" onClick={() => void copy()}>
       {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
-      {copied ? 'Copied' : label}
+      {copied ? '✓' : label}
     </button>
   );
 }
 
 function AgentCard({ agent, selected, onSelect }: { agent: AgentIntegrationStatus; selected: boolean; onSelect: () => void }) {
+  const { language } = useI18n();
+  const zh = language === 'zh';
   const Logo = AGENT_LOGOS[agent.id];
   return (
     <button
@@ -127,10 +132,35 @@ function AgentCard({ agent, selected, onSelect }: { agent: AgentIntegrationStatu
       </span>
       <span className="agent-card-copy">
         <strong>{agent.label}</strong>
-        <span>{agent.connected ? 'KeyMemory online' : agent.detected ? 'Ready to connect' : 'Can connect manually'}</span>
+        <span>{agent.connected ? (zh ? 'KeyMemory 已连通' : 'KeyMemory online') : agent.detected ? (zh ? '可以接入' : 'Ready to connect') : (zh ? '可手动接入' : 'Can connect manually')}</span>
       </span>
       <span className={`agent-status-dot ${agent.connected ? 'is-online' : agent.detected ? 'is-ready' : ''}`} />
     </button>
+  );
+}
+
+/* 单个验证步骤行：未运行时仅展示说明；运行后展示真实结果、证据与失败修复建议。 */
+function VerifyStepRow({ step, label, fallback, zh }: { step?: VerifyStepResult; label: string; fallback?: boolean; zh: boolean }) {
+  if (!step) {
+    return <li className={fallback ? 'is-passed' : ''}>{label}</li>;
+  }
+  const icon = step.skipped
+    ? <AlertTriangle size={13} />
+    : step.passed
+      ? <CheckCircle size={13} />
+      : <XCircle size={13} />;
+  const stateClass = step.skipped ? 'is-skipped' : step.passed ? 'is-passed' : 'is-failed';
+  return (
+    <li className={stateClass}>
+      <span className="verify-step-line">{icon}{label}</span>
+      {step.detail && <small className="verify-step-detail">{step.detail}</small>}
+      {!step.passed && !step.skipped && step.failure && (
+        <small className="verify-step-fix">{zh ? '原因：' : 'Cause: '}{step.failure.reason}。{zh ? '修复：' : ' Fix: '}{step.failure.fix}</small>
+      )}
+      {step.evidence.length > 0 && (
+        <small className="verify-step-evidence">{step.evidence.slice(0, 3).join(' · ')}</small>
+      )}
+    </li>
   );
 }
 
@@ -145,6 +175,10 @@ export default function IntegrationView() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<AgentConnectMode | 'auto'>('auto');
   const [serviceNeedsRestart, setServiceNeedsRestart] = useState(false);
+  const [verifyResults, setVerifyResults] = useState<Record<string, VerifyAgentResult>>({});
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [allowWriteProbe, setAllowWriteProbe] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -193,6 +227,21 @@ export default function IntegrationView() {
       setConnectError(error instanceof Error ? error.message : (zh ? '自动接入失败' : 'Automatic connection failed'));
     } finally {
       setConnectingId(null);
+    }
+  };
+
+  // 真实执行服务端探针（AG2）：配置检测 + 读取探针；勾选后才执行写入探针。
+  const verifySelected = async () => {
+    if (!selected) return;
+    setVerifyingId(selected.id);
+    setVerifyError(null);
+    try {
+      const result = await verifyAgentIntegration(selected.id, allowWriteProbe);
+      setVerifyResults(prev => ({ ...prev, [result.agentId]: result }));
+    } catch (error) {
+      setVerifyError(error instanceof Error ? error.message : (zh ? '验证失败' : 'Verification failed'));
+    } finally {
+      setVerifyingId(null);
     }
   };
 
@@ -250,6 +299,7 @@ export default function IntegrationView() {
                   setSelectedMode('auto');
                   setConnectResult(null);
                   setConnectError(null);
+                  setVerifyError(null);
                 }}
               />
             ))}
@@ -326,16 +376,37 @@ export default function IntegrationView() {
               )}
 
               <div className="integration-verification-card">
-                <strong>{zh ? '怎样判断真的接入成功？' : 'How to confirm the connection'}</strong>
+                <strong>{zh ? '三层连接验证（真实探针）' : 'Three-layer verification (real probes)'}</strong>
                 <ol>
-                  <li className={selected.connected ? 'is-passed' : ''}>{zh ? '配置检测：页面发现 KeyMemory 配置或规则文件。' : 'Configuration: KeyMemory settings are present.'}</li>
-                  <li>{zh ? '读取验证：让 Agent 调用 keymemory_connection_status，再做一次只读搜索。' : 'Read test: call keymemory_connection_status, then run a read-only search.'}</li>
-                  <li>{zh ? '写入验证：在第一个真实工作节点写入任务状态，并确认能重新搜到。' : 'Write test: save the first real task milestone and retrieve it again.'}</li>
+                  <VerifyStepRow step={verifyResults[selected.id]?.steps.config} label={zh ? '配置检测：KeyMemory 配置或规则文件真实存在。' : 'Configuration: KeyMemory settings really exist.'} fallback={selected.connected} zh={zh} />
+                  <VerifyStepRow step={verifyResults[selected.id]?.steps.read} label={zh ? '读取验证：真实启动该 Agent 的 MCP/CLI 通道并检索记忆。' : 'Read: launches the real MCP/CLI channel and searches memories.'} zh={zh} />
+                  <VerifyStepRow step={verifyResults[selected.id]?.steps.write} label={zh ? '写入验证：写入并清理一条探针记忆（需勾选下方允许）。' : 'Write: creates then cleans up one probe memory (requires consent below).'} zh={zh} />
                 </ol>
-                <button type="button" onClick={() => void load()} disabled={loading}>
-                  <RefreshCw size={13} className={loading ? 'is-spinning' : ''} />
-                  {zh ? '重新检测配置' : 'Check configuration again'}
+                {(() => {
+                  const overall = verifyResults[selected.id]?.overall;
+                  if (!overall) return null;
+                  return (
+                    <div className={`verify-overall-chip is-${overall}`} role="status">
+                      {overall === 'connected'
+                        ? (zh ? '✓ 已连通：三项验证均真实通过' : '✓ Connected: all probes passed')
+                        : overall === 'configured-only'
+                          ? (zh ? '△ 仅检测到配置：读取/写入验证未通过，不代表已连通' : '△ Configured only: read/write probes failed, not connected')
+                          : (zh ? '✕ 未连通：未发现可用配置' : '✕ Disconnected: no usable configuration found')}
+                    </div>
+                  );
+                })()}
+                {verifyError && <div className="verify-error" role="alert">{verifyError}</div>}
+                <label className="verify-write-consent">
+                  <input type="checkbox" checked={allowWriteProbe} onChange={event => setAllowWriteProbe(event.target.checked)} />
+                  {zh ? '允许写入探针（会真实写入并自动清理一条探针记忆）' : 'Allow write probe (creates and cleans up one probe memory)'}
+                </label>
+                <button type="button" onClick={() => void verifySelected()} disabled={verifyingId === selected.id || serviceNeedsRestart}>
+                  <RefreshCw size={13} className={verifyingId === selected.id ? 'is-spinning' : ''} />
+                  {verifyingId === selected.id
+                    ? (zh ? '正在执行真实探针…' : 'Running real probes…')
+                    : (zh ? '运行三层验证' : 'Run verification')}
                 </button>
+                {serviceNeedsRestart && <small>{zh ? '服务重启后可运行验证。' : 'Verification is available after restarting the service.'}</small>}
               </div>
 
               <details className="manual-config-details">

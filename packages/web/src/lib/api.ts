@@ -470,6 +470,40 @@ export async function connectAgentIntegration(agentId: string, mode: AgentConnec
   });
 }
 
+/* ---- 三层连接验证（AG2 服务端探针的 UI 接入） ---- */
+
+export type VerifyStepName = 'config' | 'read' | 'write';
+export type VerifyOverall = 'connected' | 'configured-only' | 'disconnected';
+
+export interface VerifyStepResult {
+  step: VerifyStepName;
+  passed: boolean;
+  skipped?: boolean;
+  detail: string;
+  evidence: string[];
+  failure?: { reason: string; fix: string };
+}
+
+export interface VerifyAgentResult {
+  agentId: string;
+  overall: VerifyOverall;
+  transport?: 'mcp' | 'cli';
+  steps: {
+    config: VerifyStepResult;
+    read: VerifyStepResult;
+    write: VerifyStepResult;
+  };
+  verifiedAt: string;
+}
+
+/** 真实执行配置检测/读取探针；allowWriteProbe=true 才会真实写入并清理一条探针记忆。 */
+export async function verifyAgentIntegration(agentId: string, allowWriteProbe = false): Promise<VerifyAgentResult> {
+  return request(`/integrations/${encodeURIComponent(agentId)}/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ allowWriteProbe }),
+  });
+}
+
 export interface DreamSession {
   id: string;
   phase: 'light' | 'rem' | 'deep';
@@ -679,6 +713,38 @@ export async function discoverMigrationSources(root?: string): Promise<Migration
   if (root) sp.set('root', root);
   const qs = sp.toString();
   return request(`/migration/sources${qs ? `?${qs}` : ''}`);
+}
+
+export interface MigrationPreviewItem {
+  index: number;
+  title: string;
+  contentSnippet: string;
+  contentLength: number;
+  layer: Layer;
+  projectPath?: string;
+  tags: string[];
+  willSkip: boolean;
+  skipReason?: string;
+  duplicates: { memoryId: string; title: string; matchType: string }[];
+}
+
+export interface MigrationPreview {
+  source: string;
+  path: string;
+  exists: boolean;
+  files: number;
+  totalItems: number;
+  importable: number;
+  skipped: number;
+  duplicateCandidates: number;
+  overwriteExisting: false;
+  items: MigrationPreviewItem[];
+  truncated: boolean;
+}
+
+/** 只读逐条预览某个已发现来源的迁移结果（不写入任何数据）。 */
+export async function previewMigrationSource(sourceId: string, maxItems = 50): Promise<MigrationPreview> {
+  return request(`/migration/sources/${encodeURIComponent(sourceId)}/preview?maxItems=${maxItems}`);
 }
 
 export async function importMemoryPath(data: {

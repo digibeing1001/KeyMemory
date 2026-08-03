@@ -56,7 +56,11 @@ process.on('unhandledRejection', (reason) => {
 
 initDatabase();
 
-initEmbedding().catch(() => {});
+// E7：嵌入初始化失败不再静默：记录到日志（writeLog 不碰 stdout，不影响 stdio MCP 协议），
+// 语义搜索会自动降级为全文搜索。
+initEmbedding().catch(err => {
+  writeLog('warn', ['Embedding init failed; falling back to full-text search:', (err as Error).message]);
+});
 
 if (launchedByKeyMemoryLauncher) {
   console.log('stdio MCP mode: background REST server and scheduler disabled');
