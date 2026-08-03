@@ -4,7 +4,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import type { Layer, SearchResult, HealthReport, Memory } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
-import { Search, Close, Menu } from './components/Icons';
+import { Search, Close, Menu, Inbox, BookOpen } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
@@ -36,7 +36,7 @@ import {
 import type { MemoryGraphData, TagCloudData, UserRole } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'users';
+type ViewMode = 'memories' | 'mailbox' | 'valley' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users';
 
 function isViewMode(value: string | null): value is ViewMode {
   return value === 'mailbox'

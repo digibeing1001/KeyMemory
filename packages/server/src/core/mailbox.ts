@@ -23,7 +23,7 @@ import { chatWithLLM, isLLMAvailable } from './llm-provider.js';
 import { searchHybrid } from './query.js';
 
 const SECRETARY_ID = 'memory-secretary@keymemory.local';
-const DEFAULT_HUMAN_ID = 'human:local';
+export const DEFAULT_HUMAN_ID = 'human:local';
 const DEFAULT_RECIPIENTS = [DEFAULT_HUMAN_ID, 'agent:*'];
 
 type JsonObject = Record<string, unknown>;

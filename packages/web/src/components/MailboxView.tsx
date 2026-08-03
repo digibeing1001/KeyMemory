@@ -15,8 +15,9 @@ import {
   type MailboxFolder,
   type MailboxStats,
 } from '../lib/api';
+import type { MailThreadFolder } from '@keymemory/shared';
 
-type Notice = { text: string; tone: 'success' | 'error' } | null;
+type Notice = { text: string; tone: 'success' | 'error'; undo?: { label: string; action: () => void } } | null;
 
 const FOLDERS: Array<{ key: MailboxFolder; zh: string; en: string; icon: typeof Inbox; count?: keyof MailboxStats }> = [
   { key: 'inbox', zh: '收件箱', en: 'Inbox', icon: Inbox, count: 'unread' },
@@ -62,7 +63,7 @@ function formatRelativeTime(dateStr: string, language: string): string {
   if (date >= yesterdayStart) return language === 'zh' ? `昨天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : `Yesterday ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
   if (days < 7) {
     const weekdays = language === 'zh' ? ['周日','周一','周二','周三','周四','周五','周六'] : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    return `${weekdays[date.getDay()]} ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+    return `${weekdays[date.getDay()]} ${date.toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: language !== 'zh' })}`;
   }
   return date.toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' });
 }
@@ -282,25 +283,9 @@ export default function MailboxView() {
     const readers = (detail as any)?.thread?.metadata?.agentReaders as Array<{
       id: string; hasRead: boolean; readAt?: string;
     }> | undefined;
-    if (readers && readers.length > 0) {
-      return readers.map(r => ({ ...r, ...getAgentConfig(r.id) }));
-    }
-    const participantIds = detail?.thread.participantIds ?? [];
-    return AGENT_CONFIGS.map(agent => ({
-      ...agent,
-      hasRead: participantIds.includes(agent.id) || Math.random() > 0.3,
-      readAt: participantIds.includes(agent.id) ? (detail?.thread.updatedAt ?? new Date().toISOString()) : undefined,
-    }));
+    if (!readers || readers.length === 0) return [];
+    return readers.map(r => ({ ...r, ...getAgentConfig(r.id) }));
   }, [detail]);
-
-  const agentActivity = useMemo(() => {
-    if (!detail?.thread.updatedAt) return null;
-    const diff = Date.now() - new Date(detail.thread.updatedAt).getTime();
-    if (diff < 60000) return zh ? 'Secretary 刚刚整理' : 'Secretary just organized';
-    if (diff < 300000) return zh ? 'Codex 正在阅读' : 'Codex is reading';
-    if (diff < 3600000) return zh ? `${Math.floor(diff / 60000)} 分钟前查阅` : `${Math.floor(diff / 60000)}m ago`;
-    return null;
-  }, [detail?.thread.updatedAt, zh]);
 
   function formatAgentReadTime(readAt: string): string {
     const diff = Date.now() - new Date(readAt).getTime();
@@ -346,8 +331,15 @@ export default function MailboxView() {
     setThreads((current) => current.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
   };
 
+  const toggleStar = (thread: MailThread) => {
+    updateMailboxThread(thread.id, { starred: !thread.starred })
+      .then(() => refresh())
+      .catch((cause) => setNotice({ text: cause instanceof Error ? cause.message : (zh ? '星标操作失败' : 'Star failed'), tone: 'error' }));
+  };
+
   const patchThread = useCallback(async (data: Parameters<typeof updateMailboxThread>[1], successText?: string) => {
     if (!selectedId) return;
+    const previous = threads.find((item) => item.id === selectedId);
     try {
       const updated = await updateMailboxThread(selectedId, data);
       setThreads((current) => current.map((item) => item.id === updated.id ? updated : item));
@@ -359,12 +351,26 @@ export default function MailboxView() {
         setThreads((current) => current.filter((item) => item.id !== updated.id));
         setSelectedId(null);
       }
-      if (successText) setNotice({ text: successText, tone: 'success' });
+      if (successText) {
+        const undoable = (data.folder === 'archive' || data.folder === 'trash') && previous;
+        setNotice({
+          text: successText,
+          tone: 'success',
+          undo: undoable ? {
+            label: zh ? '撤销' : 'Undo',
+            action: () => {
+              void updateMailboxThread(selectedId, { folder: previous.folder as MailThreadFolder })
+                .then(() => { setNotice(null); void refresh(); void getMailboxStats().then(setStats); })
+                .catch((cause) => setNotice({ text: cause instanceof Error ? cause.message : (zh ? '撤销失败' : 'Undo failed'), tone: 'error' }));
+            },
+          } : undefined,
+        });
+      }
       void getMailboxStats().then(setStats);
     } catch (cause) {
       setNotice({ text: cause instanceof Error ? cause.message : (zh ? '操作失败' : 'Action failed'), tone: 'error' });
     }
-  }, [selectedId, folder, zh]);
+  }, [selectedId, folder, zh, threads, refresh]);
 
   const sendReply = async () => {
     if (!selectedId || !reply.trim()) return;
@@ -449,13 +455,12 @@ export default function MailboxView() {
           e.preventDefault();
           if (selectedId) {
             const thread = items.find(t => t.id === selectedId);
-            if (thread) {
-              void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh());
-            }
+            if (thread) toggleStar(thread);
           }
           break;
         }
         case 'u': {
+          // 本地状态切换：服务端未提供未读状态写接口，刷新后以服务端为准
           e.preventDefault();
           if (selectedId) {
             const thread = items.find(t => t.id === selectedId);
@@ -597,8 +602,10 @@ export default function MailboxView() {
                 <span className="mail-group-count">{groupThreads.length}</span>
               </button>
               {!collapsedGroups.has(group) && groupThreads.map((thread) => (
-                <button type="button" key={thread.id} className={`mail-thread-row${thread.id === selectedId ? ' active' : ''}${thread.unreadCount > 0 ? ' unread' : ''}`} onClick={() => openThread(thread.id)}>
-                  <span className="mail-row-star" onClick={(event) => { event.stopPropagation(); void updateMailboxThread(thread.id, { starred: !thread.starred }).then(() => refresh()); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></span>
+                <div key={thread.id} role="button" tabIndex={0} className={`mail-thread-row${thread.id === selectedId ? ' active' : ''}${thread.unreadCount > 0 ? ' unread' : ''}`}
+                  onClick={() => openThread(thread.id)}
+                  onKeyDown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) { event.preventDefault(); openThread(thread.id); } }}>
+                  <button type="button" className="mail-row-star" aria-label={thread.starred ? (zh ? '取消星标' : 'Unstar') : (zh ? '加星标' : 'Star')} aria-pressed={thread.starred} onClick={(event) => { event.stopPropagation(); toggleStar(thread); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></button>
                   <span className="mail-row-content"><span className="mail-row-top"><strong>{thread.subject}</strong><time>{formatMailboxDate(thread.lastMessageAt || thread.updatedAt, zh)}</time></span><span className="mail-row-preview"><em>{zh ? KIND_LABEL[thread.kind].zh : KIND_LABEL[thread.kind].en}</em>{thread.currentSummary || (zh ? '打开查看完整往来' : 'Open to read the conversation')}</span><span className="mail-row-meta"><span>{thread.messageCount} {zh ? '封' : 'messages'}</span>{thread.status === 'waiting' && <span>{zh ? '等待回复' : 'Waiting'}</span>}{thread.status === 'completed' && <span>{zh ? '已完成' : 'Completed'}</span>}{(thread.metadata as any)?.lastAgentActivity && (
                       <span className="mail-row-agent-activity">
                         <img className="agent-activity-logo" src={getAgentConfig((thread.metadata as any).lastAgentActivity.split(' ')[0] || 'secretary').logo} alt="" width={12} height={12} />
@@ -607,7 +614,7 @@ export default function MailboxView() {
                       </span>
                     )}</span></span>
                   {thread.unreadCount > 0 && <span className="mail-unread-badge">{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</span>}
-                </button>
+                </div>
               ))}
             </div>
           ))}
@@ -786,7 +793,7 @@ export default function MailboxView() {
       </main>
 
       {composeOpen && <Composer zh={zh} onClose={() => setComposeOpen(false)} onCreated={(created) => { setComposeOpen(false); setFolder('inbox'); setSelectedId(created.thread.id); setDetail(created); setMobileDetail(true); void refresh(); }} />}
-      {notice && <div className={`mail-notice ${notice.tone}`}>{notice.text}</div>}
+      {notice && <div className={`mail-notice ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}{notice.undo && <button type="button" className="mail-notice-undo" onClick={notice.undo.action}>{notice.undo.label}</button>}</div>}
     </div>
   );
 }

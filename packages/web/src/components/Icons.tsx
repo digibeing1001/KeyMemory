@@ -225,3 +225,27 @@ export const Sliders: FC<IconProps> = (p) => (
 export const LogOut: FC<IconProps> = (p) => (
   <I {...p}><path d="M11 3H5a2 2 0 00-2 2v10a2 2 0 002 2h6M14 6l4 4-4 4M18 10H8" /></I>
 );
+
+export const Copy: FC<IconProps> = (p) => (
+  <I {...p}><rect x="7" y="7" width="10" height="10" rx="1.5" /><path d="M13 4.5V4a1.5 1.5 0 00-1.5-1.5h-7A1.5 1.5 0 003 4v7a1.5 1.5 0 001.5 1.5H5" /></I>
+);
+
+export const Plug: FC<IconProps> = (p) => (
+  <I {...p}><path d="M7 2v5M13 2v5M5 7h10v2a5 5 0 01-5 5 5 5 0 01-5-5V7z" /><path d="M10 14v4" /></I>
+);
+
+export const Terminal: FC<IconProps> = (p) => (
+  <I {...p}><rect x="2" y="3.5" width="16" height="13" rx="1.5" /><path d="M5 8l3 2.5L5 13M10.5 13H15" /></I>
+);
+
+export const Expand: FC<IconProps> = (p) => (
+  <I {...p}><path d="M3 7V3h4M17 7V3h-4M3 13v4h4M17 13v4h-4" /></I>
+);
+
+export const Contract: FC<IconProps> = (p) => (
+  <I {...p}><path d="M7 3v4H3M13 3v4h4M7 17v-4H3M13 17v-4h4" /></I>
+);
+
+export const BookOpen: FC<IconProps> = (p) => (
+  <I {...p}><path d="M10 4.5C8.5 3.3 6.3 3 3.5 3v12.5c2.8 0 5 .3 6.5 1.5 1.5-1.2 3.7-1.5 6.5-1.5V3c-2.8 0-5 .3-6.5 1.5z" /><path d="M10 4.5V17" /></I>
+);

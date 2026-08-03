@@ -57,6 +57,40 @@ export interface MigrationDiscoveryOptions {
   maxFilesPerDirectory?: number;
 }
 
+export interface MigrationPreviewDuplicate {
+  memoryId: string;
+  title: string;
+  similarity: 'exact-title' | 'fts-title' | 'fts-content';
+}
+
+export interface MigrationPreviewItem {
+  index: number;
+  title: string;
+  contentSnippet: string;
+  contentLength: number;
+  layer: Layer;
+  projectPath?: string;
+  tags: string[];
+  willSkip: boolean;
+  skipReason?: string;
+  duplicates: MigrationPreviewDuplicate[];
+}
+
+export interface MigrationPreview {
+  source: string;
+  path: string;
+  exists: boolean;
+  files: number;
+  totalItems: number;
+  importable: number;
+  skipped: number;
+  duplicateCandidates: number;
+  /** 迁移只新增记忆，从不修改/覆盖 KeyMemory 已有内容；来源文件也不会被改动。 */
+  overwriteExisting: false;
+  items: MigrationPreviewItem[];
+  truncated: boolean;
+}
+
 interface RawMemory {
   title?: string;
   content?: string;
@@ -474,8 +508,10 @@ async function importRows(payload: FileImportPayload, options: MigrationOptions)
         result.imported++;
         continue;
       }
-      const mem = createMemory(input);
+      const mem = createMemory({ ...input, bypassQualityGate: true } as typeof input & { bypassQualityGate?: boolean });
       // 后处理（实体链接 + embedding + autoAssociate）已内聚到 createMemory 内部
+      // 迁移导入是用户既有数据的搬运，跳过价值门禁避免静默丢数据；
+      // 低价值内容由入库后的质量审计（/api/quality/audit + dream 周期）识别处理。
 
       const kind = (mem.metadata as Record<string, unknown> | undefined)?.memoryKind as string | undefined;
       if (kind) result.memoryKinds[kind] = (result.memoryKinds[kind] ?? 0) + 1;
@@ -807,4 +843,169 @@ export async function migrateMigrationSources(
   }
 
   return aggregate;
+}
+
+/* ---------------------------------- 迁移预览（只读） ---------------------------------- */
+
+const PREVIEW_MAX_ITEMS = 50;
+
+/** 把任意文本转成 FTS5 安全的 AND 查询（逐 token 双引号包裹，避免特殊字符报错）。 */
+function toFtsQuery(text: string, maxTokens = 4): string {
+  const tokens = text
+    .replace(/["'()*:^#~{}[\]]/g, ' ')
+    .split(/[\s,，。.;；:：!！?？]+/g)
+    .map(t => t.trim())
+    .filter(t => t.length >= 1)
+    .slice(0, maxTokens);
+  return tokens.map(t => `"${t}"`).join(' ');
+}
+
+function findDuplicateCandidates(title: string, content: string): MigrationPreviewDuplicate[] {
+  const db = getDatabase();
+  const duplicates: MigrationPreviewDuplicate[] = [];
+  const seen = new Set<string>();
+  const push = (row: { id: string; title: string }, similarity: MigrationPreviewDuplicate['similarity']) => {
+    if (seen.has(row.id)) return;
+    seen.add(row.id);
+    duplicates.push({ memoryId: row.id, title: row.title, similarity });
+  };
+
+  const normalizedTitle = title.trim().toLowerCase();
+  if (normalizedTitle) {
+    const exact = db.prepare(`
+      SELECT id, title FROM memories
+      WHERE status = 'active' AND lower(trim(title)) = ?
+      LIMIT 3
+    `).all(normalizedTitle) as { id: string; title: string }[];
+    for (const row of exact) push(row, 'exact-title');
+  }
+
+  const titleQuery = toFtsQuery(title);
+  if (titleQuery) {
+    try {
+      const rows = db.prepare(`
+        SELECT m.id, m.title FROM memories_fts f
+        JOIN memories m ON m.rowid = f.rowid
+        WHERE memories_fts MATCH ? AND m.status = 'active'
+        LIMIT 3
+      `).all(titleQuery) as { id: string; title: string }[];
+      for (const row of rows) push(row, 'fts-title');
+    } catch { /* FTS 查询语法异常时跳过该层检测，不阻断预览 */ }
+  }
+
+  const contentQuery = toFtsQuery(content.slice(0, 600), 6);
+  if (contentQuery) {
+    try {
+      const rows = db.prepare(`
+        SELECT m.id, m.title FROM memories_fts f
+        JOIN memories m ON m.rowid = f.rowid
+        WHERE memories_fts MATCH ? AND m.status = 'active'
+        LIMIT 3
+      `).all(contentQuery) as { id: string; title: string }[];
+      for (const row of rows) push(row, 'fts-content');
+    } catch { /* 同上 */ }
+  }
+
+  return duplicates.slice(0, 5);
+}
+
+function collectPreviewRows(candidate: MigrationSourceCandidate): FileImportPayload[] {
+  const payloads: FileImportPayload[] = [];
+  try {
+    const stat = fs.statSync(candidate.path);
+    if (stat.isFile()) {
+      payloads.push(parseFile(candidate.path, { source: candidate.source, format: candidate.format }));
+    } else if (stat.isDirectory()) {
+      const files = collectSupportedFiles(candidate.path, true, 100);
+      for (const file of files) {
+        try {
+          payloads.push(parseFile(file, { source: candidate.source, format: candidate.format, sourceIdPrefix: path.resolve(file) }));
+        } catch { /* 单个文件解析失败不影响整体预览 */ }
+      }
+    }
+  } catch {
+    /* 路径不存在或不可读 */
+  }
+  return payloads;
+}
+
+/**
+ * 只读预览某个迁移来源：逐项展示将迁移的内容、目标位置、重复候选与跳过原因。
+ * 不写入任何数据，不修改来源文件。
+ */
+export function previewMigrationSource(candidate: MigrationSourceCandidate, options: { maxItems?: number } = {}): MigrationPreview {
+  const maxItems = options.maxItems ?? PREVIEW_MAX_ITEMS;
+  const preview: MigrationPreview = {
+    source: candidate.source,
+    path: candidate.path,
+    exists: fs.existsSync(candidate.path),
+    files: 0,
+    totalItems: 0,
+    importable: 0,
+    skipped: 0,
+    duplicateCandidates: 0,
+    overwriteExisting: false,
+    items: [],
+    truncated: false,
+  };
+  if (!preview.exists) return preview;
+
+  const payloads = collectPreviewRows(candidate);
+  preview.files = payloads.length;
+
+  let globalIndex = 0;
+  outer:
+  for (const payload of payloads) {
+    for (let i = 0; i < payload.rows.length; i++) {
+      globalIndex += 1;
+      preview.totalItems += 1;
+      if (preview.items.length >= maxItems) {
+        preview.truncated = true;
+        break outer;
+      }
+
+      let item: MigrationPreviewItem;
+      try {
+        const input = normalizeRawMemory(payload.rows[i], {
+          source: candidate.source,
+          defaultProjectPath: candidate.defaultProjectPath,
+          sourceIdPrefix: payload.sourceIdPrefix,
+          sourceRoot: candidate.kind === 'directory' ? candidate.path : path.dirname(candidate.path),
+        }, i, payload.filePath);
+        const willSkip = sourceIdExists(input.source, input.sourceId);
+        const content = input.content ?? '';
+        item = {
+          index: globalIndex,
+          title: input.title,
+          contentSnippet: content.slice(0, 240),
+          contentLength: content.length,
+          layer: input.layer ?? 'short',
+          projectPath: input.projectPath,
+          tags: input.tags ?? [],
+          willSkip,
+          skipReason: willSkip ? '相同来源的这条内容之前已经迁移过（按来源 ID 去重）' : undefined,
+          duplicates: willSkip ? [] : findDuplicateCandidates(input.title, content),
+        };
+      } catch (error) {
+        item = {
+          index: globalIndex,
+          title: payload.rows[i]?.title ?? `${path.basename(payload.filePath)} #${i + 1}`,
+          contentSnippet: '',
+          contentLength: 0,
+          layer: 'short',
+          tags: [],
+          willSkip: true,
+          skipReason: `解析失败：${(error as Error).message}`,
+          duplicates: [],
+        };
+      }
+
+      if (item.willSkip) preview.skipped += 1;
+      else preview.importable += 1;
+      if (item.duplicates.length > 0) preview.duplicateCandidates += 1;
+      preview.items.push(item);
+    }
+  }
+
+  return preview;
 }

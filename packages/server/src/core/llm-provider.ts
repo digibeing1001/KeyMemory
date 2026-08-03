@@ -360,6 +360,12 @@ export async function chatWithLLM(request: LLMChatRequest): Promise<LLMChatRespo
           latencyMs: Date.now() - start,
         };
       } catch (err) {
+        // 超时/中止（AbortSignal 触发）不属于可重试的网络错误：重试会远超调用方
+        // 设定的 timeoutMs，造成界面长时间假死。直接上抛由外层转换为超时错误。
+        if (controller.signal.aborted || (err instanceof Error && /abort|timeout/i.test(err.message))) {
+          clearTimeout(timeout);
+          throw err;
+        }
         // 网络错误（fetch 抛异常）：可重试
         if (attempt < maxAttempts && !(err instanceof Error && err.message.startsWith('LLM 调用失败'))) {
           lastError = err as Error;

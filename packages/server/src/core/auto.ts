@@ -5,6 +5,14 @@ import { processContent, extractEntities, extractProjects } from '../graph/entit
 import { extractProjectPathFromContent, inferMemoryLayer, isMeaningfulTag, cleanTag } from './memory-schema.js';
 import { reasonRelationsForMemory } from './relation-reasoner.js';
 import { isLLMAvailable } from './llm-provider.js';
+import {
+  assessCompleteness,
+  assessValue,
+  tryCompleteFromContext,
+  type ContextSegment,
+  type CompletionBasis,
+  type CompletenessIssue,
+} from './content-quality.js';
 
 interface AutoRememberInput {
   content: string;
@@ -15,6 +23,20 @@ interface AutoRememberInput {
   conversationRound?: number;
   /** 当前调用用户 id。提供时记忆写入 owner_user_id,实现 user-scoped 隔离 */
   userId?: string;
+  /**
+   * 残缺内容的补全依据来源（当轮及前后的对话文本、来源消息/邮件正文、
+   * 关联的已有记忆等）。只做严格子串匹配的证据式补全，不参与任何生成。
+   */
+  sourceContext?: string[];
+}
+
+interface AutoRememberQuality {
+  value: { verdict: 'accept' | 'reject'; reasons: string[]; score: number };
+  completeness?: {
+    status: 'completed' | 'incomplete';
+    issues: CompletenessIssue[];
+    basis?: CompletionBasis;
+  };
 }
 
 interface AutoRememberResult {
@@ -23,6 +45,7 @@ interface AutoRememberResult {
   memory?: Memory;
   evaluation?: SelfCheckResult;
   entities?: import('@keymemory/shared').Entity[];
+  quality?: AutoRememberQuality;
 }
 
 export function confidenceFromSelfCheck(total: number): number {
@@ -126,38 +149,68 @@ export function extractTags(content: string): string[] {
 }
 
 export async function autoRemember(input: AutoRememberInput): Promise<AutoRememberResult> {
-  const { content, source, agentId, isolationMode, currentProjectId, conversationRound, userId } = input;
+  const { content, source, agentId, isolationMode, currentProjectId, conversationRound, userId, sourceContext } = input;
 
   if (!content || content.trim().length < 10) {
     return { recorded: false, reason: '内容过短，不值得记录' };
   }
 
-  const evaluation = await evaluate(content, { currentProject: currentProjectId, conversationRound });
+  // 链路环节 1：准入评估——价值过滤。套话/寒暄/无信息量模板直接拒绝，
+  // 不进入后续评分与写入，避免污染记忆库。
+  const value = assessValue(content);
+  if (value.verdict === 'reject') {
+    return {
+      recorded: false,
+      reason: `低价值内容被准入过滤拒绝：${value.reasons.join('；')}`,
+      quality: { value },
+    };
+  }
+
+  // 链路环节 2：写入前处理——完整性检测 + 证据式补全。
+  // 补全只做上下文的严格子串匹配（逐字来自上下文），严禁猜测/幻觉；
+  // 上下文不足以可靠补全时保留原文并标记“信息不完整”。
+  let finalContent = content.trim();
+  const quality: AutoRememberQuality = { value };
+  const completeness = assessCompleteness(finalContent);
+  if (!completeness.complete) {
+    const segments: ContextSegment[] = (sourceContext ?? [])
+      .filter(t => typeof t === 'string' && t.trim().length > 0)
+      .map((text, i) => ({ label: `context-${i + 1}`, text }));
+    const completion = segments.length > 0 ? tryCompleteFromContext(finalContent, segments) : null;
+    if (completion) {
+      finalContent = completion.completed;
+      quality.completeness = { status: 'completed', issues: completeness.issues, basis: completion.basis };
+    } else {
+      quality.completeness = { status: 'incomplete', issues: completeness.issues };
+    }
+  }
+
+  const evaluation = await evaluate(finalContent, { currentProject: currentProjectId, conversationRound });
 
   if (evaluation.action === 'ignore') {
-    return { recorded: false, reason: 'SelfCheck 评估为忽略', evaluation };
+    return { recorded: false, reason: 'SelfCheck 评估为忽略', evaluation, quality };
   }
 
   if (evaluation.action === 'suggest') {
-    return { recorded: false, reason: 'SelfCheck 建议记录，但需要确认', evaluation };
+    return { recorded: false, reason: 'SelfCheck 建议记录，但需要确认', evaluation, quality };
   }
 
-  const title = extractTitle(content);
-  const layer = inferMemoryLayer(title, content, undefined, evaluation);
-  const projects = extractProjects(content);
-  const inferredProjectPath = extractProjectPathFromContent(content);
+  const title = extractTitle(finalContent);
+  const layer = inferMemoryLayer(title, finalContent, undefined, evaluation);
+  const projects = extractProjects(finalContent);
+  const inferredProjectPath = extractProjectPathFromContent(finalContent);
   // 项目路径只作为来源线索保留，不再创建或扩展用户项目文件夹。
   // 具体工作的连续上下文由邮件主题承担；原子记忆统一进入公共记忆池，
   // 之后可以被多个邮件线程引用。
   const projectPath: string | undefined = projects[0] || inferredProjectPath;
 
-  const tags = extractTags(content);
+  const tags = extractTags(finalContent);
   // Agent-derived memories should not be indistinguishable from explicit user
   // assertions. Calibrate confidence from the admission score and cap it below
   // 1.0 so a later user correction can deterministically outrank it.
   const confidence = confidenceFromSelfCheck(evaluation.total);
 
-  const entities = extractEntities(content);
+  const entities = extractEntities(finalContent);
   const metadata: Record<string, unknown> = {
     context: `auto-remember via ${agentId || 'unknown'}`,
     importance: layer === 'long' ? 'high' : layer === 'short' ? 'medium' : 'low',
@@ -166,14 +219,23 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
       score: evaluation.total,
       action: evaluation.action,
     },
+    qualityValue: { score: value.score },
   };
+  if (quality.completeness) {
+    // 补全可审计：status=completed 时 basis 记录依据来源（哪段上下文、哪句）；
+    // 无法可靠补全时标记 incomplete，供 dream 周期与质量审计识别。
+    metadata.completeness = {
+      ...quality.completeness,
+      at: new Date().toISOString(),
+    };
+  }
   if (entities.length > 0) metadata.entities = entities;
   if (currentProjectId) metadata.projectId = currentProjectId;
   if (projectPath) metadata.projectPath = projectPath;
 
   const mem = createMemory({
     title,
-    content: content.trim(),
+    content: finalContent,
     layer,
     projectPath,
     agentSpace: isolationMode === 'isolated' && agentId ? `agent:${agentId}` : 'global',
@@ -187,7 +249,7 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
   } as CreateMemoryInput & { ownerUserId?: string });
 
   // processContent 由 createMemory 内部自动调用，此处重复调用仅为获取 entities 返回值（幂等）
-  const entityResult = processContent(mem.id, content);
+  const entityResult = processContent(mem.id, finalContent);
 
   // ensureEmbedding + autoAssociate 已内聚到 createMemory 内部，此处无需重复调用
 
@@ -204,5 +266,6 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     memory: mem,
     evaluation,
     entities: entityResult.entities,
+    quality,
   };
 }

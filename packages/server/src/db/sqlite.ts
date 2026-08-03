@@ -382,6 +382,76 @@ function runMigrations(db: Database.Database): void {
       last_used_at TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS mail_threads (
+      id TEXT PRIMARY KEY,
+      subject TEXT NOT NULL,
+      normalized_subject TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'task',
+      status TEXT NOT NULL DEFAULT 'open',
+      folder TEXT NOT NULL DEFAULT 'inbox',
+      agent_space TEXT NOT NULL DEFAULT 'global',
+      project_scope_id TEXT,
+      legacy_project_id TEXT,
+      current_summary TEXT,
+      created_by_type TEXT NOT NULL DEFAULT 'human',
+      created_by_id TEXT,
+      starred INTEGER NOT NULL DEFAULT 0,
+      snoozed_until TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_message_at TEXT,
+      metadata TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_messages (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      parent_message_id TEXT,
+      sender_type TEXT NOT NULL,
+      sender_id TEXT,
+      recipient_ids TEXT NOT NULL DEFAULT '[]',
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      message_type TEXT NOT NULL DEFAULT 'note',
+      status TEXT NOT NULL DEFAULT 'sent',
+      sent_at TEXT,
+      created_at TEXT NOT NULL,
+      metadata TEXT,
+      FOREIGN KEY (thread_id) REFERENCES mail_threads(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_receipts (
+      message_id TEXT NOT NULL,
+      recipient_id TEXT NOT NULL,
+      delivered_at TEXT NOT NULL,
+      read_at TEXT,
+      PRIMARY KEY (message_id, recipient_id),
+      FOREIGN KEY (message_id) REFERENCES mail_messages(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_attachments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT,
+      memory_id TEXT,
+      collapsed INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      metadata TEXT,
+      FOREIGN KEY (message_id) REFERENCES mail_messages(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_thread_memories (
+      thread_id TEXT NOT NULL,
+      memory_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL DEFAULT 'source',
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (thread_id, memory_id),
+      FOREIGN KEY (thread_id) REFERENCES mail_threads(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+    );
   `);
 
   db.exec(`
@@ -417,6 +487,14 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_loop_events_run ON loop_events(run_id, sequence);
     -- 支撑 token/cost 预算超限扫描：只扫描活跃 run 中设置了预算的行
     CREATE INDEX IF NOT EXISTS idx_loop_runs_token_budget ON loop_runs(token_budget) WHERE token_budget IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_mail_threads_folder ON mail_threads(folder, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_mail_threads_space ON mail_threads(agent_space);
+    CREATE INDEX IF NOT EXISTS idx_mail_threads_normalized_subject ON mail_threads(normalized_subject);
+    CREATE INDEX IF NOT EXISTS idx_mail_messages_thread ON mail_messages(thread_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_mail_messages_sender ON mail_messages(sender_id);
+    CREATE INDEX IF NOT EXISTS idx_mail_receipts_recipient ON mail_receipts(recipient_id);
+    CREATE INDEX IF NOT EXISTS idx_mail_attachments_message ON mail_attachments(message_id);
+    CREATE INDEX IF NOT EXISTS idx_mail_thread_memories_memory ON mail_thread_memories(memory_id);
   `);
 
   const alterStatements = [
@@ -810,6 +888,17 @@ function migrateMemoryRelationData(db: Database.Database): void {
 
 function ensureWelcomeMemory(db: Database.Database, userId?: string): void {
   const WELCOME_SOURCE_ID = 'keymemory-welcome';
+  const title = '欢迎使用 KeyMemory';
+  const content = [
+    'KeyMemory 是一个本地优先的 Agent 记忆库：所有记忆都保存在你自己的设备上，供人和 Agent 共同读写。',
+    '',
+    '快速上手：',
+    '- 记忆邮箱：把具体的项目、任务、事件写成一封邮件主题，人和 Agent 在同一线程里持续协作。',
+    '- 原子记忆：存放可复用的偏好、规则、事实、人物、工具与经验教训，支持搜索、分层与关联。',
+    '- Agent 接入：在“接入”页面为 Claude Code、Codex 等 Agent 生成配置，连接后即可读写记忆。',
+    '',
+    '提示：敏感凭证请使用 secret 存储，不要写入普通记忆。',
+  ].join('\n');
   // userId 提供时:按用户查重(每个用户一份欢迎记忆);未提供时:全局查重(旧行为)
   const existing = userId
     ? db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active' AND owner_user_id = ?").get(WELCOME_SOURCE_ID, userId)

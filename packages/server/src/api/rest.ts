@@ -27,7 +27,25 @@ import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory, rowToLoopRunSummary } from '../db/mapper.js';
 import { autoRemember } from '../core/auto.js';
 import { extractTags } from '../core/auto.js';
+import { auditStoredMemories, markQualityFindings, cleanupLowValueMemories, ContentQualityError } from '../core/content-quality.js';
 import { isApiRequestAuthorized, shouldAuthenticateHttpPath, isPublicPath, resolveCaller, extractRequestToken } from '../core/security.js';
+import {
+  createMailThread,
+  listMailThreads,
+  getMailThreadDetail,
+  getMailThreadContext,
+  replyToMailThread,
+  linkMemoryToThread,
+  unlinkMemoryFromThread,
+  syncMailThread,
+  syncMailbox,
+  updateMailThread,
+  getMailboxStats,
+  getMailboxMigrationReport,
+  DEFAULT_HUMAN_ID,
+} from '../core/mailbox.js';
+import { discoverAgentIntegrations, connectAgentIntegration } from '../core/agent-discovery.js';
+import { verifyAgentIntegrationAsync, resolveProbePlan, describeProbePlan } from '../core/connection-verify.js';
 import {
   authenticateUser,
   createSession,
@@ -42,7 +60,7 @@ import {
 } from '../core/auth.js';
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, startLoopRun } from '../core/loop-harness.js';
 import path from 'path';
-import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode } from '@keymemory/shared';
+import type { AgentContextPackRequest, CreateMemoryInput, UpdateMemoryInput, Layer, LoopCheckpointRequest, LoopContextRequest, LoopFinishRequest, LoopRunStartRequest, MemoryStatus, SearchQuery, ForgetMethod, IsolationMode, MailThreadFolder, MailThreadKind, MailSenderType, MailThreadStatus } from '@keymemory/shared';
 import { supersedeMemory } from '../core/supersession.js';
 
 /**
@@ -139,6 +157,42 @@ function filterRawRowsByOwner(rows: Record<string, unknown>[], caller: CallerCon
     const owner = r.owner_user_id as string | null | undefined;
     return !owner || owner === uid;
   });
+}
+
+/**
+ * 推导当前请求的邮箱身份：
+ * - 携带 x-agent-id 头时视为 Agent 调用方，recipientId = agent:<id>，
+ *   并按隔离模式限定可见 agent_spaces（复用 visibleSpacesFor，与 MCP 路径一致）；
+ * - 否则视为人类调用方（Web UI / CLI），使用默认人类身份，不做空间限制。
+ */
+function mailboxIdentityForRequest(request: FastifyRequest): { recipientId: string; agentSpaces?: string[] } {
+  const agentId = (request.headers['x-agent-id'] as string | undefined)?.trim();
+  if (agentId) {
+    const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode | undefined) ?? 'hybrid';
+    const caller = getCaller(request);
+    return {
+      recipientId: `agent:${agentId}`,
+      agentSpaces: visibleSpacesFor(agentId, isolationMode, caller?.userId),
+    };
+  }
+  return { recipientId: DEFAULT_HUMAN_ID };
+}
+
+/**
+ * 按当前请求身份读取一条记忆，并对 Agent 调用方强制 agent_space 可见性：
+ * - 人类/匿名调用方：存在即返回；
+ * - Agent 调用方（带 x-agent-id）：仅当记忆位于其可见空间集合内才返回，否则返回 null。
+ * 路由据此判 404，避免跨空间探测他人私有记忆。
+ */
+function getVisibleMemoryForRequest(request: FastifyRequest, memoryId: string): ReturnType<typeof getMemory> {
+  const memory = getMemory(memoryId);
+  if (!memory) return null;
+  const agentId = (request.headers['x-agent-id'] as string | undefined)?.trim();
+  if (!agentId) return memory;
+  const isolationMode = (request.headers['x-isolation-mode'] as IsolationMode | undefined) ?? 'hybrid';
+  const caller = getCaller(request);
+  const spaces = visibleSpacesFor(agentId, isolationMode, caller?.userId);
+  return spaces.includes(memory.agentSpace) ? memory : null;
 }
 
 const ADMIN_ROLES: UserRole[] = ['boss', 'admin'];
@@ -306,10 +360,20 @@ export function registerRoutes(app: FastifyInstance): void {
     }
     // 透传 caller userId 到 createMemory,使记忆写入 owner_user_id
     const caller = getCaller(request);
-    const mem = createMemory({ ...input, ...(caller?.userId ? { ownerUserId: caller.userId } : {}) } as CreateMemoryInput & { ownerUserId?: string });
-    // 后处理（实体链接 + embedding + autoAssociate）已内聚到 createMemory 内部
-    reply.code(201);
-    return mem;
+    // REST 手动创建是显式人工写入，跳过价值门禁（bypassQualityGate），
+    // 防止用户主动记录的内容被误拒；Agent 路径（MCP/CLI/autoRemember）仍受门禁保护。
+    try {
+      const mem = createMemory({ ...input, bypassQualityGate: true, ...(caller?.userId ? { ownerUserId: caller.userId } : {}) } as CreateMemoryInput & { ownerUserId?: string; bypassQualityGate?: boolean });
+      // 后处理（实体链接 + embedding + autoAssociate）已内聚到 createMemory 内部
+      reply.code(201);
+      return mem;
+    } catch (err) {
+      if (err instanceof ContentQualityError) {
+        reply.code(422);
+        return { error: err.message, code: err.code, reasons: err.reasons };
+      }
+      throw err;
+    }
   });
 
   app.get('/api/memories/search', async (request) => {
@@ -898,18 +962,59 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/auto-remember', async (request) => {
-    const { content, source, agentId, isolationMode, currentProject, conversationRound } = request.body as {
+    const { content, source, agentId, isolationMode, currentProject, conversationRound, sourceContext } = request.body as {
       content: string;
       source?: string;
       agentId?: string;
       isolationMode?: IsolationMode;
       currentProject?: string;
       conversationRound?: number;
+      /** 残缺内容补全的上下文依据（当轮前后对话/来源消息/关联记忆） */
+      sourceContext?: string[];
     };
     if (!content) return { error: 'content is required' };
     // 透传 caller userId:使 autoRemember 产生的记忆写入 user-scoped agent_space
     const caller = getCaller(request);
-    return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound, userId: caller?.userId });
+    return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound, userId: caller?.userId, sourceContext });
+  });
+
+  // ---- 内容质量审计（已入库记忆的补救路径）----
+  // GET 只读盘点；POST mark=true 将结论写入 metadata.qualityFlags；
+  // POST /api/quality/cleanup 软删除指定低价值记忆。
+  app.get('/api/quality/audit', async (request) => {
+    const query = request.query as Record<string, string>;
+    const limit = query.limit ? Number.parseInt(query.limit, 10) : undefined;
+    const findings = auditStoredMemories(Number.isFinite(limit) ? { limit } : undefined);
+    const db = getDatabase();
+    const scanned = (db.prepare(`SELECT COUNT(*) AS n FROM memories WHERE status = 'active'`).get() as { n: number }).n;
+    return {
+      scanned,
+      findingsCount: findings.length,
+      incomplete: findings.filter(f => f.kind === 'incomplete'),
+      lowValue: findings.filter(f => f.kind === 'low-value'),
+    };
+  });
+
+  app.post('/api/quality/audit', async (request) => {
+    const body = request.body as { limit?: number; mark?: boolean };
+    const findings = auditStoredMemories(Number.isFinite(body.limit) ? { limit: body.limit } : undefined);
+    const marked = body.mark ? markQualityFindings(findings) : 0;
+    return {
+      findings,
+      marked,
+      incompleteCount: findings.filter(f => f.kind === 'incomplete').length,
+      lowValueCount: findings.filter(f => f.kind === 'low-value').length,
+    };
+  });
+
+  app.post('/api/quality/cleanup', async (request, reply) => {
+    const body = request.body as { memoryIds?: string[] };
+    if (!Array.isArray(body.memoryIds) || body.memoryIds.length === 0) {
+      reply.code(400);
+      return { error: 'memoryIds is required' };
+    }
+    // 软删除（status='deleted' + 移出全文索引），可通过回收站恢复
+    return cleanupLowValueMemories(body.memoryIds.slice(0, 500));
   });
 
   app.post('/api/migration/import-file', async (request, reply) => {
@@ -1063,6 +1168,37 @@ export function registerRoutes(app: FastifyInstance): void {
     return discoverAgentIntegrations();
   });
 
+  /** 预览某个 Agent 的验证探针将要执行的动作（只读，不执行）。 */
+  app.get('/api/integrations/:agentId/verify/plan', async (request, reply) => {
+    const { agentId } = request.params as { agentId: string };
+    const report = discoverAgentIntegrations();
+    const agent = report.agents.find(item => item.id === agentId);
+    if (!agent) {
+      reply.code(404);
+      return { error: `Unsupported Agent integration: ${agentId}` };
+    }
+    const plan = resolveProbePlan(agent, report.projectRoot);
+    return { agentId, plan, actions: describeProbePlan(plan) };
+  });
+
+  /**
+   * 三层连接验证：配置检测 → 读取验证 → 写入验证。
+   * 全部探针真实执行；allowWriteProbe=true 才会真实写入并清理一条探针记忆。
+   * overall=connected 才代表真正连通，configured-only 仅表示配置存在。
+   */
+  app.post('/api/integrations/:agentId/verify', async (request, reply) => {
+    const { agentId } = request.params as { agentId: string };
+    const { allowWriteProbe, timeoutMs } = (request.body ?? {}) as { allowWriteProbe?: boolean; timeoutMs?: number };
+    try {
+      const result = await verifyAgentIntegrationAsync(agentId, { allowWriteProbe: allowWriteProbe === true, timeoutMs });
+      reply.code(result.overall === 'connected' ? 200 : result.overall === 'configured-only' ? 200 : 409);
+      return result;
+    } catch (error) {
+      reply.code(500);
+      return { error: (error as Error).message };
+    }
+  });
+
   app.post('/api/integrations/:agentId/connect', async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
     const { confirm, mode } = (request.body ?? {}) as { confirm?: boolean; mode?: 'auto' | 'mcp' | 'cli' | 'skill' };
@@ -1183,7 +1319,7 @@ export function registerRoutes(app: FastifyInstance): void {
       FROM memories m
       LEFT JOIN projects p ON m.project_id = p.id
       WHERE m.status = 'active' ${ownerCondition}
-    `).all(params) as { id: string; title: string; layer: string; tags: string | null; project_name: string | null }[];
+    `).all(params) as { id: string; title: string; content: string; layer: string; tags: string | null; updated_at: string; project_name: string | null; mail_thread_id: string | null; mail_subject: string | null }[];
 
     const entityRows = db.prepare(`
       SELECT me.memory_id, me.entity_id, e.name as entity_name
@@ -1192,6 +1328,18 @@ export function registerRoutes(app: FastifyInstance): void {
       JOIN memories m ON m.id = me.memory_id
       WHERE m.status = 'active' ${ownerCondition}
     `).all(params) as { memory_id: string; entity_id: string; entity_name: string }[];
+
+    // 显式记忆关系：两端记忆都需存活且对当前调用方可见（owner 过滤对两端同时生效）
+    const relationOwnerCondition = callerIsAdminOrAnonymous(caller)
+      ? ''
+      : ' AND (s.owner_user_id = @ownerUserId OR s.owner_user_id IS NULL) AND (t.owner_user_id = @ownerUserId OR t.owner_user_id IS NULL)';
+    const explicitRows = db.prepare(`
+      SELECT mr.source_memory_id, mr.target_memory_id, mr.relation_type, mr.strength, mr.reason
+      FROM memory_relations mr
+      JOIN memories s ON s.id = mr.source_memory_id AND s.status = 'active'
+      JOIN memories t ON t.id = mr.target_memory_id AND t.status = 'active'
+      WHERE 1 = 1${relationOwnerCondition}
+    `).all(params) as { source_memory_id: string; target_memory_id: string; relation_type: string; strength: number; reason: string | null }[];
 
     // 构建关系映射：每个记忆的直属关联记忆 ID 列表
     const relationsMap = new Map<string, string[]>();
@@ -1295,7 +1443,7 @@ export function registerRoutes(app: FastifyInstance): void {
       FROM memories m
       LEFT JOIN projects p ON m.project_id = p.id
       WHERE m.status = 'active' ${ownerCondition}
-    `).all(params) as { tags: string | null; layer: string; project_name: string | null }[];
+    `).all(params) as { tags: string | null; layer: string; updated_at: string; project_name: string | null }[];
 
     const totalMemories = rows.length;
 

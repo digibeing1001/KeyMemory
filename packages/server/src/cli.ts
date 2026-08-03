@@ -14,6 +14,7 @@ import { getHealthReport } from './core/health.js';
 import { listEntities, getEntityGraph, createMemoryRelation, findRelatedMemories, MEMORY_RELATION_TYPES } from './graph/entity.js';
 import { discoverMigrationSources, migrateMemoriesFromPath, migrateMigrationSources } from './core/migration.js';
 import { buildAgentContextPack } from './core/context-pack.js';
+import { listMailThreads, createMailThread, getMailThreadDetail, getMailThreadContext, replyToMailThread, syncMailThread, syncMailbox } from './core/mailbox.js';
 import { buildAgentConfigSnippets, listAgentConfigTargets, type AgentMode } from './core/agent-config.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile, verifyBackupFile } from './core/backup.js';
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './core/project.js';
@@ -23,6 +24,7 @@ import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security
 import type { Layer, MemoryKind, MemoryStatus, ForgetMethod } from '@keymemory/shared';
 import { DEFAULT_PORT, DEFAULT_HOST } from '@keymemory/shared';
 import { supersedeMemory } from './core/supersession.js';
+import { auditStoredMemories, markQualityFindings, cleanupLowValueMemories } from './core/content-quality.js';
 
 type OutputFormat = 'json' | 'table' | 'compact';
 
@@ -282,6 +284,31 @@ program
     const ok = deleteMemory(id, opts.permanent || false);
     if (!ok) printError(`Memory not found: ${id}`);
     printAndExit({ success: true, id, permanent: opts.permanent || false }, program.opts().format || 'json');
+  });
+
+program
+  .command('quality-audit')
+  .description('Audit stored memories for incomplete fragments and low-value boilerplate')
+  .option('--limit <n>', 'max memories to scan (default 500)')
+  .option('--mark', 'write findings into memory metadata (qualityFlags / completeness)')
+  .option('--clean-low-value', 'soft-delete memories judged low-value (recoverable via recycle bin)')
+  .action((opts) => {
+    const limit = opts.limit ? Number.parseInt(opts.limit, 10) : undefined;
+    const findings = auditStoredMemories(Number.isFinite(limit) ? { limit } : undefined);
+    let marked = 0;
+    let cleaned = 0;
+    if (opts.mark || opts.cleanLowValue) marked = markQualityFindings(findings);
+    if (opts.cleanLowValue) {
+      const lowValueIds = findings.filter(f => f.kind === 'low-value').map(f => f.memoryId);
+      cleaned = cleanupLowValueMemories(lowValueIds).cleaned;
+    }
+    printAndExit({
+      scanned: findings.length,
+      incomplete: findings.filter(f => f.kind === 'incomplete'),
+      lowValue: findings.filter(f => f.kind === 'low-value'),
+      marked,
+      cleaned,
+    }, program.opts().format || 'json');
   });
 
 program

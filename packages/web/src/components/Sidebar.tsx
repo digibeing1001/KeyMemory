@@ -1,13 +1,13 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, LogOut } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, LogOut, Plug } from './Icons';
 import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 import { useAuth } from '../auth/AuthContext';
 import type { UserRole } from '../lib/api';
 
-type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'users';
+type ViewMode = 'memories' | 'mailbox' | 'valley' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;

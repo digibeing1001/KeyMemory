@@ -12,6 +12,7 @@ import { runRelationReasonerBatch } from './relation-reasoner.js';
 import { syncMailbox } from './mailbox.js';
 import { findConflictMatch } from './conflict-detector.js';
 import { chatWithLLM, isLLMAvailable } from './llm-provider.js';
+import { auditStoredMemories, markQualityFindings } from './content-quality.js';
 
 type ScoredDreamCandidate = DreamCandidate & {
   qualityScore: number;
@@ -91,6 +92,22 @@ export function runDreamCycle(quickMode: boolean = false): DreamReport {
     // 分级自治：自动执行高置信度待办项，无需用户干预
     todoItems = applyAutonomyPolicy(todoItems, details);
     totalCandidates += deepResult.deepSession.candidatesProcessed;
+
+    // 内容质量补救（整理周期环节）：对已入库记忆做残缺/低价值检测并写入
+    // metadata 标记（qualityFlags / completeness），只标记不修改内容；
+    // 新写入的质量门禁在 autoRemember/createMemory 环节生效，此处覆盖存量数据。
+    try {
+      const qualityFindings = auditStoredMemories({ limit: 300 });
+      const qualityMarked = markQualityFindings(qualityFindings);
+      (details as unknown as Record<string, unknown>).qualityAudit = {
+        findings: qualityFindings.length,
+        marked: qualityMarked,
+        incomplete: qualityFindings.filter(f => f.kind === 'incomplete').length,
+        lowValue: qualityFindings.filter(f => f.kind === 'low-value').length,
+      };
+    } catch (err) {
+      console.error('[Dream] Quality audit failed (non-fatal):', (err as Error).message);
+    }
 
     // Phase 4 & 5: 非关键阶段，失败不影响前面结果
     // quickMode 下跳过这两个 O(n²) 阶段，它们对 flash/short 清理不是必需的

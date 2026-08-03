@@ -111,9 +111,33 @@ if (!fs.existsSync(WEB_DIST)) {
   console.log('');
 }
 
-const PORT = 3210;
-const SHOULD_OPEN = process.argv.includes('--open');
+// 端口与 shared 常量保持一致（DEFAULT_PORT = 3210）
+let PORT = 3210;
+try {
+  PORT = require(path.join(SHARED_DIST, 'constants.js')).DEFAULT_PORT || 3210;
+} catch {}
+
+// 自动打开浏览器：默认开启；--no-open 或 KEYMEMORY_AUTO_OPEN_BROWSER=0 关闭；--open 保留兼容
+const AUTO_OPEN_ENV = String(process.env.KEYMEMORY_AUTO_OPEN_BROWSER ?? '').trim().toLowerCase();
+const SHOULD_OPEN =
+  process.argv.includes('--open') ||
+  (!process.argv.includes('--no-open') &&
+    !['0', 'false', 'no', 'off'].includes(AUTO_OPEN_ENV));
 const SHOW_ONBOARDING = process.argv.includes('--onboarding');
+
+function probeRunning(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/api/health/report`, (res) => {
+      resolve(res.statusCode === 200);
+      res.resume();
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(1500, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
 
 function openBrowser(url) {
   try {
@@ -181,6 +205,23 @@ const windowsConflictPids = checkWindowsPortConflict();
 const wslIp = WSL ? getWSLIP() : null;
 const NODE_BIN = resolveNodeBinary();
 
+// ---- 幂等：服务已在运行时不重复启动、不重复弹出浏览器 ----
+probeRunning(PORT).then((running) => {
+  if (!running) return startUiServer();
+  console.log('  \x1b[32m✓ 检测到 KeyMemory 服务已在运行，不重复启动\x1b[0m');
+  console.log('');
+  console.log('  \x1b[1mWeb UI:\x1b[0m    http://127.0.0.1:' + PORT);
+  if (process.argv.includes('--open')) {
+    openBrowser(`http://127.0.0.1:${PORT}${SHOW_ONBOARDING ? '/?onboarding=1' : ''}`);
+  } else {
+    console.log('  \x1b[2m本次未重复打开浏览器；强制再开一次: keymemory dashboard --open\x1b[0m');
+    console.log('  \x1b[2m关闭自动打开: --no-open 或 KEYMEMORY_AUTO_OPEN_BROWSER=0\x1b[0m');
+  }
+  console.log('');
+  process.exit(0);
+});
+
+function startUiServer() {
 if (WSL && windowsConflictPids) {
   console.log('');
   console.log('  \x1b[33m⚠ 检测到 Windows 进程占用了 ' + PORT + ' 端口\x1b[0m');
@@ -215,6 +256,10 @@ const checkInterval = setInterval(() => {
         if (SHOULD_OPEN && !browserOpened) {
           browserOpened = true;
           openBrowser(`http://127.0.0.1:${PORT}${SHOW_ONBOARDING ? '/?onboarding=1' : ''}`);
+          console.log('  \x1b[2m自动打开浏览器已启用；关闭: --no-open 或 KEYMEMORY_AUTO_OPEN_BROWSER=0\x1b[0m');
+        } else if (!SHOULD_OPEN && !browserOpened) {
+          browserOpened = true;
+          console.log('  \x1b[2m自动打开已关闭（--no-open / KEYMEMORY_AUTO_OPEN_BROWSER=0），请手动访问上方地址\x1b[0m');
         }
       }
       console.log('  \x1b[1mAPI:\x1b[0m       http://127.0.0.1:' + PORT + '/api/health/report');
@@ -240,6 +285,8 @@ setTimeout(() => {
     clearInterval(checkInterval);
     console.log('');
     console.log('  \x1b[33m⚠ 服务启动超时，请检查日志\x1b[0m');
+    console.log('  \x1b[2m下一步: 检查 ' + PORT + ' 端口占用（netstat -ano | findstr :' + PORT + '）\x1b[0m');
+    console.log('  \x1b[2m或运行环境自检: node bin/keymemory-doctor.js\x1b[0m');
     console.log('');
   }
 }, 30000);
@@ -248,6 +295,8 @@ serverProc.on('close', (code) => {
   clearInterval(checkInterval);
   if (code !== 0 && code !== null) {
     console.log(`  \x1b[31m服务异常退出 (code: ${code})\x1b[0m`);
+    console.log('  \x1b[2m常见原因: ' + PORT + ' 端口被占用、依赖缺失或数据库损坏\x1b[0m');
+    console.log('  \x1b[2m下一步: node bin/keymemory-doctor.js\x1b[0m');
   }
   process.exit(code || 0);
 });
@@ -258,3 +307,4 @@ process.on('SIGINT', () => {
   serverProc.kill();
   process.exit(0);
 });
+}

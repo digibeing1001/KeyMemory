@@ -9,6 +9,7 @@ import { scheduleChunkAndEmbed, deleteChunks } from './chunking.js';
 import { removeFromFts, insertIntoFts, refreshFts } from './fts-helpers.js';
 import { invalidateEmbeddingCache } from './embedding-cache.js';
 import { resolveAsOf } from './temporal.js';
+import { assessCompleteness, assessValue, ContentQualityError } from './content-quality.js';
 
 function isClosedDatabaseError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
@@ -19,10 +20,34 @@ export function createMemory(input: CreateMemoryInput): Memory {
   // ownerUserId 不在 shared 类型中（避免 shared 包感知多用户概念），此处通过扩展字段读取。
   // 未传时为 undefined，写入 NULL（向后兼容单用户/旧数据）。
   const ownerUserId = (input as CreateMemoryInput & { ownerUserId?: string }).ownerUserId;
+  // bypassQualityGate: 显式人工写入（Web UI 手动创建、迁移导入）跳过价值门禁，
+  // 其余路径（MCP/CLI/autoRemember）统一走准入过滤。
+  const bypassQualityGate = (input as CreateMemoryInput & { bypassQualityGate?: boolean }).bypassQualityGate === true;
   const db = getDatabase();
   input = normalizeMemoryInput(input);
   const now = new Date().toISOString();
   const id = uuid();
+
+  // 写入前质量门禁（链路环节：写入前处理，所有未 bypass 的写入路径生效）：
+  // 1) 低价值内容（套话/寒暄/无信息模板）直接拒绝，防止污染记忆库；
+  // 2) 残缺内容仅标记 metadata.completeness，不阻断写入——带上下文的补全
+  //    应在调用方（autoRemember）完成，此处兜底确保入库记忆可被审计识别。
+  if (!bypassQualityGate) {
+    const value = assessValue(`${input.title}\n${input.content}`);
+    if (value.verdict === 'reject') {
+      throw new ContentQualityError(`低价值内容被写入准入过滤拒绝：${value.reasons.join('；')}`, value.reasons);
+    }
+    const existingCompleteness = input.metadata?.completeness as { status?: string } | undefined;
+    if (!existingCompleteness || existingCompleteness.status !== 'completed') {
+      const completeness = assessCompleteness(input.content);
+      if (!completeness.complete) {
+        input.metadata = {
+          ...(input.metadata ?? {}),
+          completeness: { status: 'incomplete', issues: completeness.issues, checkedAt: now },
+        };
+      }
+    }
+  }
 
   let projectId = input.projectId;
   if (!projectId) {
@@ -30,6 +55,17 @@ export function createMemory(input: CreateMemoryInput): Memory {
     // projectPath 仅保留在 metadata 中作为来源线索，不再自动创建目录。
     const rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL AND name = '未分类' ORDER BY created_at LIMIT 1").get() as { id: string } | undefined;
     projectId = rootProject?.id ?? '';
+  }
+
+  // projectPath 是记忆的项目来源线索：写入 metadata.sourceProjectPath，
+  // context pack 与搜索用它做项目路由（matchesSourceProject / projectKnownBySource）。
+  // 显式绑定 projectId 的旧路径不受影响；已有 sourceProjectPath 的元数据不覆盖。
+  if (input.projectPath) {
+    const existingSource = typeof input.metadata?.sourceProjectPath === 'string' ? input.metadata.sourceProjectPath : undefined;
+    input.metadata = {
+      ...(input.metadata ?? {}),
+      sourceProjectPath: existingSource ?? input.projectPath,
+    };
   }
 
   const mem: Memory = {
@@ -602,7 +638,9 @@ export function importMemories(jsonString: string): { success: number; failed: n
         sourceId: mem.sourceId,
         agentSpace: mem.agentSpace,
         ownerAgentId: mem.ownerAgentId,
-      });
+        // 备份恢复是用户既有数据的回迁，跳过价值门禁避免静默丢数据
+        bypassQualityGate: true,
+      } as CreateMemoryInput & { bypassQualityGate?: boolean });
       success++;
     } catch {
       failed++;

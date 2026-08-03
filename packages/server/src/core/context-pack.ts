@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, HistoricalReference, MailThreadContext, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
-import { getMemory, listMemories, updateMemoryConfidence } from './atom.js';
+import { getMemory, listMemories } from './atom.js';
 import { searchHybrid } from './query.js';
 import { findProjectRef, getProject } from './project.js';
 import { getDatabase } from '../db/sqlite.js';
@@ -8,6 +8,7 @@ import { findRelatedMemories } from '../graph/entity.js';
 import { getPendingTodosForContext } from './dreaming.js';
 import { getPendingInjectionForProject, getLatestProjectJournal } from './project-journal.js';
 import { isMemoryValidAt, resolveAsOf } from './temporal.js';
+import { listMailThreads, getMailThreadContext } from './mailbox.js';
 
 const MAILBOX_OPERATING_GUIDE = `## Mailbox Continuity Rule
 
@@ -98,11 +99,15 @@ function addCandidate(
   score = 0,
   accessibleSpaces?: Set<string>,
   temporal?: { asOf: string; includeExpired: boolean },
+  scope?: { path: string; includeDescendants: boolean },
 ): void {
   // 隔离过滤：若指定了可见空间集合，非可见记忆一律不进入候选池。
   // 这覆盖了 search/list/related/superseders 所有引入路径，防止跨 agent 私有空间泄露。
   if (accessibleSpaces && !accessibleSpaces.has(memory.agentSpace)) return;
   if (temporal && !temporal.includeExpired && !isMemoryValidAt(memory, temporal.asOf)) return;
+  // 项目来源过滤：邮箱化后记忆统一回到共享池，项目归属以来源线索为准，
+  // 确保其他项目的记忆不会混入当前项目的上下文包。
+  if (scope && !matchesSourceProject(memory, scope.path, scope.includeDescendants)) return;
   const kind = memoryKindOf(memory);
   const finalScore = score + (KIND_WEIGHT.get(kind) ?? 0) + layerWeight(memory) + Math.min(0.01, Math.log1p(memory.hitCount) * 0.002);
   const existing = map.get(memory.id);
@@ -149,12 +154,13 @@ function promoteSupersedingMemories(
   superseders: Map<string, string>,
   accessibleSpaces?: Set<string>,
   temporal?: { asOf: string; includeExpired: boolean },
+  scope?: { path: string; includeDescendants: boolean },
 ): void {
   for (const item of Array.from(candidates.values())) {
     const sourceId = superseders.get(item.id);
     if (!sourceId || candidates.has(sourceId)) continue;
     const source = getMemory(sourceId);
-    if (source?.status === 'active') addCandidate(candidates, source, item.score + 0.05, accessibleSpaces, temporal);
+    if (source?.status === 'active') addCandidate(candidates, source, item.score + 0.05, accessibleSpaces, temporal, scope);
   }
 }
 
@@ -163,6 +169,9 @@ function expandRelatedMemories(
   accessibleSpaces?: Set<string>,
   temporal?: { asOf: string; includeExpired: boolean },
 ): void {
+  // 关系扩展刻意不套项目范围过滤：显式建立的 relates_to/derived_from 等关系
+  // 是用户/Agent 确认过的跨项目线索，应随种子记忆进入上下文包；
+  // agent 空间隔离仍然生效，不会跨私有空间泄露。
   const seeds = Array.from(candidates.values());
   for (const item of seeds) {
     const related = findRelatedMemories(item.id)
@@ -328,13 +337,23 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
   // 隔离过滤：若调用方传入 agentSpaces，则 search/list/扩展路径都只接受这些空间的记忆。
   // accessibleSpaces 是 Set 形式供 addCandidate O(1) 判断；agentSpaces 原数组透传给 SQL 层。
   const accessibleSpaces = input.agentSpaces && input.agentSpaces.length > 0 ? new Set(input.agentSpaces) : undefined;
+  // 项目范围：项目目录行存在时用其路径，否则用调用方传入的路径（邮箱化后项目只存在于来源线索）。
+  // includeDescendants 默认 true，与 CLI 的 "descendants included by default" 语义一致。
+  const includeDescendants = input.includeDescendants !== false;
+  const projectScope = !projectMissing && (project?.path || input.project)
+    ? { path: project?.path ?? input.project!, includeDescendants }
+    : undefined;
 
   const candidates = new Map<string, AgentContextItem>();
   const superseders = input.includeSuperseded === true ? new Map<string, string>() : activeSuperseders(asOf);
 
   if (input.query?.trim() && !projectMissing) {
+    // 搜索分支与 list 分支统一走项目路径路由：邮箱化后原子记忆不再绑定项目目录行，
+    // projectPath 仅留在 metadata.sourceProjectPath。严格 projectId 过滤会把这类记忆
+    // 全部排除导致搜索 0 命中；projectPath 路由同时覆盖 sourceProjectPath、
+    // legacyProject.path 与显式 project_id 绑定三种来源，是正确的超集。
     const results = await searchHybrid(input.query, {
-      projectId,
+      projectPath: project?.path ?? input.project,
       includeDescendants,
       includeSuperseded: input.includeSuperseded,
       asOf,
@@ -342,7 +361,7 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
       limit: maxItems * 3,
       agentSpaces: input.agentSpaces,
     });
-    for (const result of results) addCandidate(candidates, result.memory, result.score, accessibleSpaces, temporal);
+    for (const result of results) addCandidate(candidates, result.memory, result.score, accessibleSpaces, temporal, projectScope);
   }
 
   if (!projectMissing) {
@@ -355,10 +374,10 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
       limit: maxItems * 5,
       agentSpaces: input.agentSpaces,
     });
-    for (const memory of scoped) addCandidate(candidates, memory, 0, accessibleSpaces, temporal);
+    for (const memory of scoped) addCandidate(candidates, memory, 0, accessibleSpaces, temporal, projectScope);
   }
 
-  promoteSupersedingMemories(candidates, superseders, accessibleSpaces, temporal);
+  promoteSupersedingMemories(candidates, superseders, accessibleSpaces, temporal, projectScope);
   expandRelatedMemories(candidates, accessibleSpaces, temporal);
 
   const sorted = Array.from(candidates.values())
@@ -387,19 +406,9 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     usedChars = estimateChars(selected);
   }
 
-  // 非阻塞：对被选入 Context Pack 的记忆增加 confidence（+0.01，上限 1.0）
-  // 失败不影响返回结果
-  try {
-    for (const item of selected) {
-      const current = getMemory(item.id);
-      if (current) {
-        const newConfidence = Math.min(1.0, (current.confidence ?? 0.8) + 0.01);
-        updateMemoryConfidence(item.id, newConfidence);
-      }
-    }
-  } catch (err) {
-    console.error('[context-pack] confidence boost failed (non-fatal):', (err as Error).message);
-  }
+  // 读取上下文包不应改变记忆的证据校准置信度：之前的 +0.01 提升会污染
+  // 用户显式写入的 confidence，读操作也不应静默改写用户可见数据。
+  // 命中热度仍由查询路径的 hit_count 记录。
 
   const sections = KIND_ORDER
     .map(kind => ({

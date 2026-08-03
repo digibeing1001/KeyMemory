@@ -14,6 +14,7 @@ import { canonicalToolName, ENTITY_TYPES } from './mcp-tools.js';
 import { checkpointLoopRun, finishLoopRun, getLoopContext, loopErrorObservation, LoopProtocolError, startLoopRun } from './loop-harness.js';
 import type { MemoryAdapter } from '../adapters/base.js';
 import { supersedeMemory } from './supersession.js';
+import { listMailThreads, createMailThread, getMailThreadDetail, getMailThreadContext, replyToMailThread, linkMemoryToThread, syncMailThread, syncMailbox } from './mailbox.js';
 
 export interface McpToolExecutionResult {
   content: Array<{ type: 'text'; text: string }>;

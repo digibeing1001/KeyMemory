@@ -133,6 +133,19 @@ const installerSkillInstructions = fs.readFileSync(path.join(installerSkillHome,
 assert.match(installerSkillInstructions, /KEYMEMORY:START/);
 assert.match(installerSkillInstructions, /每次开始任务前读取并遵守/);
 
+/* 真实 MCP stdio 握手探针：接入配置写出的启动命令必须能真正连通 KeyMemory */
+const { runMcpProbe } = await import('../packages/server/dist/core/connection-verify.js');
+const probeEnv = { KEYMEMORY_DATA_DIR: path.join(sandbox, 'probe-data'), KEYMEMORY_DB_PATH: path.join(sandbox, 'probe-data', 'data.db') };
+const probe = await runMcpProbe({
+  transport: 'mcp',
+  command: process.execPath,
+  args: [path.join(root, 'bin', 'keymemory-mcp.js')],
+  env: probeEnv,
+}, 90000, false);
+assert.equal(probe.read.passed, true, `MCP handshake probe failed: ${JSON.stringify(probe.read.failure)}`);
+assert.ok(probe.read.evidence.some(item => item.includes('status: connected')), 'handshake probe must surface the real connection receipt');
+assert.equal(probe.write.skipped, true, 'smoke must not run the write probe unless explicitly allowed');
+
 console.log(JSON.stringify({
   ok: true,
   sandbox,
@@ -145,4 +158,5 @@ console.log(JSON.stringify({
   installerBatchMode: true,
   skillModeInstalled: true,
   undetectedTargetSupported: true,
+  mcpHandshakeProbe: true,
 }, null, 2));

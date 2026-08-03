@@ -594,3 +594,30 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
 
   return limited;
 }
+
+/**
+ * 对同一次检索共同命中的记忆对，创建或渐进增强 relates_to 关系。
+ * - 已存在的关系：strength 每次 +0.05，上限 1.0（避免无限增长）
+ * - 不存在的关系：以较低初始强度 0.2 创建，reason 标注来源
+ * - 仅处理前 5 条命中（最多 10 对），避免大结果集产生 O(n²) 写入
+ * 任何异常在调用方已捕获，此处保持纯同步、无副作用外抛。
+ */
+function reinforceCoHitRelations(db: ReturnType<typeof getDatabase>, hitIds: string[]): void {
+  if (hitIds.length < 2) return;
+  const ids = hitIds.slice(0, 5);
+  const now = new Date().toISOString();
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const existing = db.prepare(
+        "SELECT id FROM memory_relations WHERE source_memory_id = ? AND target_memory_id = ? AND relation_type = 'relates_to'",
+      ).get(ids[i], ids[j]) as { id: string } | undefined;
+      if (existing) {
+        db.prepare('UPDATE memory_relations SET strength = MIN(1.0, strength + 0.05) WHERE id = ?').run(existing.id);
+      } else {
+        db.prepare(
+          'INSERT INTO memory_relations (id, source_memory_id, target_memory_id, relation_type, strength, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ).run(uuid(), ids[i], ids[j], 'relates_to', 0.2, 'co-hit in search results', now);
+      }
+    }
+  }
+}
