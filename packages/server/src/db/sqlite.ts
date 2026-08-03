@@ -360,79 +360,33 @@ function runMigrations(db: Database.Database): void {
       FOREIGN KEY (run_id) REFERENCES loop_runs(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS mail_threads (
+    CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
-      subject TEXT NOT NULL,
-      normalized_subject TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open',
-      folder TEXT NOT NULL DEFAULT 'inbox',
-      agent_space TEXT NOT NULL DEFAULT 'global',
-      project_scope_id TEXT,
-      legacy_project_id TEXT,
-      current_summary TEXT,
-      created_by_type TEXT NOT NULL,
-      created_by_id TEXT,
-      starred INTEGER NOT NULL DEFAULT 0,
-      snoozed_until TEXT,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
+      is_main_account INTEGER DEFAULT 0,
+      user_status TEXT NOT NULL DEFAULT 'active',
+      company_id TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      last_message_at TEXT,
-      metadata TEXT,
-      FOREIGN KEY (project_scope_id) REFERENCES projects(id) ON DELETE SET NULL,
-      FOREIGN KEY (legacy_project_id) REFERENCES projects(id) ON DELETE SET NULL
+      updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS mail_messages (
+    CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      parent_message_id TEXT,
-      sender_type TEXT NOT NULL,
-      sender_id TEXT,
-      recipient_ids TEXT NOT NULL DEFAULT '[]',
-      subject TEXT NOT NULL,
-      body TEXT NOT NULL,
-      message_type TEXT NOT NULL DEFAULT 'reply',
-      status TEXT NOT NULL DEFAULT 'sent',
-      sent_at TEXT,
+      user_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL,
-      metadata TEXT,
-      FOREIGN KEY (thread_id) REFERENCES mail_threads(id) ON DELETE CASCADE,
-      FOREIGN KEY (parent_message_id) REFERENCES mail_messages(id) ON DELETE SET NULL
+      expires_at TEXT NOT NULL,
+      last_used_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+  `);
 
-    CREATE TABLE IF NOT EXISTS mail_attachments (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      title TEXT NOT NULL,
-      content TEXT,
-      memory_id TEXT,
-      collapsed INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      metadata TEXT,
-      FOREIGN KEY (message_id) REFERENCES mail_messages(id) ON DELETE CASCADE,
-      FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS mail_thread_memories (
-      thread_id TEXT NOT NULL,
-      memory_id TEXT NOT NULL,
-      relation_type TEXT NOT NULL DEFAULT 'source',
-      created_at TEXT NOT NULL,
-      PRIMARY KEY (thread_id, memory_id, relation_type),
-      FOREIGN KEY (thread_id) REFERENCES mail_threads(id) ON DELETE CASCADE,
-      FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS mail_receipts (
-      message_id TEXT NOT NULL,
-      recipient_id TEXT NOT NULL,
-      delivered_at TEXT NOT NULL,
-      read_at TEXT,
-      PRIMARY KEY (message_id, recipient_id),
-      FOREIGN KEY (message_id) REFERENCES mail_messages(id) ON DELETE CASCADE
-    );
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
   `);
 
   db.exec(`
@@ -461,16 +415,8 @@ function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_loop_runs_agent ON loop_runs(agent_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_run ON loop_checkpoints(run_id, version);
     CREATE INDEX IF NOT EXISTS idx_loop_events_run ON loop_events(run_id, sequence);
-    CREATE INDEX IF NOT EXISTS idx_mail_threads_folder ON mail_threads(folder, last_message_at);
-    CREATE INDEX IF NOT EXISTS idx_mail_threads_space ON mail_threads(agent_space, last_message_at);
-    CREATE INDEX IF NOT EXISTS idx_mail_threads_subject ON mail_threads(normalized_subject);
-    CREATE INDEX IF NOT EXISTS idx_mail_messages_thread ON mail_messages(thread_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_mail_messages_sender ON mail_messages(sender_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_mail_attachments_message ON mail_attachments(message_id);
-    CREATE INDEX IF NOT EXISTS idx_mail_thread_memories_memory ON mail_thread_memories(memory_id);
-    CREATE INDEX IF NOT EXISTS idx_mail_receipts_recipient ON mail_receipts(recipient_id, read_at);
-    -- 注意：idx_loop_runs_token_budget 索引在 alterStatements 之后创建，
-    -- 因为旧数据库的 loop_runs 表可能还没有 token_budget 列（在 ALTER 中才添加）
+    -- 支撑 token/cost 预算超限扫描：只扫描活跃 run 中设置了预算的行
+    CREATE INDEX IF NOT EXISTS idx_loop_runs_token_budget ON loop_runs(token_budget) WHERE token_budget IS NOT NULL;
   `);
 
   const alterStatements = [
@@ -492,6 +438,11 @@ function runMigrations(db: Database.Database): void {
     'ALTER TABLE memory_relations ADD COLUMN reason TEXT',
     'ALTER TABLE loop_runs ADD COLUMN request_hash TEXT',
     'ALTER TABLE loop_checkpoints ADD COLUMN memory_refs TEXT NOT NULL DEFAULT \'[]\'',
+    'ALTER TABLE memories ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE projects ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE loop_runs ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE tool_secrets ADD COLUMN owner_user_id TEXT',
+    'ALTER TABLE isolation_rules ADD COLUMN owner_user_id TEXT',
     // Loop cost & circuit-breaker 列
     'ALTER TABLE loop_runs ADD COLUMN token_budget INTEGER',
     'ALTER TABLE loop_runs ADD COLUMN token_used INTEGER NOT NULL DEFAULT 0',
@@ -536,6 +487,9 @@ CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
 CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);
     CREATE INDEX IF NOT EXISTS idx_project_suggestions_status ON project_suggestions(status);
+    CREATE INDEX IF NOT EXISTS idx_memories_owner_user ON memories(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_projects_owner_user ON projects(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_loop_runs_owner_user ON loop_runs(owner_user_id);
   `);
 
   ensureWelcomeMemory(db);
@@ -854,44 +808,13 @@ function migrateMemoryRelationData(db: Database.Database): void {
   })();
 }
 
-function ensureWelcomeMemory(db: Database.Database): void {
+function ensureWelcomeMemory(db: Database.Database, userId?: string): void {
   const WELCOME_SOURCE_ID = 'keymemory-welcome';
-  const title = '欢迎使用 KeyMemory';
-  const content = `## 关于 KeyMemory
-
-KeyMemory 是一个本地优先的 Agent 记忆系统。通用事实、偏好、规则和经验保存在记忆库；具体项目、任务和事件则通过“记忆邮箱”持续汇集上下文。
-
-### 一事一主题
-
-- 一项具体工作只建立一个清楚的邮件主题；
-- 人类可以回复补充背景、决定和更正；
-- Agent 会把进度、结果、阻碍和下一步写回原主题；
-- 记忆秘书会检查零散工作记忆，去重后建立主题或补充新变化；
-- 代码、日志和技术详情放入折叠附件，邮件正文保持自然、通俗、可读。
-
-### 记忆的四个层次
-
-| 层级 | 名称 | 用途 |
-|------|------|------|
-| 闪念 | flash | 灵感、想法、临时笔记 |
-| 短期 | short | 近期会使用的上下文 |
-| 长期 | long | 稳定知识、经验、偏好和规则 |
-| 人事物 | entity | 人物、组织、工具和关键对象 |
-
-### 使用顺序
-
-开始具体工作时，先阅读记忆邮箱中的相关主题，再用记忆搜索补充通用信息。工作产生重要变化后，回复原主题；只有确认没有相关主题时才建立新邮件。
-
-> 这是一条系统介绍记忆，安装后自动创建。`;
-  const existing = db.prepare("SELECT id, content FROM memories WHERE source_id = ? AND status = 'active'").get(WELCOME_SOURCE_ID) as { id: string; content: string } | undefined;
-  if (existing) {
-    if (existing.content !== content) {
-      const now = new Date().toISOString();
-      db.prepare('UPDATE memories SET title = ?, content = ?, updated_at = ? WHERE id = ?').run(title, content, now, existing.id);
-      db.prepare('UPDATE memories_fts SET title = ?, content = ? WHERE rowid = (SELECT rowid FROM memories WHERE id = ?)').run(title, content, existing.id);
-    }
-    return;
-  }
+  // userId 提供时:按用户查重(每个用户一份欢迎记忆);未提供时:全局查重(旧行为)
+  const existing = userId
+    ? db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active' AND owner_user_id = ?").get(WELCOME_SOURCE_ID, userId)
+    : db.prepare("SELECT id FROM memories WHERE source_id = ? AND status = 'active' AND owner_user_id IS NULL").get(WELCOME_SOURCE_ID);
+  if (existing) return;
 
   // Get or create default root project
   let rootProject = db.prepare("SELECT id FROM projects WHERE parent_id IS NULL LIMIT 1").get() as { id: string } | undefined;
@@ -911,8 +834,8 @@ KeyMemory 是一个本地优先的 Agent 记忆系统。通用事实、偏好、
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO memories (id, title, content, layer, project_id, agent_space, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, source, source_id)
-      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @source, @sourceId)
+      INSERT INTO memories (id, title, content, layer, project_id, agent_space, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, source, source_id, owner_user_id)
+      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @source, @sourceId, @ownerUserId)
     `).run({
       id, title, content,
       layer: 'long',
@@ -927,6 +850,7 @@ KeyMemory 是一个本地优先的 Agent 记忆系统。通用事实、偏好、
       tags,
       source: 'system',
       sourceId: WELCOME_SOURCE_ID,
+      ownerUserId: userId ?? null,
     });
 
     db.prepare(`

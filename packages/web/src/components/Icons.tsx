@@ -222,26 +222,6 @@ export const Sliders: FC<IconProps> = (p) => (
   <I {...p}><path d="M4 6h2M14 6h2M8 6h2M4 12h8M14 12h2M4 18h2M10 18h6" /><path d="M8 4v4M12 10v4M6 16v4" /></I>
 );
 
-export const Plug: FC<IconProps> = (p) => (
-  <I {...p}><path d="M7 3v5M13 3v5M5 8h10v2a5 5 0 01-5 5v3M7 18h6" /></I>
-);
-
-export const Copy: FC<IconProps> = (p) => (
-  <I {...p}><rect x="7" y="7" width="10" height="10" rx="2" /><path d="M13 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2" /></I>
-);
-
-export const Terminal: FC<IconProps> = (p) => (
-  <I {...p}><rect x="2" y="3" width="16" height="14" rx="2" /><path d="M5 7l3 3-3 3M10 13h4" /></I>
-);
-
-export const Expand: FC<IconProps> = (p) => (
-  <I {...p}><path d="M7 3H3v4M13 3h4v4M17 13v4h-4M7 17H3v-4" /><path d="M3 7l4-4M13 3l4 4M17 13l-4 4M7 17l-4-4" /></I>
-);
-
-export const Contract: FC<IconProps> = (p) => (
-  <I {...p}><path d="M7 3v4H3M13 3v4h4M17 13h-4v4M3 13h4v4" /><path d="M7 7L3 3M13 7l4-4M13 13l4 4M7 13l-4 4" /></I>
-);
-
-export const BookOpen: FC<IconProps> = (p) => (
-  <I {...p}><path d="M2.5 4.5A3.5 3.5 0 016 3h4v14H6a3.5 3.5 0 00-3.5 1.5v-14z" /><path d="M17.5 4.5A3.5 3.5 0 0014 3h-4v14h4a3.5 3.5 0 013.5 1.5v-14z" /></I>
+export const LogOut: FC<IconProps> = (p) => (
+  <I {...p}><path d="M11 3H5a2 2 0 00-2 2v10a2 2 0 002 2h6M14 6l4 4-4 4M18 10H8" /></I>
 );

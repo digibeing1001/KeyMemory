@@ -16,6 +16,9 @@ function isClosedDatabaseError(err: unknown): boolean {
 }
 
 export function createMemory(input: CreateMemoryInput): Memory {
+  // ownerUserId 不在 shared 类型中（避免 shared 包感知多用户概念），此处通过扩展字段读取。
+  // 未传时为 undefined，写入 NULL（向后兼容单用户/旧数据）。
+  const ownerUserId = (input as CreateMemoryInput & { ownerUserId?: string }).ownerUserId;
   const db = getDatabase();
   input = normalizeMemoryInput(input);
   const now = new Date().toISOString();
@@ -54,8 +57,8 @@ export function createMemory(input: CreateMemoryInput): Memory {
 
   return db.transaction(() => {
     db.prepare(`
-      INSERT INTO memories (id, title, content, layer, project_id, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id)
-      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @ownerAgentId, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @metadata, @source, @sourceId)
+      INSERT INTO memories (id, title, content, layer, project_id, agent_space, owner_agent_id, confidence, hit_count, status, decay_factor, created_at, updated_at, tags, metadata, source, source_id, owner_user_id)
+      VALUES (@id, @title, @content, @layer, @projectId, @agentSpace, @ownerAgentId, @confidence, @hitCount, @status, @decayFactor, @createdAt, @updatedAt, @tags, @metadata, @source, @sourceId, @ownerUserId)
     `).run({
       id: mem.id,
       title: mem.title,
@@ -74,6 +77,7 @@ export function createMemory(input: CreateMemoryInput): Memory {
       metadata: mem.metadata ? JSON.stringify(mem.metadata) : null,
       source: mem.source ?? null,
       sourceId: mem.sourceId ?? null,
+      ownerUserId: ownerUserId ?? null,
     });
 
     const projectName = mem.projectId ? (db.prepare('SELECT name FROM projects WHERE id = ?').get(mem.projectId) as { name: string } | undefined)?.name || '' : '';

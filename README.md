@@ -77,13 +77,69 @@ KeyMemory 会把下面的规则写入 MCP 工具说明、自动生成的 Agent �
 
 ### 6. Context Pack：给 Agent 的紧凑上下文包
 
-- 本地 SQLite：数据默认只保存在本机，服务默认监听 `127.0.0.1`。
-- 混合检索：SQLite FTS5 全文检索、本地语义检索和记忆关系扩展。
-- 时间有效性：`validFrom / validTo` 保留事实变化的历史，`memory_supersede` 让新事实可信地取代旧事实。
-- 自动整理：去重、关联补全、长期化、归档和可回滚报告；本地 Embedding 未安装时，关联推理会回退到保守文本候选，再交给 LLM 依据原文确认，不会整批停摆。项目聚类已不再生成新的用户项目树。
-- Loop Harness：长期任务具备租约、幂等断点、版本控制、事件游标、预算与熔断保护。
-- 安全备份：迁移和整体恢复前自动备份；普通记忆自动脱敏，工具凭据单独加密保存。
-- 多 Agent 接入：支持 Claude Code、Claude Desktop、Codex、Hermes、OpenClaw、OpenCode、WorkBuddy、TRAE 及其他 MCP 兼容 Agent。
+Agent 做长期任务前最需要的不只是"搜索结果"，而是**按用途分组、有篇幅限制、带来源说明**的上下文包。
+
+`memory_context_pack` 会：
+
+- 按类型分组（偏好 → 约束 → 决策 → 任务 → 流程 → 项目事实 → 关系 → 概念 → 事件 → 原始笔记）。
+- 控制总字数和条目数，避免上下文撑爆。
+- 在每条记忆下附上简短的来源说明（如"已被 mem-xxx 取代"），让 Agent 知道哪些是最新结论。
+- 同时输出结构化 JSON 和 Markdown，可直接作为系统提示或任务上下文注入。
+
+### 7. 梦境整理：记忆越用越干净，而不是越用越乱
+
+记忆库会自然膨胀。KeyMemory 借鉴人脑睡眠周期，把整理分成五个阶段自动完成：
+
+- **浅睡阶段**：去重近期记忆，合并重复项。
+- **REM 阶段**（快速眼动期，即做梦期）：分析主题、优化标签，在相关记忆之间建立关联。
+- **深睡阶段**：评分升级（把重要的短期记忆提升为长期）、智能合并、归档低价值记忆。
+- **语义合并**：在语义层面合并意思相近的记忆。
+- **项目聚类**：发现共享同一批实体的项目，给出项目树整理建议（比如"这两个项目其实该归到同一个父项目下"）。
+
+每次整理都会：
+
+- 用"取代"关系保留新旧记忆的来龙去脉，可解释、可一键回滚。
+- 生成结构化报告，支持按报告 ID 整体撤销。
+- 可通过定时任务自动运行（默认每天一次）。
+
+**结果是：记忆库会自己保持健康，而不是越用越像垃圾堆。**
+
+### 8. Loop Harness：长期任务的"断点续传 + 失控熔断"
+
+跑自动化 Agent 任务时，进程崩溃、超时、多个 worker 同时跑是常态。KeyMemory 给长期任务提供完整的"断点续传 + 防互相踩 + 失控自动熔断"能力：
+
+- **任务状态全部入库**：当前目标、所属项目、运行到哪一步、谁在跑，都持久化保存，进程重启不丢。
+- **断点带版本号**：每存一个断点版本号自动加一；同一个断点重复保存会被自动去重；存入前先脱敏敏感信息。
+- **多 worker 不互相覆盖**：同一时间只有一个 worker 能改某个任务，"锁"过期后自动释放，不会死锁，也不会互相覆盖进度。
+- **崩溃后接着跑**：任务产生的每一条事件都按顺序记录，崩溃重启后从上次的位置继续读，不丢不重。
+- **统一的结果格式**：成功、警告、错误用同一套结构返回，错误信息里直接告诉你"能不能重试""该用哪个版本号重试"，Agent 不用靠解析自然语言去猜。
+- **防止任务失控**：单次写入的内容有上限，跑飞的 worker 不会把数据库撑爆。
+- **Token 与成本预算**：每个 run 可设 `tokenBudget` 和 `costUsdBudget`，每次 checkpoint/finish 上报 `tokenUsage` 累加；接近或超出预算时自动告警。
+- **Circuit Breaker 自动熔断**：连续相同错误 3 次（停滞）、连续失败 5 次（无进展）、token 用尽、checkpoint 次数达到 10，任一命中即把 observation 降级为 `warning` 并附升级建议，但不会强制终止 run——由调用方决定升级、重试或 `memory_loop_finish`。
+- **Loop Readiness 自检**：`pnpm loop:audit` 按 22 项硬编码评分给出 L0/L1/L2/L3 等级，低于 L1（38 分）不应把 autonomous loop 投入生产。
+
+四个工具覆盖一个长期任务的完整生命周期：启动任务 → 读取上下文与进度 → 保存断点 → 结束任务。
+
+### 9. 一键迁移旧记忆
+
+已经在用 `MEMORY.md`、Codex、Claude Code、Hermes、OpenClaw、Cursor、Gemini、Mem0/OpenMemory？KeyMemory 能把它们一次性搬过来：
+
+```bash
+keymemory onboard            # 先预览，不写入
+keymemory onboard --yes --run-dream --agent-target all   # 确认后真迁移
+```
+
+- 支持格式：`.md` / `.markdown` / `.json` / `.jsonl` / `.ndjson` / `.txt`。
+- 自动从 `workspace`、`cwd`、`repoPath`、文件相对目录等线索推断项目路径，不用手动归类。
+- **写入前自动创建完整备份**；恢复前也会先备份现库，迁移失败可一键回滚。
+
+### 10. 备份与恢复
+
+- 一份备份文件包含记忆、记忆关系、以及长期任务的运行记录和断点，并带校验和防止文件损坏。
+- `--dry-run` 可以先验证备份能不能恢复，不写库。
+- `--replace` 恢复时会先备份当前库，再整体替换并重建索引，确保恢复过程不出错。
+
+---
 
 ## 快速开始
 
@@ -183,7 +239,13 @@ keymemory thread-reply <thread-id> --content "已完成权限验证，下一步�
 keymemory mailbox-sync
 ```
 
-## 记忆与长期任务工具
+Loop 工程自检：
+
+```bash
+node scripts/loop-readiness-audit.mjs                     # 22 项评分，输出 L0/L1/L2/L3 等级
+```
+
+迁移相关：
 
 | 工具 | 用途 |
 | --- | --- |
@@ -200,7 +262,57 @@ keymemory mailbox-sync
 | `memory_supersede` | 用新事实取代旧事实并保留历史 |
 | `memory_secret_set` / `memory_secret_get` | 加密保存和按需读取工具凭据 |
 
-## 开发与验证
+备份与恢复：
+
+```bash
+keymemory backup-create ./keymemory-backup.json
+keymemory backup-inspect ./keymemory-backup.json
+keymemory backup-restore ./keymemory-backup.json --dry-run
+keymemory backup-restore ./keymemory-backup.json --replace
+```
+
+梦境调度：
+
+```bash
+keymemory scheduler
+keymemory scheduler --cron "15 4 * * *"
+keymemory scheduler --disable
+keymemory scheduler --enable
+```
+
+---
+
+## 项目记忆写法
+
+每条记忆都属于一个项目，项目可以嵌套。
+
+显式指定：
+
+```text
+[[KeyMemory/Release/Migration]]
+```
+
+自然语言提示：
+
+```text
+项目路径: KeyMemory/Release/Migration
+```
+
+项目检索默认包含子项目。Agent 在 `KeyMemory/Release` 下工作时，能读到 `KeyMemory/Release/Migration` 的相关记忆。
+
+---
+
+## 发布质量
+
+发布闸门：
+
+```bash
+pnpm release:check
+```
+
+验证项：TypeScript 类型检查、生产构建、doctor 冒烟、长期记忆评测、性能预算、fresh database smoke、stdio MCP smoke、Loop 幂等/并发/恢复/脱敏/REST 与 MCP 契约 smoke、Loop circuit breaker（stagnation/no-progress/token-budget）与 success 重置计数 smoke、launcher smoke、迁移/备份/关系/调度/认证/项目整理覆盖。
+
+开发与发布检查：
 
 ```bash
 pnpm typecheck
@@ -235,6 +347,7 @@ docs              用户、Agent、隐私、备份与架构文档
 - [Agent Context Pack](docs/agent-context-pack.md)
 - [Loop Harness 接入](docs/loop-harness.md)
 - [Loop Patterns 配方](docs/loop-patterns.md)
+- [Loop Harness 研究与设计依据](docs/loop-harness-research.md)
 - [备份与恢复](docs/backup-and-recovery.md)
 - [记忆关系](docs/memory-relations.md)
 - [时间记忆、可信更新与可解释检索](docs/temporal-memory.md)

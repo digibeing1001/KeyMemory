@@ -10,9 +10,18 @@ import { applyDecay } from './core/forgetting.js';
 import { startScheduler, stopScheduler } from './core/scheduler.js';
 import { registerWebUI } from './web-ui.js';
 import { assertSafeServerBinding, createCorsOriginPolicy } from './core/security.js';
+import { ensureBootstrapMainAccount } from './core/auth.js';
 
 async function main() {
   initDatabase();
+
+  // 多用户鉴权 bootstrap:users 表为空且配置了 KEYMEMORY_BOSS_EMAIL/KEYMEMORY_BOSS_PASSWORD
+  // 时创建主账户(boss 角色)。未配置 env 则跳过(退化为单用户匿名模式)。
+  try {
+    ensureBootstrapMainAccount();
+  } catch (err) {
+    console.error('[KeyMemory] Bootstrap main account failed:', (err as Error).message);
+  }
 
   try {
     await initEmbedding();

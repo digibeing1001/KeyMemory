@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import type { Layer, SearchResult, HealthReport, Memory } from '@keymemory/shared';
 import { useMemoryStore } from './hooks/useMemoryStore';
 import { ToastProvider, useToast } from './components/Toast';
-import { Search, Close, Key, Menu, BookOpen, Inbox } from './components/Icons';
+import { Search, Close, Menu } from './components/Icons';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
@@ -19,6 +20,9 @@ import WorkingSetView from './components/WorkingSetView';
 import IntegrationView from './components/IntegrationView';
 import UserGuide from './components/UserGuide';
 import Editor from './views/Editor';
+import UsersView from './views/UsersView';
+import Login from './auth/Login';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 import { I18nProvider, useI18n } from './i18n';
 import {
   getHealth,
@@ -28,13 +32,11 @@ import {
   listRecycleBin,
   restoreFromRecycleBin,
   permanentlyDeleteMemory,
-  setStoredApiKey,
-  clearStoredApiKey,
 } from './lib/api';
-import type { MemoryGraphData, TagCloudData } from './lib/api';
+import type { MemoryGraphData, TagCloudData, UserRole } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'mailbox' | 'memories' | 'valley' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'users';
 
 function isViewMode(value: string | null): value is ViewMode {
   return value === 'mailbox'
@@ -45,31 +47,58 @@ function isViewMode(value: string | null): value is ViewMode {
     || value === 'migration'
     || value === 'recycle'
     || value === 'workingSet'
-    || value === 'llm'
-    || value === 'integrations';
+    || value === 'users';
+}
+
+const ADMIN_ONLY_VIEWS: ViewMode[] = ['dream', 'migration', 'organize', 'users'];
+
+function isAdminRole(role: UserRole | undefined): boolean {
+  return role === 'boss' || role === 'admin';
+}
+
+function LoadingScreen() {
+  return (
+    <div className="flex items-center justify-center" style={{ height: '100vh', color: 'var(--text-muted)' }}>
+      <div className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full mr-2" />
+      Loading...
+    </div>
+  );
+}
+
+function ProtectedRoute({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function LoginRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (user) return <Navigate to="/" replace />;
+  return <Login />;
 }
 
 function AppInner() {
   const store = useMemoryStore();
   const { t, language, layerLabel } = useI18n();
   const { toast } = useToast();
+  const { user } = useAuth();
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
+  const isAdmin = isAdminRole(user?.role);
+  // localStorage 偏好按用户隔离:登录后 key 带 userId 前缀;
+  // 未登录(LoginRoute 不会进入 AppInner,但保留兜底)用全局 key。
+  const prefPrefix = user?.id ? `keymemory_${user.id}_` : 'keymemory_';
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
-    const linked = new URLSearchParams(window.location.search).get('view');
-    // 向后兼容: 旧版 'nebula' → 'valley'
-    const normalize = (v: string | null): string | null => v === 'nebula' ? 'valley' : v;
-    const normalizedLinked = normalize(linked);
-    if (isViewMode(normalizedLinked)) return normalizedLinked;
-    const saved = localStorage.getItem('keymemory_view_mode_mailbox_v1');
-    const normalizedSaved = normalize(saved);
-    return isViewMode(normalizedSaved) ? normalizedSaved : 'mailbox';
+    const saved = localStorage.getItem(`${prefPrefix}view_mode`);
+    return isViewMode(saved) ? saved : 'memories';
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
   const [isDark, setIsDark] = useState(() => {
-    const themeVersion = localStorage.getItem('keymemory_theme_version');
-    const saved = localStorage.getItem('keymemory_theme');
-    if (themeVersion === 'memory-control-plane-20260715' && (saved === 'dark' || saved === 'light')) {
+    const themeVersion = localStorage.getItem(`${prefPrefix}theme_version`);
+    const saved = localStorage.getItem(`${prefPrefix}theme`);
+    if (themeVersion === 'bright-notes-20260601' && (saved === 'dark' || saved === 'light')) {
       return saved === 'dark';
     }
     return true;
@@ -81,8 +110,6 @@ function AppInner() {
   const [graphData, setGraphData] = useState<MemoryGraphData | null>(null);
   const [tagCloudData, setTagCloudData] = useState<TagCloudData | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
-  const [authLocked, setAuthLocked] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [guideFirstRun, setGuideFirstRun] = useState(() => localStorage.getItem('keymemory_onboarding_completed_v1') !== 'true');
   const [guideOpen, setGuideOpen] = useState(() => {
@@ -98,9 +125,9 @@ function AppInner() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('keymemory_theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('keymemory_theme_version', 'memory-control-plane-20260715');
-  }, [isDark]);
+    localStorage.setItem(`${prefPrefix}theme`, isDark ? 'dark' : 'light');
+    localStorage.setItem(`${prefPrefix}theme_version`, 'bright-notes-20260601');
+  }, [isDark, prefPrefix]);
 
   useEffect(() => {
     getHealth()
@@ -108,11 +135,13 @@ function AppInner() {
       .catch(() => {});
   }, []);
 
+  // 非管理员用户访问受限视图时回退到 memories
   useEffect(() => {
-    const onUnauthorized = () => setAuthLocked(true);
-    window.addEventListener('keymemory:unauthorized', onUnauthorized);
-    return () => window.removeEventListener('keymemory:unauthorized', onUnauthorized);
-  }, []);
+    if (!isAdmin && ADMIN_ONLY_VIEWS.includes(viewMode)) {
+      setViewModeState('memories');
+      localStorage.setItem(`${prefPrefix}view_mode`, 'memories');
+    }
+  }, [isAdmin, viewMode, prefPrefix]);
 
   useEffect(() => {
     if (viewMode === 'valley' && !graphData) {
@@ -144,23 +173,8 @@ function AppInner() {
 
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
-    localStorage.setItem('keymemory_view_mode_mailbox_v1', mode);
+    localStorage.setItem(`${prefPrefix}view_mode`, mode);
     setSidebarOpen(false);
-  };
-
-  const submitApiKey = (event: FormEvent) => {
-    event.preventDefault();
-    setStoredApiKey(apiKeyInput);
-    setApiKeyInput('');
-    setAuthLocked(false);
-    store.refresh();
-    getHealth().then((res) => setHealthReport(res as unknown as HealthReport)).catch(() => {});
-  };
-
-  const resetApiKey = () => {
-    clearStoredApiKey();
-    setApiKeyInput('');
-    setAuthLocked(true);
   };
 
   const handleSearch = async (event: FormEvent) => {
@@ -563,6 +577,12 @@ function AppInner() {
             </div>
           )}
 
+          {viewMode === 'users' && isAdmin && (
+            <div className="flex-1 overflow-y-auto">
+              <UsersView />
+            </div>
+          )}
+
           {viewMode === 'recycle' && (
             <div className="flex-1 overflow-y-auto px-8 py-6">
               <div className="flex items-center justify-between mb-8">
@@ -631,77 +651,6 @@ function AppInner() {
         </div>
       </div>
 
-      <UserGuide
-        open={guideOpen}
-        firstRun={guideFirstRun}
-        onClose={dismissGuide}
-        onComplete={() => {
-          dismissGuide();
-        }}
-        onOpenIntegrations={() => {
-          setViewMode('integrations');
-          setGuideOpen(false);
-        }}
-      />
-
-      {authLocked && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 100,
-            background: 'rgba(0, 0, 0, 0.32)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 24,
-          }}
-        >
-          <form
-            onSubmit={submitApiKey}
-            style={{
-              width: 'min(420px, 100%)',
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-lg)',
-              padding: 20,
-              boxShadow: '0 18px 50px rgba(0, 0, 0, 0.18)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <Key size={18} style={{ color: 'var(--accent)' }} />
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650, color: 'var(--text-primary)' }}>
-                API Key
-              </h2>
-            </div>
-            <input
-              type="password"
-              value={apiKeyInput}
-              onChange={(event) => setApiKeyInput(event.target.value)}
-              autoFocus
-              placeholder="KEYMEMORY_API_KEY"
-              style={{
-                width: '100%',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-md)',
-                color: 'var(--text-primary)',
-                padding: '9px 10px',
-                fontSize: 13,
-              }}
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button type="button" className="btn" onClick={resetApiKey}>
-                {language === 'zh' ? '清除' : 'Clear'}
-              </button>
-              <button type="submit" className="btn btn-primary" disabled={!apiKeyInput.trim()}>
-                <Key size={14} />
-                {language === 'zh' ? '解锁' : 'Unlock'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 }
@@ -710,7 +659,13 @@ export default function App() {
   return (
     <I18nProvider>
       <ToastProvider>
-        <AppInner />
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginRoute />} />
+            <Route path="/" element={<ProtectedRoute><AppInner /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthProvider>
       </ToastProvider>
     </I18nProvider>
   );

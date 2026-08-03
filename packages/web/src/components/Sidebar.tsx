@@ -1,10 +1,13 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, Close, Activity, Settings, Plug, Mail } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, LogOut } from './Icons';
+import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
+import { useAuth } from '../auth/AuthContext';
+import type { UserRole } from '../lib/api';
 
-type ViewMode = 'mailbox' | 'memories' | 'valley' | 'tags' | 'dream' | 'migration' | 'recycle' | 'workingSet' | 'llm' | 'integrations';
+type ViewMode = 'memories' | 'nebula' | 'tags' | 'dream' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'users';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -28,18 +31,38 @@ const LAYER_ICONS: Record<Layer, typeof Flash> = {
   entity: User,
 };
 
-const VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers }> = [
-  { mode: 'mailbox', labelKey: 'nav.mailbox', icon: Mail },
+const ALL_VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers; adminOnly?: boolean }> = [
   { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
   { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
   { mode: 'integrations', labelKey: 'nav.integrations', icon: Plug },
   { mode: 'valley', labelKey: 'nav.valley', icon: Globe },
   { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
-  { mode: 'dream', labelKey: 'nav.dream', icon: Moon },
-  { mode: 'llm', labelKey: 'nav.llm', icon: Settings },
-  { mode: 'migration', labelKey: 'nav.migration', icon: Inbox },
+  { mode: 'dream', labelKey: 'nav.dream', icon: Moon, adminOnly: true },
+  { mode: 'migration', labelKey: 'nav.migration', icon: Inbox, adminOnly: true },
+  { mode: 'organize', labelKey: 'nav.organize', icon: GitMerge, adminOnly: true },
+  { mode: 'users', labelKey: 'nav.users', icon: User, adminOnly: true },
   { mode: 'recycle', labelKey: 'nav.recycle', icon: Trash },
 ];
+
+function isAdminRole(role: UserRole | undefined): boolean {
+  return role === 'boss' || role === 'admin';
+}
+
+const ROLE_LABEL_ZH: Record<UserRole, string> = {
+  boss: '主账户',
+  exec: '主管',
+  pm: '项目经理',
+  member: '成员',
+  admin: '管理员',
+};
+
+const ROLE_LABEL_EN: Record<UserRole, string> = {
+  boss: 'Boss',
+  exec: 'Exec',
+  pm: 'PM',
+  member: 'Member',
+  admin: 'Admin',
+};
 
 function getHealthColor(score: number, reviewCount: number): string {
   if (score >= 80 && reviewCount === 0) return 'var(--success)';
@@ -86,7 +109,11 @@ export default function Sidebar({
   isMobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
-  const { t, layerLabel, layerHelp } = useI18n();
+  const { t, layerLabel, layerHelp, language } = useI18n();
+  const { user, logout } = useAuth();
+  const zh = language === 'zh';
+  const isAdmin = isAdminRole(user?.role);
+  const visibleViewItems = ALL_VIEW_ITEMS.filter((item) => !item.adminOnly || isAdmin);
   const healthReviewCount = healthReport
     ? healthReport.duplicateCount + healthReport.orphanCount + healthReport.conflictCount + healthReport.decayingCount
     : 0;
@@ -120,9 +147,16 @@ export default function Sidebar({
           <div>
           <h1 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0, lineHeight: 1.4 }}>
             KeyMemory
+            {user && (
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginLeft: 6 }}>
+                · {user.name}
+              </span>
+            )}
           </h1>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.45 }}>
-            {t('sidebar.subtitle')}
+            {user?.companyId
+              ? `${user.companyId} · ${t('sidebar.subtitle')}`
+              : t('sidebar.subtitle')}
           </p>
           </div>
         </div>
@@ -151,7 +185,7 @@ export default function Sidebar({
         <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
 
         <nav style={{ padding: '4px 8px' }}>
-          {VIEW_ITEMS.map((item) => {
+          {visibleViewItems.map((item) => {
             const isActive = viewMode === item.mode;
             const Icon = item.icon;
             return (
@@ -217,7 +251,7 @@ export default function Sidebar({
       </div>
 
       <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)' }}>
-        {healthReport !== null && (
+        {isAdmin && healthReport !== null && (
           <button
             type="button"
             className="sidebar-health"
@@ -268,13 +302,77 @@ export default function Sidebar({
           </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: user ? 10 : 0 }}>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('sidebar.language')}</span>
           <div style={{ display: 'flex', gap: 4 }}>
             <LanguageButton value="zh" label="中" />
             <LanguageButton value="en" label="EN" />
           </div>
         </div>
+
+        {user && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              padding: '8px 10px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-light)',
+              background: 'var(--surface-soft)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: '50%',
+                  background: 'linear-gradient(180deg, var(--accent), var(--accent-hover))',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                {user.name.slice(0, 1).toUpperCase()}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 650, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user.name}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {zh ? ROLE_LABEL_ZH[user.role] : ROLE_LABEL_EN[user.role]}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { void logout(); }}
+              title={zh ? '登出' : 'Log out'}
+              aria-label={zh ? '登出' : 'Log out'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 28,
+                height: 28,
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );

@@ -8,12 +8,13 @@ import type { MemorySearchOptions } from './base.js';
 interface OpenClawAdapterOptions {
   agentId: string;
   isolationMode?: IsolationMode;
+  userId?: string;
 }
 
 export function createOpenClawAdapter(options: OpenClawAdapterOptions): MemoryAdapter {
-  const ctx = createAgentContext(options.agentId, options.isolationMode ?? 'hybrid');
+  const ctx = createAgentContext(options.agentId, options.isolationMode ?? 'hybrid', options.userId);
   // 预计算可见空间集合，供 read/search/context-pack 等读取路径做 pre-filter
-  const accessibleSpaces = visibleSpacesFor(options.agentId, ctx.isolationMode);
+  const accessibleSpaces = visibleSpacesFor(options.agentId, ctx.isolationMode, options.userId);
 
   return {
     name: 'openclaw',
