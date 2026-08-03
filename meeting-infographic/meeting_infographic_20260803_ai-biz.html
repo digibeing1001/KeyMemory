@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>AI产品商业化与B端业务合作讨论 · 综合信息图</title>
+<style>
+:root{
+  --bg:#0f1419; --card:#1a2230; --card2:#222d3f; --border:#2d3a52;
+  --txt:#e8edf4; --txt2:#9fb0c8; --txt3:#6b7d96;
+  --cyan:#00d4ff; --amber:#ffb547; --green:#4ade80; --red:#f87171;
+  --purple:#a78bfa; --pink:#f472b6; --blue:#60a5fa;
+  --grad1:linear-gradient(135deg,#00d4ff 0%,#0099cc 100%);
+  --grad2:linear-gradient(135deg,#ffb547 0%,#ff7e5f 100%);
+  --grad3:linear-gradient(135deg,#4ade80 0%,#22c55e 100%);
+  --grad4:linear-gradient(135deg,#a78bfa 0%,#7c3aed 100%);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;line-height:1.7;font-size:15px;overflow-x:hidden}
+.wrap{max-width:1180px;margin:0 auto;padding:12px}
+/* Hero */
+.hero{position:relative;border-radius:18px;overflow:hidden;margin-bottom:14px;border:1px solid var(--border)}
+.hero-img{width:100%;height:180px;object-fit:cover;display:block;opacity:.55}
+.hero-overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,20,25,.3) 0%,rgba(15,20,25,.92) 70%,var(--bg) 100%);display:flex;flex-direction:column;justify-content:flex-end;padding:18px}
+.hero-tag{display:inline-block;background:rgba(0,212,255,.15);border:1px solid rgba(0,212,255,.4);color:var(--cyan);font-size:11px;padding:3px 10px;border-radius:20px;margin-bottom:8px;width:fit-content}
+.hero h1{font-size:21px;font-weight:700;letter-spacing:.5px;line-height:1.35}
+.hero-meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:8px;font-size:12px;color:var(--txt2)}
+.hero-meta span{display:flex;align-items:center;gap:4px}
+/* Conclusion */
+.conclusion{background:linear-gradient(135deg,#16202e 0%,#1e2a3d 100%);border:1px solid var(--cyan);border-radius:16px;padding:18px;margin-bottom:14px;position:relative}
+.conclusion::before{content:"结论先行";position:absolute;top:-10px;left:16px;background:var(--bg);color:var(--cyan);font-size:11px;font-weight:700;padding:2px 12px;border:1px solid var(--cyan);border-radius:12px}
+.conclusion p{font-size:14px;color:var(--txt);margin-bottom:10px}
+.conclusion p:last-child{margin-bottom:0}
+.conclusion .hl{color:var(--amber);font-weight:600}
+.conclusion .hl2{color:var(--cyan);font-weight:600}
+.conclusion .hl3{color:var(--green);font-weight:600}
+/* Grid */
+.grid{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:760px){.grid{grid-template-columns:1fr 1fr}.full{grid-column:1/-1}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;position:relative;overflow:hidden}
+.card-h{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.card-h .ico{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.card-h h2{font-size:15px;font-weight:700;color:var(--txt)}
+.card-h .num{font-size:11px;color:var(--txt3);margin-left:auto;background:var(--card2);padding:2px 8px;border-radius:10px}
+/* Logic flow */
+.flow{display:flex;flex-direction:column;gap:8px}
+.flow-item{display:flex;align-items:flex-start;gap:10px}
+.flow-dot{width:10px;height:10px;border-radius:50%;background:var(--cyan);flex-shrink:0;margin-top:6px;box-shadow:0 0 8px rgba(0,212,255,.5)}
+.flow-item:nth-child(even) .flow-dot{background:var(--amber);box-shadow:0 0 8px rgba(255,181,71,.5)}
+.flow-text{font-size:13px;color:var(--txt2)}
+.flow-text b{color:var(--txt)}
+.flow-arrow{text-align:center;color:var(--txt3);font-size:14px;margin:-4px 0}
+/* Core items */
+.ci{margin-bottom:12px;padding:10px 12px;background:var(--card2);border-radius:10px;border-left:3px solid var(--cyan)}
+.ci:nth-child(even){border-left-color:var(--amber)}
+.ci-t{font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px}
+.ci-d{font-size:12px;color:var(--txt2)}
+.ci-d .tag{display:inline-block;font-size:10px;padding:1px 6px;border-radius:6px;margin-right:4px}
+/* Emotion */
+.emo{display:flex;flex-direction:column;gap:10px}
+.emo-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.emo-name{font-size:13px;font-weight:700;min-width:60px}
+.emo-bar{flex:1;height:8px;background:var(--card2);border-radius:4px;overflow:hidden;min-width:80px}
+.emo-fill{height:100%;border-radius:4px;transition:width .5s}
+.emo-label{font-size:11px;color:var(--txt2)}
+.power-box{margin-top:10px;padding:10px;background:var(--card2);border-radius:10px;font-size:12px;color:var(--txt2)}
+.power-box b{color:var(--purple)}
+/* Decisions */
+.dec{display:flex;gap:8px;padding:10px 12px;background:var(--card2);border-radius:10px;margin-bottom:8px;align-items:flex-start;flex-wrap:wrap}
+.dec-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;flex-shrink:0}
+.badge-new{background:rgba(74,222,128,.2);color:var(--green);border:1px solid rgba(74,222,128,.4)}
+.badge-cont{background:rgba(96,165,250,.2);color:var(--blue);border:1px solid rgba(96,165,250,.4)}
+.badge-done{background:rgba(167,139,250,.2);color:var(--purple);border:1px solid rgba(167,139,250,.4)}
+.badge-delay{background:rgba(248,113,113,.2);color:var(--red);border:1px solid rgba(248,113,113,.4)}
+.badge-p0{background:rgba(248,113,113,.25);color:var(--red);border:1px solid rgba(248,113,113,.5)}
+.badge-p1{background:rgba(255,181,71,.25);color:var(--amber);border:1px solid rgba(255,181,71,.5)}
+.badge-p2{background:rgba(96,165,250,.25);color:var(--blue);border:1px solid rgba(96,165,250,.5)}
+.dec-text{font-size:12px;color:var(--txt2);flex:1;min-width:140px}
+.dec-text b{color:var(--txt)}
+/* Divergence */
+.div-item{padding:10px 12px;background:var(--card2);border-radius:10px;margin-bottom:8px;border-left:3px solid var(--red)}
+.div-item.warn{border-left-color:var(--amber)}
+.div-t{font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sev{font-size:10px;padding:1px 6px;border-radius:4px}
+.sev-h{background:rgba(248,113,113,.2);color:var(--red)}
+.sev-m{background:rgba(255,181,71,.2);color:var(--amber)}
+.sev-l{background:rgba(96,165,250,.2);color:var(--blue)}
+.div-d{font-size:12px;color:var(--txt2)}
+/* Contribution */
+.contrib{display:flex;flex-direction:column;gap:12px}
+.contrib-row{display:flex;flex-direction:column;gap:4px}
+.contrib-top{display:flex;justify-content:space-between;align-items:center}
+.contrib-name{font-size:13px;font-weight:700}
+.contrib-val{font-size:11px;color:var(--txt2)}
+.contrib-bar{height:10px;background:var(--card2);border-radius:5px;overflow:hidden}
+.contrib-fill{height:100%;border-radius:5px;background:var(--grad1)}
+.contrib-fill.f2{background:var(--grad2)}
+.contrib-fill.f3{background:var(--grad4)}
+.contrib-note{font-size:11px;color:var(--txt3);margin-top:2px}
+/* Timeline */
+.tl{position:relative;padding-left:20px}
+.tl::before{content:"";position:absolute;left:5px;top:4px;bottom:4px;width:2px;background:linear-gradient(180deg,var(--cyan),var(--amber),var(--purple))}
+.tl-item{position:relative;margin-bottom:14px;padding-left:8px}
+.tl-item::before{content:"";position:absolute;left:-19px;top:5px;width:10px;height:10px;border-radius:50%;background:var(--card);border:2px solid var(--cyan)}
+.tl-item:nth-child(even)::before{border-color:var(--amber)}
+.tl-item:nth-child(3n)::before{border-color:var(--purple)}
+.tl-date{font-size:11px;color:var(--cyan);font-weight:700}
+.tl-title{font-size:13px;color:var(--txt);font-weight:600;margin:2px 0}
+.tl-desc{font-size:11px;color:var(--txt2)}
+.tl-link{font-size:11px;color:var(--txt3);margin-top:2px}
+/* Progress */
+.prog{display:flex;flex-direction:column;gap:10px}
+.prog-item{display:flex;flex-direction:column;gap:3px}
+.prog-top{display:flex;justify-content:space-between;align-items:center;font-size:12px}
+.prog-name{font-weight:600;color:var(--txt)}
+.prog-status{font-size:10px;padding:1px 6px;border-radius:4px}
+.st-up{background:rgba(74,222,128,.2);color:var(--green)}
+.st-dn{background:rgba(248,113,113,.2);color:var(--red)}
+.st-new{background:rgba(0,212,255,.2);color:var(--cyan)}
+.st-flat{background:rgba(255,181,71,.2);color:var(--amber)}
+.prog-bar{height:6px;background:var(--card2);border-radius:3px;overflow:hidden}
+.prog-fill{height:100%;border-radius:3px}
+.prog-detail{font-size:11px;color:var(--txt3)}
+/* First principles */
+.fp{display:flex;flex-direction:column;gap:10px}
+.fp-topic{font-size:13px;font-weight:700;color:var(--amber);padding:8px 12px;background:rgba(255,181,71,.1);border-radius:8px;border:1px solid rgba(255,181,71,.3)}
+.fp-cols{display:grid;grid-template-columns:1fr;gap:8px}
+@media(min-width:560px){.fp-cols{grid-template-columns:1fr 1fr 1fr}}
+.fp-col{padding:10px;border-radius:10px;font-size:11px}
+.fp-col.exp{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25)}
+.fp-col.truth{background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.25)}
+.fp-col.recon{background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25)}
+.fp-col h4{font-size:11px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.fp-col.exp h4{color:var(--red)}
+.fp-col.truth h4{color:var(--cyan)}
+.fp-col.recon h4{color:var(--green)}
+.fp-col p{color:var(--txt2);line-height:1.6}
+/* Insight */
+.insight{display:flex;flex-direction:column;gap:10px}
+.ins-item{padding:12px;background:var(--card2);border-radius:10px;border-left:3px solid var(--purple)}
+.ins-item:nth-child(even){border-left-color:var(--pink)}
+.ins-src{font-size:10px;color:var(--txt3);margin-bottom:4px;display:flex;gap:4px;flex-wrap:wrap}
+.ins-src span{background:var(--card);padding:1px 6px;border-radius:4px}
+.ins-text{font-size:13px;color:var(--txt);line-height:1.7}
+.ins-text b{color:var(--amber)}
+.ins-text .cy{color:var(--cyan)}
+/* Footer */
+.foot{text-align:center;padding:16px 0 8px;color:var(--txt3);font-size:11px}
+@media(max-width:759px){
+  .hero h1{font-size:18px}
+  .conclusion p{font-size:13px}
+  body{font-size:14px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- Hero -->
+<div class="hero">
+  <img class="hero-img" src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Abstract%20modern%20visualization%20of%20AI%20business%20strategy%20meeting%20analysis%2C%20dark%20navy%20gradient%20with%20glowing%20cyan%20and%20amber%20data%20flow%20lines%20connecting%20nodes%2C%20minimalist%20geometric%20shapes%2C%20interconnected%20hexagons%20and%20upward%20trend%20arrows%2C%20premium%20tech%20aesthetic%2C%20no%20text%2C%20professional%20infographic%20style&image_size=square" alt="">
+  <div class="hero-overlay">
+    <span class="hero-tag">工作会议 · 1小时 · 3人</span>
+    <h1>AI产品商业化与B端业务合作讨论</h1>
+    <div class="hero-meta">
+      <span>2026-08-03 13:42</span>
+      <span>项目：AI B端商业化 / 研究所 / FDE</span>
+      <span>历史回溯：07-11 ~ 08-03</span>
+    </div>
+  </div>
+</div>
+
+<!-- 1. 结论先行 -->
+<div class="conclusion">
+  <p><span class="hl2">核心判断</span>：本场会议确立了 AI 商业化的主攻方向——<span class="hl">聚焦中小企业、整合第三方产品、不做自研</span>。判断依据是"AI 领域只有 B 端能赚钱，C 端绝对赚不了"，而中小企业对 AI 认知少、信任本地服务商、大厂服务不了，恰好是我方的天然机会窗口。</p>
+  <p><span class="hl">关键决策</span>：① AI 课程授权模式落地——教培机构 5 万/年买断课程体系，真正盈利点在 WorkBuddy 账户售卖；② 邀请对方挂名研究所专家，将合作关系从"认识"升级为"共谋"；③ 建议对方从大企业 B 端（白泽项目，学校抽成 20%）转向中小企业市场。</p>
+  <p><span class="hl3">权力动态</span>：我方全程主导（方案输出+资源整合+方向建议），对方处于困境分享者角色。邀请挂名是建立利益共同体的关键动作——把对方从"业务伙伴"拉入"研究所共建者"。</p>
+  <p><span class="hl">情绪脉络</span>：对方带着大企业 B 端的利润焦虑进入对话（流程长、抽成高、利润低），经我方拆解中小企业市场逻辑后获得方向感。会议的情绪曲线从"困惑焦虑"转向"豁然清晰"。</p>
+  <p><span class="hl3">历史推进</span>：研究所从 07-11 的定位构想，到 07-31 的 51/49 股权框架，到今日"注册资料递交中"——<span class="hl2">虚拟设想正在长出实体骨架</span>。但所有进展停在"谈妥"未落在"办完"，注册动作是当前最高优先级阻塞项。</p>
+  <p><span class="hl2">最需关注</span>：历史待办"约见老师+要简历"（07-31 提出）至今日仍未落地，而研究所专家名单、机器人项目链条都在等这一步。没有债主的事最容易黄。</p>
+</div>
+
+<div class="grid">
+
+<!-- 2. 核心事项与核心观点 -->
+<div class="card full">
+  <div class="card-h"><div class="ico" style="background:var(--grad1)">📋</div><h2>核心事项与核心观点</h2><span class="num">02</span></div>
+  <div class="grid" style="gap:10px">
+    <div class="ci"><div class="ci-t">AI 记忆眼镜（李未可 × WorkBuddy）</div><div class="ci-d">镜面不显示内容，核心功能为录音；摄像头可取下，声纹触发自动录音；通过语义搜索实现连续记忆，内容同步至 WorkBuddy。产品方向最初由我方提出。</div></div>
+    <div class="ci"><div class="ci-t">AI 教育研究中心 · 课程授权模式</div><div class="ci-d"><span class="tag" style="background:rgba(74,222,128,.2);color:var(--green)">新确立</span>与高校共建研究中心，面向教培机构开放课程授权。<b>5 万/年/机构</b>买断全部课程体系，次年更新需重新购买。真正盈利点：WorkBuddy 账户售卖（198 元/2000 点，有折扣空间）。</div></div>
+    <div class="ci"><div class="ci-t">B 端 AI 录音卡定价策略</div><div class="ci-d"><b>1000 元/年</b>含硬件+软件，无限次转写。本地 64G 存储，转写后音频删除、文字同步云端。对标：得到大脑 299 元/年、Plaud 1299+899 元/年。华强北已能仿制硬件，但 B 端看重品牌和长期服务。</div></div>
+    <div class="ci"><div class="ci-t">深圳市新技术应用研究所筹备</div><div class="ci-d">民政注册中，与深圳因大产业研究院合作。<b>51%/49% 股权</b>（领导方/管理团队）。双业务线：AI 教培（联合学校）+ 企业 AI 产品评测。邀请对方挂名专家。注册资料正在递交。</div></div>
+    <div class="ci"><div class="ci-t">中小企业市场聚焦策略</div><div class="ci-d"><span class="tag" style="background:rgba(0,212,255,.2);color:var(--cyan)">核心战略</span>人力密集型中小企业（家政、物业）需求最强：人员流动大→业务断层→老板需 AI 沉淀数据。无研发成本→利润反比大企业更高。大厂服务不了→我方有本地渠道优势。</div></div>
+    <div class="ci"><div class="ci-t">第三方产品整合 · 不造轮子</div><div class="ci-d">不自研产品，收拢厂商资源整合第三方。活动上课不收广告费，要求厂商用产品（录音卡/token/硬件）抵扣，再通过闲鱼变现。大小厂商都配合：小厂要销路，大厂要下沉中小企业市场。</div></div>
+    <div class="ci"><div class="ci-t">数字人心理疏导产品迭代</div><div class="ci-d">面向学校/监狱，仓型放置。模型从豆包（授课场景走不通）→ 更换为阁楼（垂直心理领域）。厂商只做技术不做销售，我方对接行业客户。<span class="tag" style="background:rgba(96,165,250,.2);color:var(--blue)">延续 07-24</span></div></div>
+    <div class="ci"><div class="ci-t">FDE 前端部署逻辑</div><div class="ci-d">B 端 AI 无法标准化铺货，需按企业需求定制开发 skill。前端依赖 FDE（前端部署工程师）完成落地。中小企业不关注数据隐私，大企业需私有部署（我方不做）。</div></div>
+  </div>
+</div>
+
+<!-- 3. 关键逻辑梳理 -->
+<div class="card">
+  <div class="card-h"><div class="ico" style="background:var(--grad2)">🔗</div><h2>关键逻辑梳理</h2><span class="num">03</span></div>
+  <div class="flow">
+    <div class="flow-item"><div class="flow-dot"></div><div class="flow-text"><b>行业判断</b>：AI 只有 B 端能赚钱，C 端功能同质化严重、华强北可复制</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-item"><div class="flow-dot"></div><div class="flow-text"><b>市场选择</b>：大企业找大厂，中小企业找不到服务 → <b>中小企业是被忽视的蓝海</b></div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-item"><div class="flow-dot"></div><div class="flow-text"><b>需求本质</b>：人力密集型企业最大成本是人力流失 → AI 沉淀业务数据 = 降低流失风险</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-item"><div class="flow-dot"></div><div class="flow-text"><b>产品策略</b>：不自研，整合第三方现成产品 → API 对接简单，收拢厂商资源建门槛</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-item"><div class="flow-dot"></div><div class="flow-text"><b>交付路径</b>：非标需求 → FDE 定制 skill → 前端部署落地</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-item"><div class="flow-dot"></div><div class="flow-text"><b>获客转化</b>：商会课程（建认知）→ 企业咨询诊断 → AI 产品落地订单</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-item"><div class="flow-dot"></div><div class="flow-text"><b>终极资产</b>：AI 工具会被替代，<b>沉淀的企业业务记忆才是最值钱的核心资产</b></div></div>
+  </div>
+</div>
+
+<!-- 4. 情绪转变与权力动态 -->
+<div class="card">
+  <div class="card-h"><div class="ico" style="background:var(--grad4)">🎭</div><h2>情绪转变与权力动态</h2><span class="num">04</span></div>
+  <div class="emo">
+    <div class="emo-row">
+      <div class="emo-name">我方</div>
+      <div class="emo-bar"><div class="emo-fill" style="width:90%;background:var(--grad1)"></div></div>
+      <div class="emo-label">自信·主导</div>
+    </div>
+    <div class="emo-row">
+      <div class="emo-name">对方·前段</div>
+      <div class="emo-bar"><div class="emo-fill" style="width:35%;background:var(--grad2)"></div></div>
+      <div class="emo-label">焦虑·困惑</div>
+    </div>
+    <div class="emo-row">
+      <div class="emo-name">对方·后段</div>
+      <div class="emo-bar"><div class="emo-fill" style="width:75%;background:var(--grad3)"></div></div>
+      <div class="emo-label">清晰·认同</div>
+    </div>
+  </div>
+  <div class="power-box">
+    <p style="margin-bottom:6px"><b>权力动态</b></p>
+    <p>• <b>主导者</b>：我方——方案输出、资源整合、方向建议、邀请挂名</p>
+    <p>• <b>被动者</b>：对方——分享困境（白泽项目 20% 抽成、大企业流程长），接受建议</p>
+    <p>• <b>联盟动作</b>：邀请挂名研究所专家 = 把对方从"业务伙伴"拉入"利益共同体"</p>
+    <p>• <b>缺席关键人</b>：老师（待约见）—— 研究所专家名单的关键拼图</p>
+    <p style="margin-top:6px;color:var(--txt3)">意图识别：我方意图是锁定合作者+推进研究所注册；对方意图是寻找盈利方向，摆脱大企业 B 端低利润困境。</p>
+  </div>
+</div>
+
+<!-- 5. 决策与待办 -->
+<div class="card full">
+  <div class="card-h"><div class="ico" style="background:var(--grad3)">✅</div><h2>决策与待办（结合历史）</h2><span class="num">05</span></div>
+  <div class="grid" style="gap:8px">
+    <div class="dec"><span class="dec-badge badge-new">新决策</span><span class="dec-badge badge-p0">P0</span><div class="dec-text"><b>完成研究所注册资料递交</b>——阻塞后续所有业务（专家挂名、教培、评测），从 07-31 延续至今</div></div>
+    <div class="dec"><span class="dec-badge badge-new">新决策</span><span class="dec-badge badge-p0">P0</span><div class="dec-text"><b>修改财务文档日期（14 号→23 号）并发送给对方</b>——具体事务，需立即执行</div></div>
+    <div class="dec"><span class="dec-badge badge-cont">延续</span><span class="dec-badge badge-p1">P1</span><div class="dec-text"><b>邀请对方挂名研究所专家</b>——建立利益共同体，将合作从"认识"升级为"共谋"</div></div>
+    <div class="dec"><span class="dec-badge badge-cont">延续</span><span class="dec-badge badge-p1">P1</span><div class="dec-text"><b>约见老师 + 要简历</b>——07-31 周报提出的唯一后续动作，至今日仍未落地，整个专家链条在等这一步</div></div>
+    <div class="dec"><span class="dec-badge badge-new">新决策</span><span class="dec-badge badge-p1">P1</span><div class="dec-text"><b>建议对方转向中小企业市场</b>——从白泽大企业 B 端（20% 抽成）转向中小企业（无研发、利润更高）</div></div>
+    <div class="dec"><span class="dec-badge badge-cont">延续</span><span class="dec-badge badge-p2">P2</span><div class="dec-text"><b>推进 WorkBuddy 教育版本对接</b>——AI 课程实操环节要求使用 WorkBuddy，推动教育场景优惠版</div></div>
+    <div class="dec"><span class="dec-badge badge-cont">延续</span><span class="dec-badge badge-p2">P2</span><div class="dec-text"><b>数字人心理疏导订单跟进</b>——对接新疆监狱和多所学校，模型已从豆包换阁楼（延续 07-24）</div></div>
+    <div class="dec"><span class="dec-badge badge-cont">延续</span><span class="dec-badge badge-p2">P2</span><div class="dec-text"><b>商会 AI 课程转化路径验证</b>——每月 4 节课（周末），课程费→咨询诊断→产品订单</div></div>
+  </div>
+</div>
+
+<!-- 6. 分歧点与未决事项 -->
+<div class="card">
+  <div class="card-h"><div class="ico" style="background:var(--grad2)">⚡</div><h2>分歧点与未决事项</h2><span class="num">06</span></div>
+  <div class="div-item">
+    <div class="div-t">大企业 vs 中小企业市场方向 <span class="sev sev-h">严重</span></div>
+    <div class="div-d">对方当前以白泽为突破口做大企业 B 端（学校联合承接，20% 抽成），我方建议转向中小企业。对方未明确承诺转向——这是根本性的方向分歧，直接影响后续合作模式。</div>
+  </div>
+  <div class="div-item warn">
+    <div class="div-t">学校渠道抽成挤压利润 <span class="sev sev-m">中等</span></div>
+    <div class="div-d">走学校渠道学校抽成 20%+，大企业流程长、打通难度高，整体利润空间很低。但对方目前依赖学校渠道获取订单，短期难以完全脱离。</div>
+  </div>
+  <div class="div-item warn">
+    <div class="div-t">对方是否接受挂名邀请 <span class="sev sev-m">中等</span></div>
+    <div class="div-d">邀请对方挂名研究所专家，但对方未当场明确回应。挂名涉及权责边界，需明确对方得到什么、承担什么。</div>
+  </div>
+  <div class="div-item">
+    <div class="div-t">C 端产品是否完全放弃 <span class="sev sev-l">轻微</span></div>
+    <div class="div-d">明确判断"C 端赚不了钱"，但录音卡产品在 C 端也有市场热度（昆仑万维海外卖断货）。C 端是否完全放弃还需验证。</div>
+  </div>
+  <div class="div-item warn">
+    <div class="div-t">三条业务线未排序 <span class="sev sev-m">中等</span></div>
+    <div class="div-d">研究所、AI 培训课程、FDE 服务三条线并行推进，哪条是主链、哪条是获客渠道、手段何时交棒给目的——排序只能自己来。（延续 08-02 周报的悬而未决）</div>
+  </div>
+</div>
+
+<!-- 7. 角色贡献度 -->
+<div class="card">
+  <div class="card-h"><div class="ico" style="background:var(--grad4)">📊</div><h2>角色贡献度（历史累计）</h2><span class="num">07</span></div>
+  <div class="contrib">
+    <div class="contrib-row">
+      <div class="contrib-top"><span class="contrib-name">我方（业务发起者）</span><span class="contrib-val">92%</span></div>
+      <div class="contrib-bar"><div class="contrib-fill" style="width:92%"></div></div>
+      <div class="contrib-note">历史累计：07-11 研究所定位构想 → 07-28 隐性知识落地洞察 → 07-30 FDE 三问题框架 → 07-31 股权结构 → 08-03 课程授权模式+中小企业策略。全程主导方案输出与资源整合。</div>
+    </div>
+    <div class="contrib-row">
+      <div class="contrib-top"><span class="contrib-name">对方（合作伙伴）</span><span class="contrib-val">45%</span></div>
+      <div class="contrib-bar"><div class="contrib-fill f2" style="width:45%"></div></div>
+      <div class="contrib-note">本场贡献：分享大企业 B 端困境（白泽项目、学校抽成），提供市场一线反馈。历史累计：07-24 心理疏导 AI 产品对接，07-31 机器人项目专家牵线。贡献以信息输入和资源对接为主。</div>
+    </div>
+    <div class="contrib-row">
+      <div class="contrib-top"><span class="contrib-name">老师（关键缺席人）</span><span class="contrib-val">15%</span></div>
+      <div class="contrib-bar"><div class="contrib-fill f3" style="width:15%"></div></div>
+      <div class="contrib-note">历史贡献：师承关系信用背书潜力。待确认：07-31 提出约见至今未落地，研究所专家名单的关键拼图。贡献度取决于是否接受挂名。</div>
+    </div>
+  </div>
+</div>
+
+<!-- 8. 上下文锚点 -->
+<div class="card full">
+  <div class="card-h"><div class="ico" style="background:var(--grad1)">📌</div><h2>上下文锚点 · 议题演进脉络</h2><span class="num">08</span></div>
+  <div class="grid" style="gap:16px">
+    <div>
+      <div class="tl">
+        <div class="tl-item">
+          <div class="tl-date">07-11</div>
+          <div class="tl-title">研究所定位确立</div>
+          <div class="tl-desc">做供应链服务而非竞争者，不做产品，两条业务线（教育+企服）</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">07-12</div>
+          <div class="tl-title">研究所两条业务线及市场逻辑</div>
+          <div class="tl-desc">买方市场→卖方市场转变预判，明确"谁愿意付费"是核心问题</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">07-31</div>
+          <div class="tl-title">51/49 股权框架 + 专家挂名</div>
+          <div class="tl-desc">民非体制协议约定，站台方 51%，管理团队 49%，牵线人同意挂名</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">08-02</div>
+          <div class="tl-title">选址方向 + 分配框架</div>
+          <div class="tl-desc">深汕合作区邀请落地，初步判断日常活动放市区</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">08-03 ←本场</div>
+          <div class="tl-title">注册资料递交中 + 双业务线规划</div>
+          <div class="tl-desc">AI 教培（联合学校）+ 企业 AI 产品评测，邀请对方挂名专家</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="tl">
+        <div class="tl-item">
+          <div class="tl-date">07-12</div>
+          <div class="tl-title">AI 少儿教培项目洽谈</div>
+          <div class="tl-desc">早期 AI 教培创业讨论，先做一线市场调研再推进</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">07-20</div>
+          <div class="tl-title">AI 教育课程校企合作</div>
+          <div class="tl-desc">深职大合作，AI 普惠教育教研中心框架，李未可眼镜首次介绍</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">08-03 ←本场</div>
+          <div class="tl-title">课程授权模式确立（5 万/年）</div>
+          <div class="tl-desc">教培机构买断课程体系，WorkBuddy 账户为额外盈利点</div>
+        </div>
+      </div>
+      <div class="tl" style="margin-top:14px">
+        <div class="tl-item">
+          <div class="tl-date">07-24</div>
+          <div class="tl-title">心理疏导 AI 产品对接</div>
+          <div class="tl-desc">AI 心理疏导舱，面向中小学/政府，自研垂直模型</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">08-03 ←本场</div>
+          <div class="tl-title">模型迭代 + 订单推进</div>
+          <div class="tl-desc">豆包→阁楼模型，对接新疆监狱和学校订单</div>
+        </div>
+      </div>
+      <div class="tl" style="margin-top:14px">
+        <div class="tl-item">
+          <div class="tl-date">07-28</div>
+          <div class="tl-title">隐性知识密集型场景是 AI 最应落地</div>
+          <div class="tl-desc">人力密集型企业 AI 边际收益大（30→60 分）vs 流程企业（80→90 分）</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">07-30</div>
+          <div class="tl-title">FDE 三问题 + 模块化中台</div>
+          <div class="tl-desc">采集活数据→搭知识库→转化经营工具；模块化中台+供应商分工</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">08-03 ←本场</div>
+          <div class="tl-title">FDE 前端部署 + skill 定制</div>
+          <div class="tl-desc">B 端非标需 FDE 定制 skill 落地，中小企业不关注隐私</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 9. 项目进度演进 -->
+<div class="card">
+  <div class="card-h"><div class="ico" style="background:var(--grad3)">📈</div><h2>项目进度演进</h2><span class="num">09</span></div>
+  <div class="prog">
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">研究所注册</span><span class="prog-status st-up">推进中</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:60%;background:var(--grad3)"></div></div>
+      <div class="prog-detail">07-11 定位构想 → 07-31 股权框架 → 08-02 选址 → 08-03 注册资料递交中（尚未办完）</div>
+    </div>
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">AI 课程授权模式</span><span class="prog-status st-up">推进</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:65%;background:var(--grad3)"></div></div>
+      <div class="prog-detail">07-12 教培讨论 → 07-20 校企合作 → 08-03 5 万/年授权模式确立 + WorkBuddy 盈利点</div>
+    </div>
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">中小企业市场策略</span><span class="prog-status st-new">新增·重大</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:40%;background:var(--grad1)"></div></div>
+      <div class="prog-detail">08-03 首次明确聚焦中小企业——大厂服务不了、无研发成本利润更高、人力密集型需求最强</div>
+    </div>
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">大企业 B 端业务</span><span class="prog-status st-dn">回退/转向</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:25%;background:var(--red)"></div></div>
+      <div class="prog-detail">白泽项目学校抽成 20%、流程长、利润低 → 建议对方转向中小企业（对方未承诺）</div>
+    </div>
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">数字人心理疏导</span><span class="prog-status st-up">推进</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:55%;background:var(--grad3)"></div></div>
+      <div class="prog-detail">07-24 产品对接 → 08-03 模型迭代（豆包→阁楼）+ 对接新疆监狱和学校订单</div>
+    </div>
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">第三方产品整合</span><span class="prog-status st-up">推进</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:50%;background:var(--grad3)"></div></div>
+      <div class="prog-detail">07-11 不做产品定位 → 08-03 明确收拢厂商资源、产品抵广告费、API 对接</div>
+    </div>
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">FDE 落地体系</span><span class="prog-status st-flat">框架成型</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:45%;background:var(--grad2)"></div></div>
+      <div class="prog-detail">07-28 隐性知识 → 07-30 三问题+中台 → 08-03 FDE 前端部署+skill 定制（框架完整，落地待验证）</div>
+    </div>
+    <div class="prog-item">
+      <div class="prog-top"><span class="prog-name">约见老师（专家链条）</span><span class="prog-status st-flat">停滞</span></div>
+      <div class="prog-bar"><div class="prog-fill" style="width:10%;background:var(--amber)"></div></div>
+      <div class="prog-detail">07-31 提出至今未落地——要简历+发约见时间是唯一后续动作，全链条在等</div>
+    </div>
+  </div>
+</div>
+
+<!-- 10. 第一性原理解读 -->
+<div class="card full">
+  <div class="card-h"><div class="ico" style="background:var(--grad4)">🔬</div><h2>第一性原理解读</h2><span class="num">10</span></div>
+  <div class="fp">
+    <div class="fp-topic">议题一：B 端 AI 录音卡 1000 元/年定价是否合理？</div>
+    <div class="fp-cols">
+      <div class="fp-col exp">
+        <h4>✕ 经验假设</h4>
+        <p>对标得到大脑 299 元/年、Plaud 1299+899 元/年，1000 元/年"居中"所以合理。行业惯例是硬件+年费打包。</p>
+      </div>
+      <div class="fp-col truth">
+        <h4>◆ 底层真相</h4>
+        <p>硬件边际成本趋近华强北水平（64G 存储+麦克风+芯片，BOM 可压至百元级）。转写 API 按量计费（几元/小时）。真正成本不在硬件，在 B 端非标服务（FDE 定制 skill）。"无限次转写"的承诺意味着转写成本随使用量线性增长，重度用户会亏损。</p>
+      </div>
+      <div class="fp-col recon">
+        <h4>→ 重构方案</h4>
+        <p>C 端按转写时长计费（成本+合理利润，避免重度用户亏损）。B 端按服务打包定价——硬件接近免费赠送，核心收"知识库整理+FDE 落地服务"费。1000 元/年不是卖硬件，是卖"非标定制服务"的入场券。重构后：硬件免费 → 服务收费 → 按企业规模阶梯定价。</p>
+      </div>
+    </div>
+    <div class="fp-topic" style="margin-top:6px">议题二：中小企业 AI 需求是否真实存在？</div>
+    <div class="fp-cols">
+      <div class="fp-col exp">
+        <h4>✕ 经验假设</h4>
+        <p>"中小企业没钱，大企业才有需求有预算"——行业普遍认为 AI 落地要先打大客户标杆。</p>
+      </div>
+      <div class="fp-col truth">
+        <h4>◆ 底层真相</h4>
+        <p>人力密集型中小企业最大成本是人力（工资+管理+流失风险）。AI 沉淀业务数据 = 降低人力依赖 = 直接降成本。大企业流程固化、AI 边际收益递减（80→90 分）；中小企业基础低、AI 边际收益大（30→60 分）。付费意愿取决于"省多少钱"，不取决于"企业规模"。</p>
+      </div>
+      <div class="fp-col recon">
+        <h4>→ 重构方案</h4>
+        <p>不按企业规模分，按"人力密度 × 隐性知识含量"分。人力密集+隐性知识多的中小企业（家政、物业、维修）才是真需求方——为"降低人力流失风险"付费意愿最强。重构后：目标客户 = 员工数 > 30 + 业务依赖个人经验 + 流失成本高。这类企业一个员工流失损失 > 一年 AI 服务费。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 11. 多维度综合洞察 -->
+<div class="card full">
+  <div class="card-h"><div class="ico" style="background:var(--grad2)">💡</div><h2>多维度综合洞察</h2><span class="num">11</span></div>
+  <div class="insight">
+    <div class="ins-item">
+      <div class="ins-src"><span>散念录音卡 08-03</span><span>会议内容</span></div>
+      <div class="ins-text">会议中"老板核心需求是管控员工、沉淀业务数据"，与同日散念<b>"企业端产品设计思路：从管控到知识整合"</b>完全呼应——钉钉卖管控（满足老板不安全感），飞书卖整合（经验+流程+数据）。我方产品定位应同时覆盖两者：<span class="cy">采集硬件接入知识库 + Agent 按规则处理 + 老板前端看板</span>。管控是入口，知识整合才是留存。</div>
+    </div>
+    <div class="ins-item">
+      <div class="ins-src"><span>散念录音卡 07-28</span><span>会议内容</span></div>
+      <div class="ins-text">07-28 散念提出"隐性知识密集型场景才是 AI 最应落地"，本场会议将其落地为具体客户画像——<b>人力密集型中小企业</b>。两周内从洞察到策略：流程化企业 AI 是 80→90 分优化，人力密集型企业是 30→60 分能力补位。<span class="cy">边际收益决定付费意愿，不是技术先进性。</span></div>
+    </div>
+    <div class="ins-item">
+      <div class="ins-src"><span>散念录音卡 07-30</span><span>会议内容</span></div>
+      <div class="ins-text">07-30 散念"FDE 三问题"（采集活数据→搭知识库→转化经营工具）在本场会议得到商业验证：录音卡=采集入口，WorkBuddy=知识库，老板看板=经营工具。<b>散念里的方法论框架，正在变成可售卖的产品矩阵。</b></div>
+    </div>
+    <div class="ins-item">
+      <div class="ins-src"><span>散念录音卡 08-03</span><span>历史周报</span></div>
+      <div class="ins-text">同日散念"商周族群凝聚力"提出"任何族群维系内部凝聚力需在外部树立敌人"。投射到本场会议的权力动态：邀请对方挂名=建立"我们"（研究所共建者）vs"他们"（未合作者）的边界。<span class="cy">联盟的本质是共同定义外部对手——大厂服务不了的中小企业市场，就是我方联盟的"外部领地"。</span></div>
+    </div>
+    <div class="ins-item">
+      <div class="ins-src"><span>收藏文章 08-02</span><span>会议内容</span></div>
+      <div class="ins-text">08-02 收藏的 FDE 行业报告指出"FDE 是六边形战士，市场凤毛麟角"，本场会议给出了破局路径——<b>不做全栈 FDE，做模块化中台+供应商分工</b>（延续 07-30 散念）。行业说 FDE 稀缺是因为工具不够成熟；我方判断工具成熟后门槛会降，<span class="cy">所以现在卖服务，未来卖工具——时间差就是利润窗口。</span></div>
+    </div>
+    <div class="ins-item">
+      <div class="ins-src"><span>历史周报 08-02</span><span>会议内容</span></div>
+      <div class="ins-text">08-02 周报核心判断"想法不值钱，结构才值钱——结构是想法被利益相关者确认过的样子"。本场会议正是"结构化"过程：5 万/年授权（价格结构）、51/49 股权（权力结构）、挂名邀请（联盟结构）。<b>但周报也指出"所有进展停在谈妥未办完"——注册动作是检验结构能否落地的第一块试金石。</b></div>
+    </div>
+    <div class="ins-item">
+      <div class="ins-src"><span>散念录音卡 07-11</span><span>会议内容</span></div>
+      <div class="ins-text">07-11 散念"研究所在 AI 产业链中做供应链服务而非竞争者"，本场会议将其具体化为"收拢厂商资源、不造轮子、API 对接"。从定位到执行时隔 23 天——<span class="cy">定位不变，但执行路径从"抽象理念"变成了"产品抵广告费+闲鱼变现"的具体操作。</span></div>
+    </div>
+    <div class="ins-item">
+      <div class="ins-src"><span>散念录音卡 08-01</span><span>会议内容</span></div>
+      <div class="ins-text">08-01 散念"中国经验半衰期越来越短，过去认为不可能的事两三个月就被颠覆"。本场会议的"预装 APP 盈利判断"和"华强北已能仿制录音卡"印证了这一点——<b>任何基于技术领先的产品定价都不可持续，只有渠道和业务记忆沉淀才是时间的朋友。</b></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /grid -->
+<div class="foot">AI B端商业化 / 研究所 / FDE 项目集群 · 综合分析结合 07-11 ~ 08-03 全量历史</div>
+</div><!-- /wrap -->
+</body>
+</html>
