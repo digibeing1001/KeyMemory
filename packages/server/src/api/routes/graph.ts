@@ -6,9 +6,23 @@ import { getDatabase } from '../../db/sqlite.js';
 import { ensureEmbedding } from '../../core/query.js';
 import { listEntities, getEntityGraph, extractEntities, ensureEntity, linkMemoryEntity } from '../../graph/entity.js';
 import { cleanTag, isMeaningfulTag } from '../../core/memory-schema.js';
-import { callerIsAdminOrAnonymous, getCaller, isPlaceholderProjectName, safeParseTags } from './shared.js';
+import { callerIsAdminOrAnonymous, getCaller, isPlaceholderProjectName, requireAdmin, safeParseTags } from './shared.js';
 
 export function registerGraphRoutes(app: FastifyInstance): void {
+  /**
+   * KM-407：弱边剪枝——批量删除 strength 低于阈值的关系边（默认仅 relates_to，
+   * 即共现/弱关联；supersedes 等强语义边不受影响）。限 admin。
+   */
+  app.post('/api/graph/prune-weak-edges', async (request, reply) => {
+    if (!requireAdmin(reply, getCaller(request))) return;
+    const body = (request.body ?? {}) as { minStrength?: number; relationType?: string };
+    const minStrength = typeof body.minStrength === 'number' ? Math.max(0, Math.min(1, body.minStrength)) : 0.2;
+    const relationType = body.relationType ?? 'relates_to';
+    const db = getDatabase();
+    const result = db.prepare('DELETE FROM memory_relations WHERE relation_type = ? AND strength < ?').run(relationType, minStrength);
+    return { pruned: result.changes, relationType, minStrength };
+  });
+
   app.post('/api/embeddings/rebuild-all', async () => {
     const db = getDatabase();
     const memories = db.prepare(`

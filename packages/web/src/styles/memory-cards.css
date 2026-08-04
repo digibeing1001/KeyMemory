@@ -1,0 +1,301 @@
+/* KM-402：从 index.css 拆出的分区样式（类名保持不变） */
+/* === 记忆卡片 === */
+.memory-card {
+  position: relative;
+  background: color-mix(in srgb, var(--surface-raised) 84%, transparent);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 13px 16px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.68) inset;
+  transition: transform var(--transition), background var(--transition), border-color var(--transition), box-shadow var(--transition);
+  cursor: pointer;
+  color: inherit;
+}
+
+.memory-card:hover {
+  transform: translateY(-1px);
+  background: var(--surface-raised);
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.memory-card.selected {
+  background: linear-gradient(180deg, var(--surface-raised), color-mix(in srgb, var(--bg-selected) 28%, var(--surface-raised)));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  box-shadow: var(--shadow-raised);
+}
+
+.memory-card.selected::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.memory-card:active {
+  transform: translateY(0);
+  background: var(--surface-recessed);
+  box-shadow: var(--shadow-inset);
+}
+
+.memory-card.memory-list-item .card-indicator {
+  width: 3px;
+  border-radius: 2px;
+  align-self: stretch;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.34) inset;
+}
+
+.memory-card .card-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memory-card .card-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.memory-card .card-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 1180px) {
+  .memory-detail-panel.is-compact {
+    width: min(380px, 42vw) !important;
+  }
+
+  .memory-detail-panel.is-wide {
+    width: min(520px, 48vw) !important;
+  }
+
+  .timeline-panel {
+    width: min(300px, 34vw) !important;
+  }
+
+  .memory-list-shell > div {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
+
+@media (max-width: 1080px) and (min-width: 901px) {
+  .app-content-row {
+    flex-direction: column;
+    overflow-y: auto !important;
+  }
+
+  .memory-list-shell {
+    overflow-y: visible !important;
+  }
+
+  .timeline-panel {
+    display: none;
+  }
+
+  .memory-detail-panel {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+  }
+
+  .dream-view > header {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .dream-header-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-layout {
+    height: 100dvh !important;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .app-sidebar {
+    position: fixed !important;
+    inset: 0 auto 0 0;
+    width: min(320px, 84vw) !important;
+    height: 100dvh !important;
+    max-height: none;
+    overflow: hidden;
+    transform: translateX(-104%);
+    transition: transform var(--transition);
+    z-index: 80;
+    box-shadow: 22px 0 44px rgba(45, 38, 27, 0.18);
+  }
+
+  .app-sidebar.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .mobile-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    border: none;
+    background: rgba(37, 32, 24, 0.22);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition);
+  }
+
+  .mobile-sidebar-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-nav-button,
+  .sidebar-mobile-close {
+    display: inline-flex;
+  }
+
+  .app-main {
+    margin-left: 0 !important;
+    min-width: 0;
+    height: 100dvh;
+  }
+
+  .app-main > header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    height: auto !important;
+    min-height: 58px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    overflow: hidden;
+  }
+
+  .app-main > header > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .app-main > header form {
+    max-width: none !important;
+  }
+
+  .app-content-row {
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .app-content-row > * {
+    min-width: 0;
+    max-width: 100vw;
+  }
+
+  .memory-list-shell {
+    overflow-y: visible !important;
+    min-height: auto;
+  }
+
+  .timeline-panel {
+    display: none;
+  }
+
+  .memory-detail-panel {
+    position: fixed !important;
+    inset: 0;
+    z-index: 90;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh;
+    border-left: none !important;
+    border-top: none;
+    box-shadow: 0 0 44px rgba(45, 38, 27, 0.18);
+  }
+
+  .dream-stat-grid,
+  .dream-report-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .dream-view,
+  .migration-view,
+  .project-suggestions-view {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .app-header-status {
+    display: none !important;
+  }
+  .memory-card {
+    padding: 11px 12px;
+  }
+
+  .card-meta {
+    flex-wrap: wrap;
+  }
+
+  .memory-state-guide > div:last-child {
+    grid-template-columns: 1fr !important;
+  }
+
+  .dream-view > header {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .dream-view > header > div:first-child,
+  .dream-header-actions {
+    width: 100%;
+  }
+
+  .dream-header-actions,
+  .dream-assign-control {
+    grid-template-columns: 1fr !important;
+    flex-wrap: wrap;
+  }
+
+  .dream-view .btn {
+    justify-content: center;
+  }
+
+  .dream-history-row {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .dream-history-stats {
+    justify-content: flex-start;
+  }
+}
+

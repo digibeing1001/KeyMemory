@@ -1,13 +1,13 @@
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, LogOut, Plug } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, LogOut, Plug, Search, Link } from './Icons';
 import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 import { useAuth } from '../auth/AuthContext';
 import type { UserRole } from '../lib/api';
 
-type ViewMode = 'memories' | 'mailbox' | 'valley' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users';
+type ViewMode = 'memories' | 'mailbox' | 'valley' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users' | 'today' | 'timeline' | 'library' | 'graph' | 'insights';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -33,6 +33,11 @@ const LAYER_ICONS: Record<Layer, typeof Flash> = {
 
 const ALL_VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers; adminOnly?: boolean }> = [
   { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
+  { mode: 'today', labelKey: 'nav.today', icon: Sun },
+  { mode: 'timeline', labelKey: 'nav.timeline', icon: Clock },
+  { mode: 'library', labelKey: 'nav.library', icon: Search },
+  { mode: 'graph', labelKey: 'nav.graph', icon: Link },
+  { mode: 'insights', labelKey: 'nav.insights', icon: Heart },
   { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
   { mode: 'integrations', labelKey: 'nav.integrations', icon: Plug },
   { mode: 'valley', labelKey: 'nav.valley', icon: Globe },

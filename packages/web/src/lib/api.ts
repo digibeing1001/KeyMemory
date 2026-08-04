@@ -164,6 +164,9 @@ export async function listMemories(params?: {
   status?: string;
   limit?: number;
   offset?: number;
+  /** KM-405：时点查询——只看该时刻有效的记忆 */
+  asOf?: string;
+  includeExpired?: boolean;
 }): Promise<Memory[]> {
   const sp = new URLSearchParams();
   if (params?.layer) sp.set('layer', params.layer);
@@ -171,8 +174,30 @@ export async function listMemories(params?: {
   if (params?.status) sp.set('status', params.status);
   if (params?.limit) sp.set('limit', String(params.limit));
   if (params?.offset) sp.set('offset', String(params.offset));
+  if (params?.asOf) sp.set('asOf', params.asOf);
+  if (params?.includeExpired) sp.set('includeExpired', 'true');
   const qs = sp.toString();
   return request(`/memories${qs ? `?${qs}` : ''}`);
+}
+
+/** KM-406：带评分明细的搜索（“为什么召回”浮层数据源）。 */
+export async function searchMemoriesExplained(query: string, limit = 10): Promise<SearchResult[]> {
+  const sp = new URLSearchParams({ q: query, explain: 'true', limit: String(limit) });
+  return request(`/memories/search?${sp.toString()}`);
+}
+
+/** KM-404：Dream 待确认/自动执行项（Today 视图的可撤销入口）。 */
+export async function getDreamTodos(limit?: number): Promise<{ todos: DreamTodoItem[] }> {
+  const qs = limit ? `?limit=${limit}` : '';
+  return request(`/dream/todos${qs}`);
+}
+
+/** KM-407：剪除弱关系边（Graph 视图治理入口，仅 admin）。 */
+export async function pruneGraphWeakEdges(minStrength = 0.2): Promise<{ pruned: number }> {
+  return request('/graph/prune-weak-edges', {
+    method: 'POST',
+    body: JSON.stringify({ minStrength, relationType: 'relates_to' }),
+  });
 }
 
 export async function getMemory(id: string): Promise<Memory> {

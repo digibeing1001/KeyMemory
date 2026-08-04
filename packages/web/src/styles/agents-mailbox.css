@@ -1,0 +1,302 @@
+/* KM-402：从 index.css 拆出的分区样式（类名保持不变） */
+/* ===== Agent 共读标识 ===== */
+
+/* 在线 Agent 区域（侧边栏） */
+.mailbox-agents-online {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-primary);
+}
+.mailbox-agents-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.mailbox-agents-avatars {
+  display: flex;
+  gap: 8px;
+}
+
+/* ===== Agent 头像 Logo ===== */
+.agent-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  position: relative;
+  border: 2px solid var(--border-primary);
+  background: var(--bg-secondary);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.agent-avatar.is-active {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--agent-active-color, #00B894);
+}
+.agent-avatar.is-active::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--agent-active-color, #00B894);
+  opacity: 0;
+  animation: agent-ring-pulse 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+.agent-avatar.is-idle {
+  opacity: 0.55;
+}
+
+@keyframes agent-ring-pulse {
+  0% { opacity: 0.6; transform: scale(1); }
+  70% { opacity: 0; transform: scale(1.3); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+/* Agent 阅读状态标签（阅读面板） */
+.mail-agent-readers {
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border-primary);
+}
+.mail-agent-readers-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: block;
+}
+.mail-agent-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ===== 毛玻璃 Agent 徽章 ===== */
+.mail-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 6px;
+  border-radius: 20px;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(135deg,
+    rgba(255,255,255,0.06) 0%,
+    rgba(255,255,255,0.02) 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text-secondary);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+[data-theme="light"] .mail-agent-badge {
+  background: linear-gradient(135deg,
+    rgba(255,255,255,0.7) 0%,
+    rgba(255,255,255,0.4) 100%);
+  border-color: rgba(0,0,0,0.06);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.mail-agent-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+  border-color: var(--agent-color);
+}
+.mail-agent-badge.is-read {
+  animation: agent-badge-slidein 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mail-agent-badge.is-unread {
+  opacity: 0.45;
+  border-style: dashed;
+  filter: grayscale(0.5);
+}
+@keyframes agent-badge-slidein {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.mail-agent-logo {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mail-agent-name {
+  font-weight: 500;
+}
+.mail-agent-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* ===== 活动痕迹微交互 ===== */
+.mail-row-agent-activity,
+.mail-agent-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  animation: agent-activity-fadein 0.5s ease-out;
+}
+.agent-activity-logo {
+  border-radius: 50%;
+  opacity: 0.7;
+}
+.agent-activity-pulse,
+.agent-activity-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: agent-dot-pulse 2s ease-in-out infinite;
+}
+@keyframes agent-dot-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes agent-activity-fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 呼吸灯（优化） ===== */
+.agent-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00B894;
+  display: inline-block;
+  animation: agent-breath 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes agent-breath {
+  0%, 100% { opacity: 0.4; box-shadow: 0 0 0 0 rgba(0,184,148,0.3); }
+  50% { opacity: 1; box-shadow: 0 0 6px 2px rgba(0,184,148,0.4); }
+}
+
+.agent-status-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4f8a67;
+  border: 2px solid var(--bg-primary);
+}
+.agent-avatar.is-active .agent-status-dot {
+  animation: agent-glow 3s ease-in-out infinite;
+}
+@keyframes agent-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 138, 103, 0.4); }
+  50% { box-shadow: 0 0 6px 2px rgba(79, 138, 103, 0.3); }
+}
+
+@keyframes agent-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* === 减少动画偏好 === */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== 消息卡片容器化 ===== */
+.mail-message {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 6px 0;
+  border-left: 2px solid transparent;
+}
+.mail-message.sender-human {
+  border-left-color: var(--accent-primary, #4f8a67);
+}
+.mail-message.sender-agent {
+  border-left-color: #8065a3;
+}
+.mail-message.sender-secretary {
+  border-left-color: #b77635;
+}
+.mail-message + .mail-message {
+  margin-top: 6px;
+}
+.mail-message-divider {
+  display: none;
+}
+
+/* ===== 记忆库 layer 色彩条 ===== */
+.memory-list-item {
+  transition: border-left-color 0.15s;
+}
+button.memory-list-item[data-layer="flash"] {
+  border-left-color: #f59e0b;
+}
+button.memory-list-item[data-layer="short"] {
+  border-left-color: #3b82f6;
+}
+button.memory-list-item[data-layer="long"] {
+  border-left-color: #10b981;
+}
+button.memory-list-item[data-layer="entity"] {
+  border-left-color: #ec4899;
+}
+.memory-list-item.selected,
+.memory-list-item[aria-selected="true"] {
+  background: rgba(79, 138, 103, 0.08);
+}
+
+/* ===== 统一空状态 ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  gap: 12px;
+}
+.empty-state-icon {
+  font-size: 40px;
+  opacity: 0.4;
+  margin-bottom: 8px;
+}
+.empty-state-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.empty-state-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 260px;
+  line-height: 1.5;
+}
+.empty-state-action {
+  margin-top: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-primary, #4f8a67);
+  background: transparent;
+  color: var(--accent-primary, #4f8a67);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.empty-state-action:hover {
+  background: var(--accent-primary, #4f8a67);
+  color: white;
+}
+
