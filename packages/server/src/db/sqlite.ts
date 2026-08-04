@@ -572,6 +572,8 @@ function runMigrations(db: Database.Database): void {
     -- entity 过滤：memory_entities 的 PRIMARY KEY 是 (memory_id, entity_id, project_id)，
     -- 按 entity_id 查询无法走主键前缀，需要单独索引支撑 entityId/entityName/entityType 过滤路径
     CREATE INDEX IF NOT EXISTS idx_memory_entities_entity ON memory_entities(entity_id);
+    -- KM-105：语义候选窗口 INNER JOIN embeddings ON memory_id，无索引时每次扫描全表（10k 库窗口查询 134ms → 预期个位数 ms）
+    CREATE INDEX IF NOT EXISTS idx_embeddings_memory ON embeddings(memory_id);
 CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
 CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_entity_aliases_entity ON entity_aliases(entity_id);

@@ -386,6 +386,26 @@ function buildLoopQuery(run: LoopRun, checkpoint: LoopCheckpoint, query?: string
   return Array.from(new Set(parts)).join('\n').slice(0, 2000);
 }
 
+// KM-305：把 objective/phase/nextActions 渲染为 Mermaid 任务地图，作为稳定区注入；
+// 同一 checkpoint 重放时内容不变，保证稳定区字节一致（Agent 可见任务全貌）。
+function mermaidEscape(value: string): string {
+  return value.replace(/"/g, "'").replace(/[\r\n]+/g, ' ').slice(0, 80);
+}
+
+function renderLoopTaskMap(run: LoopRun, checkpoint: LoopCheckpoint): string {
+  const lines = ['## Loop Task Map', '', '```mermaid', 'graph TB'];
+  lines.push(`  OBJ["${mermaidEscape(run.objective)}"]`);
+  lines.push(`  PHASE["phase: ${checkpoint.phase}"]`);
+  lines.push('  OBJ --> PHASE');
+  checkpoint.nextActions.forEach((action, index) => {
+    const id = `NEXT${index}`;
+    lines.push(`  ${id}["${mermaidEscape(action)}"]`);
+    lines.push(`  PHASE --> ${id}`);
+  });
+  lines.push('```');
+  return lines.join('\n');
+}
+
 function appendEvent(input: {
   run: LoopRun;
   sequence: number;
@@ -440,6 +460,8 @@ async function observe(
     // loop run 的 context pack 只暴露该 agent 可见空间的记忆，防止跨 agent 泄露
     agentSpaces: visibleSpacesFor(run.agentId),
     recordActivity: false,
+    // KM-305：任务地图作为稳定区注入，Agent 可见任务全貌
+    stableAppend: renderLoopTaskMap(run, checkpoint),
   });
   // 每次观测都附带 circuit breaker 快照，便于调用方在任意时刻判断是否应升级/中止。
   // 触发顺序：stagnation → no-progress → token-budget → max-iterations。

@@ -3,6 +3,7 @@ import type { DreamPhase, DreamCandidate, DreamSignals, DreamSession, DreamRepor
 import { DREAM_SIGNAL_WEIGHTS, DREAM_THRESHOLDS, CONSOLIDATION_CONFIG, DREAM_CONFIG, DREAM_AUTONOMY, MEMORY_POLICY, analyzeMemoryQuality, isSpecificProjectName } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { cosineSimilarity, bufferToEmbedding } from '../embed/onnx.js';
+import { lshCandidatePairs } from './dedup-lsh.js';
 import { getMemory, updateMemory } from './atom.js';
 import { forgetMemory, restoreMemory } from './forgetting.js';
 import { moveLayer } from './layer.js';
@@ -755,18 +756,30 @@ function runSemanticMergePhase(reportId: string, details: DreamReportDetails): {
   const mergeGroups: { keeper: string; duplicates: string[]; maxSimilarity: number }[] = [];
   const relateGroups: { keeper: string; related: string[]; maxSimilarity: number }[] = [];
 
+  // KM-204/D8：LSH 候选对替代 O(n²) 全量比较：先解码向量、生成候选邻接表，
+  // 只对候选对做精确余弦。fullScanLimit 已恢复到 2000，复杂度近似 O(n·桶均值)。
+  const decoded = memories.map(m => ({ id: m.id, vec: bufferToEmbedding(m.embedding) }));
+  const pairs = lshCandidatePairs(decoded.map((d, index) => ({ index, vec: d.vec })));
+  const neighbors = new Map<number, number[]>();
+  for (const [i, j] of pairs) {
+    const list = neighbors.get(i);
+    if (list) list.push(j);
+    else neighbors.set(i, [j]);
+  }
+  for (const list of neighbors.values()) list.sort((a, b) => a - b);
+
   for (let i = 0; i < memories.length; i++) {
     if (processedIds.has(memories[i].id)) continue;
 
     const duplicates: string[] = [];
     const related: string[] = [];
     let maxSim = 0;
-    const vecA = bufferToEmbedding(memories[i].embedding);
+    const vecA = decoded[i].vec;
 
-    for (let j = i + 1; j < memories.length; j++) {
-      if (processedIds.has(memories[j].id)) continue;
+    for (const j of neighbors.get(i) ?? []) {
+      if (j <= i || processedIds.has(memories[j].id)) continue;
 
-      const vecB = bufferToEmbedding(memories[j].embedding);
+      const vecB = decoded[j].vec;
       const sim = cosineSimilarity(vecA, vecB);
 
       if (sim > autoMergeThreshold) {

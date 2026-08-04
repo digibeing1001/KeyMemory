@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto';
 import type { AgentContextItem, AgentContextPack, AgentContextPackRequest, HistoricalReference, MailThreadContext, Memory, MemoryKind, SearchResult } from '@keymemory/shared';
 import { MEMORY_POLICY } from '@keymemory/shared';
+import { tokensToCharsBudget } from './token-estimate.js';
 import { getMemory, listMemories } from './atom.js';
 import { searchHybrid } from './query.js';
 import { findProjectRef, getProject } from './project.js';
@@ -306,13 +307,18 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: M
 // 不包含 query/asOf/generatedAt 等每轮变化的字段，保证跨轮字节一致。
 const STABLE_KINDS = new Set<string>(['preference', 'constraint', 'procedure']);
 
-function formatStableMarkdown(sections: AgentContextPack['sections']): string {
+function formatStableMarkdown(sections: AgentContextPack['sections'], stableAppend?: string): string {
   const stableSections = sections.filter(section => STABLE_KINDS.has(section.kind));
-  if (stableSections.length === 0) return '';
+  if (stableSections.length === 0 && !stableAppend) return '';
   const lines = ['# KeyMemory Stable Context'];
   for (const section of stableSections) {
     lines.push(`## ${section.title}`);
     for (const item of section.items) lines.push(formatItem(item));
+    lines.push('');
+  }
+  // KM-305：Loop 任务地图等稳定追加段（内容不变则稳定区字节不变）。
+  if (stableAppend) {
+    lines.push(stableAppend.trimEnd());
     lines.push('');
   }
   lines.push(MAILBOX_OPERATING_GUIDE);
@@ -361,7 +367,12 @@ async function injectHistoricalContext(
 
 export async function buildAgentContextPack(input: AgentContextPackRequest = {}): Promise<AgentContextPack> {
   const maxItems = Math.max(1, Math.min(input.maxItems ?? 12, 40));
-  const maxChars = Math.max(800, Math.min(input.maxChars ?? 6000, 30000));
+  // KM-303/D5：预算单位以 token 为准（确定性估算），消除中英文 3–4 倍的字符预算差异；
+  // 旧 maxChars 仅在未提供 maxTokens 时作为兼容路径生效。
+  const tokenBudget = Math.max(400, Math.min(input.maxTokens ?? MEMORY_POLICY.contextBudget.maxTokens, MEMORY_POLICY.contextBudget.hardMaxTokens));
+  const maxChars = input.maxChars !== undefined && input.maxTokens === undefined
+    ? Math.max(800, Math.min(input.maxChars, 30000))
+    : Math.max(800, Math.min(tokensToCharsBudget(tokenBudget), 30000));
   const project = input.projectId ? getProject(input.projectId) : input.project ? findProjectRef(input.project) : null;
   const projectKnownBySource = !project && input.project ? Boolean(getDatabase().prepare(`
     SELECT 1 FROM memories
@@ -539,7 +550,7 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     // KM-301：双区输出。volatile 每轮变化（放用户消息前）；stable 天级稳定（放系统提示末尾），
     // 让稳定前缀命中 KV cache。markdown 保留为两者拼接，向后兼容旧调用方。
     volatileMarkdown: formatMarkdown({ ...packBase, mailThread, historicalReferences }, mailThread, historicalReferences),
-    stableMarkdown: formatStableMarkdown(packBase.sections),
+    stableMarkdown: formatStableMarkdown(packBase.sections, input.stableAppend),
     markdown: '',
   };
   result.markdown = result.stableMarkdown

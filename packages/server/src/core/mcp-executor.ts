@@ -3,6 +3,7 @@ import { LAYERS } from '@keymemory/shared';
 import { getMemory, listMemories, updateMemory } from './atom.js';
 import { autoRemember, extractTags } from './auto.js';
 import { discoverMigrationSources, migrateMemoriesFromPath } from './migration.js';
+import { offloadLongContent } from './offload.js';
 import { buildAgentContextPack } from './context-pack.js';
 import { createBackupFile, inspectBackupFile, restoreBackupFile } from './backup.js';
 import { acceptProjectSuggestion, listProjectSuggestions, rejectProjectSuggestion } from './project.js';
@@ -703,6 +704,20 @@ export async function executeMcpTool(
           runDream: Boolean(args.runDream),
           dryRun: Boolean(args.dryRun),
         }));
+
+      case 'memory_offload': {
+        try {
+          return ok(offloadLongContent({
+            title: requiredString(args, 'title'),
+            content: requiredString(args, 'content'),
+            summary: optionalString(args, 'summary'),
+            runId: optionalString(args, 'runId'),
+            source: optionalString(args, 'source'),
+          }));
+        } catch (err) {
+          return fail((err as Error).message);
+        }
+      }
 
       case 'memory_backup_create':
         return ok(createBackupFile(optionalString(args, 'filePath'), {

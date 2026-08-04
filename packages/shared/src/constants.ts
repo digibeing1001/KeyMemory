@@ -151,10 +151,9 @@ export const DREAM_CONFIG = {
   // KM-205：从 MEMORY_POLICY 派生并上调（原 0.72/0.88 误合风险高）。
   semanticMergeThreshold: MEMORY_POLICY.duplicateSimilarity.suggest,
   semanticAutoMergeThreshold: MEMORY_POLICY.duplicateSimilarity.autoMerge,
-  // 从 2000 降至 500：O(n²) 检测在 2000 条时需 ~2M 次比较（~200s 阻塞），
-  // 500 条仅需 ~125K 次（~12s）。配合优先级排序确保最相关的记忆进入扫描窗口。
-  // KM-204 将用近似 O(n log n) 方案替代，届时恢复至 2000。
-  fullScanLimit: 500,
+  // KM-204 完成后恢复至 2000：LSH 候选对 + 精确复核把去重从 O(n²) 降到近似 O(n·桶均值)，
+  // 不再需要用“少扫”掩盖复杂度，大库去重覆盖率不再随库增长下降。
+  fullScanLimit: 2000,
   // 快速梦境：仅扫描 flash+short 层（最需紧急清理），可高频运行。
   // 完整梦境扫描所有层，按 cron 低频运行。
   quickScanLimit: 200,

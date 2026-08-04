@@ -530,6 +530,21 @@ const BASE_MCP_TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'memory_offload',
+    description: 'Offload long content (logs, research dumps, intermediate artifacts) to an external reference file. Keeps only a summary plus the reference path in the main context, cutting injected tokens for long-running tasks. When to use: content > ~500 chars that the conversation does not need verbatim. When not to use: durable facts, preferences, or decisions — store those with memory_create instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Short descriptive title for the offloaded document.' },
+        content: { type: 'string', description: 'The long content to offload.' },
+        summary: { type: 'string', description: 'Optional summary kept in the main context. Defaults to the first 200 chars.' },
+        runId: { type: 'string', description: 'Optional loop run id to associate for traceability.' },
+        source: { type: 'string', description: 'Optional source label.' },
+      },
+      required: ['title', 'content'],
+    },
+  },
+  {
     name: 'memory_backup_create',
     description: 'Create a portable KeyMemory JSON backup before migration, dream consolidation, or risky maintenance.',
     inputSchema: {
@@ -874,6 +889,73 @@ export const MCP_TOOLS: MCPTool[] = [
   ...KEYMEMORY_ALIAS_TOOLS,
   ...BASE_MCP_TOOLS,
 ].map(annotateTool);
+
+/**
+ * KM-306：每个工具必须携带 when_to_use / when_not_to_use，
+ * 避免 Agent 误调（如在只需检索时写入、在普通对话里启动 loop）。
+ * 按规范名（canonical）配置，别名工具自动继承。
+ */
+const TOOL_GUIDANCE: Record<string, { whenToUse: string; whenNotToUse: string }> = {
+  memory_connection_status: { whenToUse: '接入验收与排障：确认 KeyMemory 真实连通后再读写。', whenNotToUse: '不要每轮对话都调用；会话首次与怀疑断连时即可。' },
+  memory_create: { whenToUse: '已有明确标题与完整正文的事实/偏好/决策，且检索确认无重复时。', whenNotToUse: '寒暄、过程独白、未验证猜测；不确定时先用 memory_search。' },
+  memory_search: { whenToUse: '任务开始前召回相关记忆；写入前查重；回答涉及历史事实时。', whenNotToUse: '与当前任务无关的漫游检索；不要为凑上下文反复搜索。' },
+  memory_context_pack: { whenToUse: '需要项目维度的结构化上下文注入（含邮箱接力与待确认项）。', whenNotToUse: '只需单条记忆时用 memory_read；高频每轮调用。' },
+  memory_read: { whenToUse: '已知记忆 ID 且需要完整正文（如搜索摘要被截断）。', whenNotToUse: '不知道 ID 时；请先 memory_search。' },
+  memory_list: { whenToUse: '浏览指定范围/筛选条件的记忆清单。', whenNotToUse: '大库无条件全量拉取；用搜索或分页。' },
+  memory_update: { whenToUse: '纠正或补充已有记忆（保持单一事实源）。', whenNotToUse: '新建重复记忆代替更新；修改不属于当前空间的记忆。' },
+  memory_delete: { whenToUse: '用户明确要求删除，或清理已确认错误的记忆。', whenNotToUse: '仅因“过时”就删除；请先考虑 memory_supersede。' },
+  memory_auto_remember: { whenToUse: '对话中出现值得沉淀的内容时交给质量门禁自动评估写入。', whenNotToUse: '已有结构化标题与正文时直接 memory_create。' },
+  memory_relate: { whenToUse: '两条记忆存在明确的推导/引用/部分关系时显式建边。', whenNotToUse: '仅因同时出现就建边（共现由系统自动治理）。' },
+  memory_related: { whenToUse: '沿关系图扩展某条记忆的关联上下文。', whenNotToUse: '替代全文搜索；关系稀疏时的主检索手段。' },
+  memory_supersede: { whenToUse: '新事实取代旧事实，需要保留历史可追溯时。', whenNotToUse: '补充而非取代；旧事实仍然有效时。' },
+  memory_import: { whenToUse: '从备份/导出 JSON 批量恢复记忆。', whenNotToUse: '单条写入；未确认来源可信的导入。' },
+  memory_migration_discover: { whenToUse: '接入阶段扫描本机其它记忆文件（MEMORY.md 等）。', whenNotToUse: '日常读写；已完成迁移后反复扫描。' },
+  memory_migration_import: { whenToUse: '确认预览后把发现的来源迁移进 KeyMemory。', whenNotToUse: '未经 discover/预览直接导入陌生文件。' },
+  memory_backup_create: { whenToUse: '迁移、dream 整理或高风险维护前创建可携备份。', whenNotToUse: '每次写入后都备份；把备份当版本历史。' },
+  memory_backup_inspect: { whenToUse: '恢复前核对备份内容完整性。', whenNotToUse: '代替恢复操作本身。' },
+  memory_backup_restore_dry_run: { whenToUse: '恢复前预演影响面（不写入）。', whenNotToUse: '当作实际恢复；确认后应使用完整恢复入口。' },
+  memory_project_suggestions: { whenToUse: '查看待确认的项目归类建议。', whenNotToUse: '自动批量接受而不逐条核对。' },
+  memory_project_suggestion_accept: { whenToUse: '建议内容与实际归属一致时接受。', whenNotToUse: '建议明显错误或归属不明时。' },
+  memory_project_suggestion_reject: { whenToUse: '建议不适用时显式拒绝，避免重复提议。', whenNotToUse: '未读建议内容就拒绝。' },
+  memory_secret_set: { whenToUse: '保存工具凭据/密钥（加密存储，不入普通记忆）。', whenNotToUse: '保存非凭据信息；把密钥写进 memory_create。' },
+  memory_secret_get: { whenToUse: '工具调用前取出所需凭据。', whenNotToUse: '把取出的密钥输出到对话或写进记忆。' },
+  memory_secret_list: { whenToUse: '盘点已存凭据名称（不含值）。', whenNotToUse: '用于导出或迁移密钥。' },
+  memory_secret_delete: { whenToUse: '凭据作废或轮换后删除旧值。', whenNotToUse: '仍在使用的凭据。' },
+  memory_isolation_rule_create: { whenToUse: '为多 Agent 共存定义新的隔离规则。', whenNotToUse: '临时性需求；先评估现有规则是否已覆盖。' },
+  memory_isolation_rule_list: { whenToUse: '排障跨空间读写问题前查看现行规则。', whenNotToUse: '频繁轮询；规则变更是低频操作。' },
+  memory_isolation_rule_update: { whenToUse: '现行规则产生误隔离或泄漏时修正。', whenNotToUse: '未确认影响面就放宽隔离。' },
+  memory_isolation_rule_delete: { whenToUse: '规则已冗余或被新规则取代时。', whenNotToUse: '仍在生效且无替代的规则。' },
+  memory_entity_alias_add: { whenToUse: '同一实体出现新别名（代号/缩写）时登记。', whenNotToUse: '把不同实体登记为别名。' },
+  memory_entity_alias_remove: { whenToUse: '别名登记错误或实体更名后清理。', whenNotToUse: '仍在被引用的别名。' },
+  memory_entity_alias_list: { whenToUse: '合并实体前核对别名清单。', whenNotToUse: '高频每轮调用。' },
+  memory_entity_merge: { whenToUse: '确认两个实体记录同一对象时合并（先用 duplicates 核对）。', whenNotToUse: '仅名称相似但指代不同对象时。' },
+  memory_entity_duplicates: { whenToUse: '定期体检实体库，发现疑似重复。', whenNotToUse: '代替人工确认直接批量合并。' },
+  memory_inbox_list: { whenToUse: '查看邮箱待处理线程列表。', whenNotToUse: '已知具体线程时直接 memory_thread_context。' },
+  memory_thread_create: { whenToUse: '新任务/事件需要独立邮件主题延续上下文时。', whenNotToUse: '已有同主题线程；请先检索避免重复主题。' },
+  memory_thread_read: { whenToUse: '读取指定线程的消息列表。', whenNotToUse: '需要含记忆引用的完整接力上下文时用 thread_context。' },
+  memory_thread_context: { whenToUse: '继续某线程工作前获取线程+关联记忆的完整上下文。', whenNotToUse: '与当前线程无关的浏览。' },
+  memory_thread_reply: { whenToUse: '里程碑/交接/阻塞时向线程回复进展。', whenNotToUse: '每条对话都回；琐碎过程不入线程。' },
+  memory_thread_link_memory: { whenToUse: '把新建原子记忆关联到所属线程。', whenNotToUse: '与线程主题无关的记忆。' },
+  memory_mailbox_sync: { whenToUse: '同步/修复邮箱线程状态或重建索引。', whenNotToUse: '常规读写；同步是维护操作。' },
+  memory_loop_start: { whenToUse: '多步长任务启动，需要幂等/租约/断点恢复时。', whenNotToUse: '单步即可完成的任务；不要为简单问答启动 loop。' },
+  memory_loop_context: { whenToUse: '恢复/续租正在运行的 loop，获取事件与上下文包。', whenNotToUse: 'loop 已终态；重新 start 新任务。' },
+  memory_loop_checkpoint: { whenToUse: '每完成一个可验证步骤后持久化进度。', whenNotToUse: '把大段日志写进 checkpoint（用 memory_offload）。' },
+  memory_loop_finish: { whenToUse: '目标达成或确认终止时收尾 loop。', whenNotToUse: '尚有未完成步骤；中途放弃不记录原因。' },
+  memory_offload: { whenToUse: '长日志/调研/中间产物卸载为外部引用，主上下文只留摘要+路径。', whenNotToUse: '需要长期保留的事实/偏好/决策（用 memory_create）。' },
+};
+
+function withGuidance(tool: MCPTool): MCPTool {
+  const guidance = TOOL_GUIDANCE[canonicalToolName(tool.name)];
+  if (!guidance) return tool;
+  return {
+    ...tool,
+    description: `${tool.description}\nWhen to use: ${guidance.whenToUse}\nWhen not to use: ${guidance.whenNotToUse}`,
+  };
+}
+
+for (let i = 0; i < MCP_TOOLS.length; i++) {
+  MCP_TOOLS[i] = withGuidance(MCP_TOOLS[i]);
+}
 
 export const MCP_RESOURCES = [
   {

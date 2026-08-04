@@ -356,7 +356,15 @@ export interface AgentContextPackRequest {
   includeExpired?: boolean;
   memoryKinds?: MemoryKind[];
   maxItems?: number;
+  /**
+   * @deprecated KM-303：字符预算在中英文场景相差 3–4 倍，请改用 maxTokens。
+   * 保留仅为向后兼容；与 maxTokens 同时提供时以 maxTokens 为准。
+   */
   maxChars?: number;
+  /** KM-303：上下文预算（token，确定性估算），默认 2000，硬上限 8000。 */
+  maxTokens?: number;
+  /** KM-305：追加到稳定区的 markdown（如 Loop 任务地图），仅在内容变化时才改变稳定区字节。 */
+  stableAppend?: string;
   /**
    * 当前 agent 可见的 agent_space 集合（如 ['global', 'agent:foo']）。
    * 传入后 context pack 只检索/扩展这些空间内的记忆，防止跨 agent 私有空间泄露。

@@ -11,6 +11,7 @@ import { redactSensitiveText } from './privacy.js';
 import { resolveAsOf } from './temporal.js';
 import { cjkTrigrams, containsCjk } from './cjk.js';
 import { extractEntities } from '../graph/entity.js';
+import { lshCandidatePairs, yieldToEventLoop } from './dedup-lsh.js';
 
 type SearchOptions = {
   layer?: Layer;
@@ -41,6 +42,8 @@ type SearchOptions = {
   lastHitBefore?: string;
   /** KM-001：searchHybrid 统一记录含完整指标的日志时，抑制单路内部的重复记录。 */
   suppressQueryLog?: boolean;
+  /** KM-105 内部选项：候选窗口跳过重量级时态/裁决过滤（改由后置批量过滤承担）。 */
+  skipTemporalAndSupersede?: boolean;
 };
 
 type QueryLogMetrics = {
@@ -121,31 +124,40 @@ function addSearchFilters(conditions: string[], params: Record<string, unknown>,
   }
 
   const activeSearch = (options?.status ?? 'active') === 'active';
-  if (options?.includeExpired !== true) {
+  // KM-105：语义候选窗口用 skipTemporalAndSupersede 跳过这两个重量级条件（每行 json 求值），
+  // 改由 searchSemantic 后置批量过滤承担，语义不变、扫描成本大幅下降；
+  // 其余过滤（隔离空间/标签/实体等）照常生效。
+  if (!options?.skipTemporalAndSupersede && options?.includeExpired !== true) {
     params.asOf = asOf;
     const validFrom = "COALESCE(CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validFrom') END, m.created_at)";
     const validTo = "CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validTo') END";
     conditions.push(`${validFrom} <= @asOf AND (${validTo} IS NULL OR ${validTo} > @asOf)`);
   }
-  if (activeSearch && options?.includeSuperseded !== true) {
+  if (!options?.skipTemporalAndSupersede && activeSearch && options?.includeSuperseded !== true) {
     params.asOf = asOf;
+    // 性能关键：子查询必须以关联条件 r.target_memory_id = m.id 为驱动（走 target 索引），
+    // 否则 SQLite 可能选择先扫 memories(source) 再探 r，退化为 O(n²) json 求值（10k 库实测 171s）。
     conditions.push(`NOT EXISTS (
       SELECT 1
       FROM memory_relations r
-      JOIN memories source ON source.id = r.source_memory_id
       WHERE r.target_memory_id = m.id
         AND r.relation_type = 'supersedes'
-        AND source.status = 'active'
-        AND COALESCE(
-          CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
-            THEN json_extract(source.metadata, '$.validFrom') END,
-          source.created_at
-        ) <= @asOf
-        AND (
-          CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
-            THEN json_extract(source.metadata, '$.validTo') END IS NULL
-          OR CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
-            THEN json_extract(source.metadata, '$.validTo') END > @asOf
+        AND EXISTS (
+          SELECT 1
+          FROM memories source
+          WHERE source.id = r.source_memory_id
+            AND source.status = 'active'
+            AND COALESCE(
+              CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
+                THEN json_extract(source.metadata, '$.validFrom') END,
+              source.created_at
+            ) <= @asOf
+            AND (
+              CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
+                THEN json_extract(source.metadata, '$.validTo') END IS NULL
+              OR CASE WHEN source.metadata IS NOT NULL AND json_valid(source.metadata)
+                THEN json_extract(source.metadata, '$.validTo') END > @asOf
+            )
         )
     )`);
   }
@@ -421,6 +433,97 @@ function searchLikeFallback(query: string, conditions: string[], params: Record<
   return results;
 }
 
+/**
+ * KM-105：语义候选评分核心（与 ONNX 推理解耦，可独立压测）。
+ * 只对候选行计算余弦并排序，不做行水合（rowToMemory）；
+ * 调用方仅对 top-N 切片后水合，避免大候选集上的 JSON 解析开销。
+ */
+export function rankSemanticCandidates(
+  queryVec: Float32Array,
+  rows: Record<string, unknown>[],
+  chunkMap: Map<string, string[]>,
+): { row: Record<string, unknown>; score: number }[] {
+  const scored: { row: Record<string, unknown>; score: number }[] = [];
+  for (const r of rows) {
+    const id = String(r.id);
+    const memVec = getCachedEmbedding(id);
+    const memSim = memVec ? cosineSimilarity(queryVec, memVec) : 0;
+
+    let bestChunkSim = 0;
+    const chunkIds = chunkMap.get(id) || [];
+    for (const chunkId of chunkIds) {
+      const chunkVec = getCachedChunkEmbedding(chunkId);
+      if (chunkVec) {
+        const chunkSim = cosineSimilarity(queryVec, chunkVec);
+        if (chunkSim > bestChunkSim) bestChunkSim = chunkSim;
+      }
+    }
+
+    scored.push({ row: r, score: Math.max(memSim, bestChunkSim) });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored;
+}
+
+/**
+ * KM-104/105：分层抽样候选窗口（热度 Top300 ∪ 新写入 Top200 ∪ 过滤范围 Top1000）。
+ * 导出供 searchSemantic 与性能压测共用同一路径。
+ */
+export function selectStratifiedSemanticRows(options?: SearchOptions): Record<string, unknown>[] {
+  const db = getDatabase();
+  const conditions = [options?.status ? 'm.status = @status' : "m.status = 'active'"];
+  const params: Record<string, unknown> = {};
+  if (options?.status) params.status = options.status;
+  addSearchFilters(conditions, params, options);
+
+  const candidateSelectBase = `
+    FROM memories m
+    INNER JOIN embeddings e ON e.memory_id = m.id
+    WHERE ${conditions.join(' AND ')}
+  `;
+  const hotIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.hit_count DESC, m.last_hit_at DESC LIMIT 300`).all(params) as { id: string }[]).map(r => r.id);
+  const recentIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.created_at DESC LIMIT 200`).all(params) as { id: string }[]).map(r => r.id);
+  const scopedIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.updated_at DESC LIMIT 1000`).all(params) as { id: string }[]).map(r => r.id);
+  const candidateIds = Array.from(new Set([...hotIds, ...recentIds, ...scopedIds]));
+  if (candidateIds.length === 0) return [];
+
+  const rows = db.prepare(`
+    SELECT m.*
+    FROM memories m
+    WHERE m.id IN (${candidateIds.map(() => '?').join(',')})
+  `).all(...candidateIds) as Record<string, unknown>[];
+  return rows;
+}
+
+/**
+ * KM-105：后置批量时态/裁决过滤（与 addSearchFilters 的同款条件，一次 SQL 完成）。
+ * 语义候选窗口为性能跳过了这两个重量级条件，此处补回，保证语义不变。
+ */
+export function filterTemporalSupersededIds(ids: string[], options?: SearchOptions): Set<string> {
+  const valid = new Set(ids);
+  if (ids.length === 0) return valid;
+  if (options?.includeExpired === true && options?.includeSuperseded === true) return valid;
+  const db = getDatabase();
+  const asOf = resolveAsOf(options?.asOf);
+  const conditions = [`m.id IN (${ids.map(() => '?').join(',')})`];
+  const params: unknown[] = [...ids];
+  if (options?.includeExpired !== true) {
+    conditions.push(`COALESCE(CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validFrom') END, m.created_at) <= ?
+      AND (CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validTo') END IS NULL
+        OR CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validTo') END > ?)`);
+    params.push(asOf, asOf);
+  }
+  if ((options?.status ?? 'active') === 'active' && options?.includeSuperseded !== true) {
+    conditions.push(`NOT EXISTS (
+      SELECT 1 FROM memory_relations r
+      WHERE r.target_memory_id = m.id AND r.relation_type = 'supersedes'
+        AND EXISTS (SELECT 1 FROM memories source WHERE source.id = r.source_memory_id AND source.status = 'active')
+    )`);
+  }
+  const rows = db.prepare(`SELECT m.id FROM memories m WHERE ${conditions.join(' AND ')}`).all(...params) as { id: string }[];
+  return new Set(rows.map(r => r.id));
+}
+
 export async function searchSemantic(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   if (!isEmbeddingAvailable()) {
     return [];
@@ -436,30 +539,10 @@ export async function searchSemantic(query: string, options?: SearchOptions): Pr
   warmupChunkEmbeddingCache();
 
   const db = getDatabase();
-  const conditions = [options?.status ? 'm.status = @status' : "m.status = 'active'"];
-  const params: Record<string, unknown> = {};
-  if (options?.status) params.status = options.status;
-  addSearchFilters(conditions, params, options);
 
-  // KM-104/D2：候选窗口改分层抽样，消除“按热度截断导致新记忆永远进不了候选”的系统性偏差：
-  //   热度 Top300 ∪ 最近写入 Top200 ∪ 当前过滤范围内全量（上限 1000）。
-  // 旧方案按 hit_count 排序截断 500，hit_count=0 的新记忆在库超过 500 条后永远召不回。
-  const candidateSelectBase = `
-    FROM memories m
-    INNER JOIN embeddings e ON e.memory_id = m.id
-    WHERE ${conditions.join(' AND ')}
-  `;
-  const hotIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.hit_count DESC, m.last_hit_at DESC LIMIT 300`).all(params) as { id: string }[]).map(r => r.id);
-  const recentIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.created_at DESC LIMIT 200`).all(params) as { id: string }[]).map(r => r.id);
-  const scopedIds = (db.prepare(`SELECT m.id ${candidateSelectBase} ORDER BY m.updated_at DESC LIMIT 1000`).all(params) as { id: string }[]).map(r => r.id);
-  const candidateIds = Array.from(new Set([...hotIds, ...recentIds, ...scopedIds]));
-  if (candidateIds.length === 0) return [];
-
-  const rows = (db.prepare(`
-    SELECT m.*
-    FROM memories m
-    WHERE m.id IN (${candidateIds.map(() => '?').join(',')})
-  `).all(...candidateIds) as Record<string, unknown>[]);
+  // 1. KM-104 分层抽样候选窗口（轻量过滤；时态/裁决后置批量补回，性能与语义兼得）。
+  const rows = selectStratifiedSemanticRows({ ...options, skipTemporalAndSupersede: true });
+  if (rows.length === 0) return [];
 
   // 2. 批量获取所有相关记忆的分块 ID（一次查询代替 N 次）
   const memoryIds = rows.map(r => (r as { id: string }).id);
@@ -478,38 +561,20 @@ export async function searchSemantic(query: string, options?: SearchOptions): Pr
     }
   }
 
-  // 3. 计算相似度
-  const scored: SearchResult[] = [];
+  // 3. 计算相似度（KM-105 抽取的评分核心；仅对 top-N 水合）
+  let scored = rankSemanticCandidates(queryVec, rows, chunkMap);
 
-  for (const r of rows) {
-    const mem = rowToMemory(r);
-    const memVec = getCachedEmbedding(mem.id);
-    const memSim = memVec ? cosineSimilarity(queryVec, memVec) : 0;
-
-    // 检查分块，取最高分
-    let bestChunkSim = 0;
-    const chunkIds = chunkMap.get(mem.id) || [];
-    for (const chunkId of chunkIds) {
-      const chunkVec = getCachedChunkEmbedding(chunkId);
-      if (chunkVec) {
-        const chunkSim = cosineSimilarity(queryVec, chunkVec);
-        if (chunkSim > bestChunkSim) bestChunkSim = chunkSim;
-      }
-    }
-
-    // 取记忆级和分块级的最高分
-    const finalScore = Math.max(memSim, bestChunkSim);
-
-    scored.push({
-      memory: mem,
-      score: finalScore,
-      matchType: 'semantic' as const,
-    });
+  // 4. 后置批量时态/裁决过滤（窗口阶段为性能跳过的条件在此补回）。
+  const validIds = filterTemporalSupersededIds(scored.map(s => String(s.row.id)), options);
+  if (validIds.size < scored.length) {
+    scored = scored.filter(s => validIds.has(String(s.row.id)));
   }
 
-  scored.sort((a, b) => b.score - a.score);
-
-  const limited = scored.slice(0, options?.limit ?? 20);
+  const limited = scored.slice(0, options?.limit ?? 20).map(item => ({
+    memory: rowToMemory(item.row),
+    score: item.score,
+    matchType: 'semantic' as const,
+  }));
   // Do not recordHit here; searchHybrid handles it once for fused results.
 
   return limited;
@@ -539,21 +604,23 @@ export async function findDuplicateMemories(threshold: number = 0.9, limit: numb
     if (vec) vectors.push({ id: row.id, vec });
   }
 
+  // KM-204/D8：LSH 候选对 + 精确余弦复核，替代 O(n²) 全量比较；
+  // 分块让出事件循环，大库扫描不再阻塞主线程。
+  const pairs = lshCandidatePairs(vectors.map((v, index) => ({ index, vec: v.vec })));
   const duplicates: { memoryId1: string; memoryId2: string; similarity: number }[] = [];
-
-  for (let i = 0; i < vectors.length; i++) {
-    for (let j = i + 1; j < vectors.length; j++) {
-      const sim = cosineSimilarity(vectors[i].vec, vectors[j].vec);
-      if (sim >= threshold) {
-        duplicates.push({
-          memoryId1: vectors[i].id,
-          memoryId2: vectors[j].id,
-          similarity: sim,
-        });
-        if (duplicates.length >= limit) break;
-      }
+  const seen = new Set<string>();
+  const CHUNK = 500;
+  for (let p = 0; p < pairs.length; p++) {
+    if (p > 0 && p % CHUNK === 0) await yieldToEventLoop();
+    const [i, j] = pairs[p];
+    const pairKey = `${vectors[i].id}|${vectors[j].id}`;
+    if (seen.has(pairKey)) continue;
+    seen.add(pairKey);
+    const sim = cosineSimilarity(vectors[i].vec, vectors[j].vec);
+    if (sim >= threshold) {
+      duplicates.push({ memoryId1: vectors[i].id, memoryId2: vectors[j].id, similarity: sim });
+      if (duplicates.length >= limit) break;
     }
-    if (duplicates.length >= limit) break;
   }
 
   duplicates.sort((a, b) => b.similarity - a.similarity);
@@ -646,8 +713,8 @@ function multiHopAllowed(db: ReturnType<typeof getDatabase>, memoryId: string, a
         CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validTo') END AS valid_to,
         EXISTS (
           SELECT 1 FROM memory_relations r
-          JOIN memories source ON source.id = r.source_memory_id
-          WHERE r.target_memory_id = m.id AND r.relation_type = 'supersedes' AND source.status = 'active'
+          WHERE r.target_memory_id = m.id AND r.relation_type = 'supersedes'
+            AND EXISTS (SELECT 1 FROM memories source WHERE source.id = r.source_memory_id AND source.status = 'active')
         ) AS has_superseder
       FROM memories m WHERE m.id = ?
     `).get(memoryId) as { valid_from: string; valid_to: string | null; has_superseder: number } | undefined;
