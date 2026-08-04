@@ -38,7 +38,8 @@
     "download-model": "node scripts/download-model.js",
     "install:local": "pnpm build && pnpm --filter keymemory-mcp link",
     "install-memory": "node install-default-memory.js",
-    "start:ui": "node start-ui.js"
+    "start:ui": "node start-ui.js",
+    "test": "pnpm --filter @keymemory/server run test"
   },
   "engines": {
     "node": ">=20.0.0"
