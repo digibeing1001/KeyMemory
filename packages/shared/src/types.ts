@@ -427,6 +427,16 @@ export interface AgentContextPack {
   /** Top-5 historically relevant memories auto-injected based on the current mail thread subject. */
   historicalReferences?: HistoricalReference[];
   markdown: string;
+  /**
+   * KM-301/D6：稳定区（长期偏好/约束/流程/工具指南）——天级变更，
+   * 调用方应置于系统提示末尾，使前缀稳定命中 KV cache。无稳定内容时为空字符串。
+   */
+  stableMarkdown?: string;
+  /**
+   * KM-301/D6：易变区（本轮召回卡片/邮箱接力/待确认项）——每轮变化，
+   * 调用方应置于用户消息前。markdown = volatile + stable 拼接（向后兼容）。
+   */
+  volatileMarkdown?: string;
 }
 
 export type LoopRunStatus = 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';

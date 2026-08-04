@@ -7,6 +7,7 @@ import { findProjectRef } from './project.js';
 import { searchHybrid } from './query.js';
 import { findConflictMatch } from './conflict-detector.js';
 import { isLLMAvailable } from './llm-provider.js';
+import { getRefineBacklog } from './refine-queue.js';
 
 /**
  * KM-004/D14：当前生效的降级路径清单。降级本身是容错设计，
@@ -16,6 +17,8 @@ function collectDegradedPaths(db: ReturnType<typeof getDatabase>): string[] {
   const paths: string[] = [];
   if (!isEmbeddingAvailable()) paths.push('embeddings_unavailable');
   if (!isLLMAvailable()) paths.push('llm_unavailable');
+  // KM-202：异步提炼积压超过 50 条时进入降级可见清单（Part 9 硬规格）。
+  if (getRefineBacklog() > 50) paths.push('refine_backlog');
   try {
     const recentFtsDegraded = db.prepare(`
       SELECT COUNT(*) as cnt FROM query_logs

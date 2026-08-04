@@ -10,6 +10,7 @@ import { scheduleChunkAndEmbed } from './chunking.js';
 import { redactSensitiveText } from './privacy.js';
 import { resolveAsOf } from './temporal.js';
 import { cjkTrigrams, containsCjk } from './cjk.js';
+import { extractEntities } from '../graph/entity.js';
 
 type SearchOptions = {
   layer?: Layer;
@@ -588,6 +589,80 @@ function qualityMultiplier(memory: SearchResult['memory']): { multiplier: number
   return { multiplier: 1 + MEMORY_POLICY.rankBoostFactor * normalizedBoost, boost };
 }
 
+/**
+ * KM-107/D1·M3-Agent：实体路由检索（RRF 第三路）。
+ * 实体不应只是标注结果，而应是一等检索入口：从 query 抽实体 →
+ * 按名称/别名反查 entity → 经 memory_entities 取关联记忆。
+ * 实体型 query（含人名/工具名/项目名）在此路直接命中，不受热度与分词影响。
+ */
+function searchEntityRouted(query: string, options?: SearchOptions, limit = 30): SearchResult[] {
+  try {
+    const extracted = extractEntities(query);
+    if (extracted.length === 0) return [];
+    const db = getDatabase();
+    const conditions = [options?.status ? 'm.status = @status' : "m.status = 'active'"];
+    const params: Record<string, unknown> = {};
+    if (options?.status) params.status = options.status;
+    addSearchFilters(conditions, params, options);
+    const names = Array.from(new Set(extracted.map(e => e.name))).slice(0, 6);
+    const results: SearchResult[] = [];
+    const seen = new Set<string>();
+    for (const name of names) {
+      const rows = db.prepare(`
+        SELECT DISTINCT m.*
+        FROM memory_entities me
+        JOIN entities e ON e.id = me.entity_id
+        LEFT JOIN entity_aliases ea ON ea.entity_id = e.id
+        JOIN memories m ON m.id = me.memory_id
+        WHERE (e.name = @name OR ea.alias = @name) AND ${conditions.join(' AND ')}
+        ORDER BY m.updated_at DESC
+        LIMIT @limit
+      `).all({ ...params, name, limit }) as Record<string, unknown>[];
+      for (const r of rows) {
+        const mem = rowToMemory(r);
+        if (seen.has(mem.id)) continue;
+        seen.add(mem.id);
+        results.push({ memory: mem, score: 1, matchType: 'semantic' as const });
+      }
+    }
+    if (!options?.suppressQueryLog) {
+      for (const r of results) {
+        logQuery(query, r.memory.id, 'entity');
+      }
+    }
+    return results;
+  } catch {
+    // 实体路由失败不阻断主检索（降级原则：失败静默回退，但整体降级在 health 可见）
+    return [];
+  }
+}
+
+// KM-108 多跳候选准入：与主检索同标准的时态与裁决过滤（被替代/未生效/过期的记忆不得经多跳绕过过滤进入结果）。
+function multiHopAllowed(db: ReturnType<typeof getDatabase>, memoryId: string, asOf: string, includeExpired: boolean, includeSuperseded: boolean): boolean {
+  try {
+    const row = db.prepare(`
+      SELECT
+        COALESCE(CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validFrom') END, m.created_at) AS valid_from,
+        CASE WHEN m.metadata IS NOT NULL AND json_valid(m.metadata) THEN json_extract(m.metadata, '$.validTo') END AS valid_to,
+        EXISTS (
+          SELECT 1 FROM memory_relations r
+          JOIN memories source ON source.id = r.source_memory_id
+          WHERE r.target_memory_id = m.id AND r.relation_type = 'supersedes' AND source.status = 'active'
+        ) AS has_superseder
+      FROM memories m WHERE m.id = ?
+    `).get(memoryId) as { valid_from: string; valid_to: string | null; has_superseder: number } | undefined;
+    if (!row) return false;
+    if (!includeExpired) {
+      if (row.valid_from > asOf) return false;
+      if (row.valid_to !== null && row.valid_to <= asOf) return false;
+    }
+    if (!includeSuperseded && row.has_superseder) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function searchHybrid(query: string, options?: SearchOptions): Promise<SearchResult[]> {
   const limit = options?.limit ?? 20;
   // Full-text and semantic branches must evaluate the same instant. Resolving
@@ -601,6 +676,8 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
     searchFulltext(query, { ...effectiveOptions, limit: limit * 2 }),
     searchSemantic(query, { ...effectiveOptions, limit: limit * 2 }),
   ]);
+  // KM-107：实体路由作为第三路参与 RRF 融合（同步执行，SQL 反查开销极低）。
+  const entityResults = searchEntityRouted(query, effectiveOptions, limit * 2);
 
   const rrfMap = new Map<string, { memory: SearchResult['memory']; fulltextRank?: number; semanticRank?: number }>();
 
@@ -616,6 +693,64 @@ export async function searchHybrid(query: string, options?: SearchOptions): Prom
       rrfMap.set(r.memory.id, { memory: r.memory, semanticRank: idx + 1 });
     }
   });
+
+  entityResults.forEach((r, idx) => {
+    const existing = rrfMap.get(r.memory.id);
+    if (!existing) {
+      // 复用 semanticRank 槽位参与融合（权重相同），避免新增类型破坏 breakdown 结构。
+      rrfMap.set(r.memory.id, { memory: r.memory, semanticRank: idx + 1 });
+    }
+  });
+
+  // KM-108/D2·M3-Agent：多跳召回——仅当首跳候选稀疏（< minResults）时触发，
+  // 用首跳记忆的实体经 relations 表扩展一跳关联实体再反查记忆，最多 3 跳。
+  const MIN_RESULTS = 3;
+  if (rrfMap.size < MIN_RESULTS) {
+    const db = getDatabase();
+    for (let hop = 0; hop < 3 && rrfMap.size < MIN_RESULTS; hop++) {
+      const seedIds = Array.from(rrfMap.keys());
+      if (seedIds.length === 0) break;
+      let expandedIds: string[] = [];
+      try {
+        const placeholders = seedIds.map(() => '?').join(',');
+        // 首跳实体的集合：种子记忆的实体 ∪ 经 relations 表一跳可达的关联实体
+        const seedEntityRows = db.prepare(`SELECT DISTINCT entity_id as eid FROM memory_entities WHERE memory_id IN (${placeholders})`).all(...seedIds) as { eid: string }[];
+        if (seedEntityRows.length === 0) break;
+        const relatedEntityIds = new Set(seedEntityRows.map(r => r.eid));
+        const eph = Array.from(relatedEntityIds).map(() => '?').join(',');
+        const relRows = db.prepare(`SELECT source_id, target_id FROM relations WHERE source_id IN (${eph}) OR target_id IN (${eph})`)
+          .all(...relatedEntityIds, ...relatedEntityIds) as { source_id: string; target_id: string }[];
+        for (const r of relRows) {
+          relatedEntityIds.add(r.source_id);
+          relatedEntityIds.add(r.target_id);
+        }
+        const allEntityIds = Array.from(relatedEntityIds);
+        const aph = allEntityIds.map(() => '?').join(',');
+        expandedIds = (db.prepare(`
+          SELECT DISTINCT m.id
+          FROM memory_entities me
+          JOIN memories m ON m.id = me.memory_id
+          WHERE me.entity_id IN (${aph}) AND m.status = 'active' AND m.id NOT IN (${placeholders})
+          ORDER BY m.updated_at DESC
+          LIMIT 20
+        `).all(...allEntityIds, ...seedIds) as { id: string }[]).map(r => r.id);
+      } catch {
+        break; // 表结构异常时不阻断主检索
+      }
+      if (expandedIds.length === 0) break;
+      const iph = expandedIds.map(() => '?').join(',');
+      const rows = db.prepare(`SELECT * FROM memories WHERE id IN (${iph})`).all(...expandedIds) as Record<string, unknown>[];
+      const before = rrfMap.size;
+      rows.forEach((r, i) => {
+        const mem = rowToMemory(r);
+        if (rrfMap.has(mem.id)) return;
+        // 多跳不得绕过主检索的时态/裁决过滤（否则被 supersede 的旧记忆会从旁路回流）。
+        if (!multiHopAllowed(db, mem.id, effectiveOptions.asOf as string, effectiveOptions.includeExpired === true, effectiveOptions.includeSuperseded === true)) return;
+        rrfMap.set(mem.id, { memory: mem, semanticRank: 100 + i });
+      });
+      if (rrfMap.size === before) break; // 本跳无新增，提前终止避免无效循环
+    }
+  }
 
   const k = SEARCH_CONFIG.rrfK;
   // KM-106：全文路是否降级为 LIKE 必须在结果与日志中可见。

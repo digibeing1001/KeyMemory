@@ -2,6 +2,7 @@
 import { stdin, stdout, stderr } from 'process';
 import { inspect } from 'util';
 import { initDatabase } from './db/sqlite.js';
+import { recoverPendingRefine } from './core/refine-queue.js';
 import { initEmbedding } from './embed/onnx.js';
 import { getLayerStats } from './core/layer.js';
 import { runDailyInspection } from './core/evolution.js';
@@ -55,6 +56,8 @@ process.on('unhandledRejection', (reason) => {
 });
 
 initDatabase();
+// KM-202：重启后恢复待提炼队列（任务状态随 metadata.refinePending 持久化）。
+recoverPendingRefine();
 
 // E7：嵌入初始化失败不再静默：记录到日志（writeLog 不碰 stdout，不影响 stdio MCP 协议），
 // 语义搜索会自动降级为全文搜索。

@@ -962,7 +962,7 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/auto-remember', async (request) => {
-    const { content, source, agentId, isolationMode, currentProject, conversationRound, sourceContext } = request.body as {
+    const { content, source, agentId, isolationMode, currentProject, conversationRound, sourceContext, awaitRefine } = request.body as {
       content: string;
       source?: string;
       agentId?: string;
@@ -971,11 +971,13 @@ export function registerRoutes(app: FastifyInstance): void {
       conversationRound?: number;
       /** 残缺内容补全的上下文依据（当轮前后对话/来源消息/关联记忆） */
       sourceContext?: string[];
+      /** KM-201：true 时同步等待后台提炼完成再返回完整结果（默认异步落盘即返回） */
+      awaitRefine?: boolean;
     };
     if (!content) return { error: 'content is required' };
     // 透传 caller userId:使 autoRemember 产生的记忆写入 user-scoped agent_space
     const caller = getCaller(request);
-    return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound, userId: caller?.userId, sourceContext });
+    return autoRemember({ content, source, agentId, isolationMode, currentProjectId: currentProject, conversationRound, userId: caller?.userId, sourceContext, awaitRefine: awaitRefine === true });
   });
 
   // ---- 内容质量审计（已入库记忆的补救路径）----

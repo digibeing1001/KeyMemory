@@ -1,10 +1,11 @@
 import type { Memory, Layer, SelfCheckResult, CreateMemoryInput } from '@keymemory/shared';
-import { createMemory } from './atom.js';
+import { createMemory, getMemory } from './atom.js';
 import { evaluate } from '../selfcheck/evaluator.js';
 import { processContent, extractEntities, extractProjects } from '../graph/entity.js';
 import { extractProjectPathFromContent, inferMemoryLayer, isMeaningfulTag, cleanTag } from './memory-schema.js';
 import { reasonRelationsForMemory } from './relation-reasoner.js';
 import { isLLMAvailable } from './llm-provider.js';
+import { enqueueRefine, flushRefineQueue } from './refine-queue.js';
 import {
   assessCompleteness,
   assessValue,
@@ -28,6 +29,12 @@ interface AutoRememberInput {
    * 关联的已有记忆等）。只做严格子串匹配的证据式补全，不参与任何生成。
    */
   sourceContext?: string[];
+  /**
+   * KM-201：默认异步提炼——同步段只做价值过滤+落盘即返回（目标 ≤50ms），
+   * 完整性/补全/SelfCheck 定层在后台队列完成。awaitRefine=true 时同步等待
+   * 提炼完成并返回完整结果（测试与需要即时反馈的调用方使用）。
+   */
+  awaitRefine?: boolean;
 }
 
 interface AutoRememberQuality {
@@ -46,6 +53,8 @@ interface AutoRememberResult {
   evaluation?: SelfCheckResult;
   entities?: import('@keymemory/shared').Entity[];
   quality?: AutoRememberQuality;
+  /** KM-201：异步模式下为 true，表示完整性/定层等提炼仍在后台进行。 */
+  refinePending?: boolean;
 }
 
 export function confidenceFromSelfCheck(total: number): number {
@@ -155,8 +164,7 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     return { recorded: false, reason: '内容过短，不值得记录' };
   }
 
-  // 链路环节 1：准入评估——价值过滤。套话/寒暄/无信息量模板直接拒绝，
-  // 不进入后续评分与写入，避免污染记忆库。
+  // 同步段第 1 步：准入价值过滤（纯规则，微秒级）。套话/寒暄/无信息量模板直接拒绝。
   const value = assessValue(content);
   if (value.verdict === 'reject') {
     return {
@@ -166,106 +174,85 @@ export async function autoRemember(input: AutoRememberInput): Promise<AutoRememb
     };
   }
 
-  // 链路环节 2：写入前处理——完整性检测 + 证据式补全。
-  // 补全只做上下文的严格子串匹配（逐字来自上下文），严禁猜测/幻觉；
-  // 上下文不足以可靠补全时保留原文并标记“信息不完整”。
-  let finalContent = content.trim();
-  const quality: AutoRememberQuality = { value };
-  const completeness = assessCompleteness(finalContent);
-  if (!completeness.complete) {
-    const segments: ContextSegment[] = (sourceContext ?? [])
-      .filter(t => typeof t === 'string' && t.trim().length > 0)
-      .map((text, i) => ({ label: `context-${i + 1}`, text }));
-    const completion = segments.length > 0 ? tryCompleteFromContext(finalContent, segments) : null;
-    if (completion) {
-      finalContent = completion.completed;
-      quality.completeness = { status: 'completed', issues: completeness.issues, basis: completion.basis };
-    } else {
-      quality.completeness = { status: 'incomplete', issues: completeness.issues };
-    }
-  }
-
-  const evaluation = await evaluate(finalContent, { currentProject: currentProjectId, conversationRound });
-
-  if (evaluation.action === 'ignore') {
-    return { recorded: false, reason: 'SelfCheck 评估为忽略', evaluation, quality };
-  }
-
-  if (evaluation.action === 'suggest') {
-    return { recorded: false, reason: 'SelfCheck 建议记录，但需要确认', evaluation, quality };
-  }
-
-  const title = extractTitle(finalContent);
-  const layer = inferMemoryLayer(title, finalContent, undefined, evaluation);
-  const projects = extractProjects(finalContent);
-  const inferredProjectPath = extractProjectPathFromContent(finalContent);
-  // 项目路径只作为来源线索保留，不再创建或扩展用户项目文件夹。
-  // 具体工作的连续上下文由邮件主题承担；原子记忆统一进入公共记忆池，
-  // 之后可以被多个邮件线程引用。
+  // KM-201 同步段第 2 步：毫秒落盘。先以保守初值写入（flash 层/默认置信度），
+  // metadata.refinePending 标记待提炼；随后立即返回，Agent 交互不被嵌入/评分阻塞。
+  const trimmed = content.trim();
+  const title = extractTitle(trimmed);
+  const projects = extractProjects(trimmed);
+  const inferredProjectPath = extractProjectPathFromContent(trimmed);
   const projectPath: string | undefined = projects[0] || inferredProjectPath;
-
-  const tags = extractTags(finalContent);
-  // Agent-derived memories should not be indistinguishable from explicit user
-  // assertions. Calibrate confidence from the admission score and cap it below
-  // 1.0 so a later user correction can deterministically outrank it.
-  const confidence = confidenceFromSelfCheck(evaluation.total);
-
-  const entities = extractEntities(finalContent);
-  const metadata: Record<string, unknown> = {
+  const syncMetadata: Record<string, unknown> = {
     context: `auto-remember via ${agentId || 'unknown'}`,
-    importance: layer === 'long' ? 'high' : layer === 'short' ? 'medium' : 'low',
-    admission: {
-      method: 'selfcheck',
-      score: evaluation.total,
-      action: evaluation.action,
-    },
     qualityValue: { score: value.score },
+    refinePending: true,
   };
-  if (quality.completeness) {
-    // 补全可审计：status=completed 时 basis 记录依据来源（哪段上下文、哪句）；
-    // 无法可靠补全时标记 incomplete，供 dream 周期与质量审计识别。
-    metadata.completeness = {
-      ...quality.completeness,
-      at: new Date().toISOString(),
-    };
-  }
-  if (entities.length > 0) metadata.entities = entities;
-  if (currentProjectId) metadata.projectId = currentProjectId;
-  if (projectPath) metadata.projectPath = projectPath;
+  if (currentProjectId) syncMetadata.projectId = currentProjectId;
+  if (projectPath) syncMetadata.projectPath = projectPath;
 
   const mem = createMemory({
     title,
-    content: finalContent,
-    layer,
+    content: trimmed,
+    layer: 'flash',
     projectPath,
     agentSpace: isolationMode === 'isolated' && agentId ? `agent:${agentId}` : 'global',
     ownerAgentId: agentId,
-    confidence,
-    tags,
-    metadata,
+    confidence: 0.7,
+    tags: extractTags(trimmed),
+    metadata: syncMetadata,
     source: source || 'auto-remember',
-    // 透传 ownerUserId 到 createMemory(扩展字段,shared 类型不感知)
     ...(userId ? { ownerUserId: userId } : {}),
   } as CreateMemoryInput & { ownerUserId?: string });
 
-  // processContent 由 createMemory 内部自动调用，此处重复调用仅为获取 entities 返回值（幂等）
-  const entityResult = processContent(mem.id, finalContent);
+  enqueueRefine({ memoryId: mem.id, agentId, currentProjectId, conversationRound, sourceContext });
 
-  // ensureEmbedding + autoAssociate 已内聚到 createMemory 内部，此处无需重复调用
-
-  // 异步触发增量关联推理（不阻塞主流程）
-  if (mem && isLLMAvailable()) {
-    reasonRelationsForMemory(mem.id).catch(err => {
-      console.error(`[Auto] Incremental relation reasoning failed for ${mem.id}:`, err);
-    });
+  if (input.awaitRefine !== true) {
+    return {
+      recorded: true,
+      reason: '已写入，完整性检测与定层在后台提炼（每 5 轮 / 10 分钟空闲 / 手动触发）',
+      memory: mem,
+      quality: { value },
+      refinePending: true,
+    };
   }
+
+  // 同步等待模式：先提炼，再基于落盘结果重建完整返回值（测试/即时反馈路径）。
+  await flushRefineQueue();
+  const after = getMemory(mem.id);
+  if (!after || after.status === 'deleted') {
+    return {
+      recorded: false,
+      reason: '记忆不存在或已被删除',
+      quality: { value },
+    };
+  }
+
+  const meta = (after.metadata ?? {}) as Record<string, unknown>;
+  const admission = meta.admission as { score?: number; action?: string } | undefined;
+  const completenessMeta = meta.completeness as AutoRememberQuality['completeness'] | undefined;
+  if (admission?.action === 'ignore') {
+    // KM-203：保留已写入内容，仅按旧契约返回“未自动记录”结论（完整性结论仍一并返回），
+    // 可经质量审计处置。
+    const qualityOnIgnore: AutoRememberQuality = { value };
+    if (completenessMeta) qualityOnIgnore.completeness = completenessMeta;
+    return {
+      recorded: false,
+      reason: 'SelfCheck 评估为忽略（内容已保留，可经质量审计处置）',
+      memory: after,
+      quality: qualityOnIgnore,
+    };
+  }
+  const quality: AutoRememberQuality = { value };
+  if (completenessMeta) quality.completeness = completenessMeta;
+
+  // processContent 幂等（createMemory 已调用过），此处仅为取 Entity[] 类型的返回值。
+  const entities = processContent(after.id, after.content).entities;
 
   return {
     recorded: true,
-    reason: `SelfCheck 评分 ${evaluation.total.toFixed(2)}，自动记录到${layer}层`,
-    memory: mem,
-    evaluation,
-    entities: entityResult.entities,
+    reason: `SelfCheck 评分 ${admission?.score?.toFixed(2) ?? '-'}，自动记录到${after.layer}层`,
+    memory: after,
+    evaluation: admission?.score !== undefined ? ({ total: admission.score, action: admission.action } as unknown as SelfCheckResult) : undefined,
+    entities,
     quality,
   };
 }

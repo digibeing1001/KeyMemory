@@ -264,18 +264,17 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: M
     lines.push('');
   }
 
-  if (pack.sections.length === 0) {
+  // KM-301：易变区只含非稳定类条目；稳定类（偏好/约束/流程）由 stableMarkdown 承载。
+  const volatileSections = pack.sections.filter(section => !STABLE_KINDS.has(section.kind));
+  if (volatileSections.length === 0) {
     lines.push('No relevant memories found.');
   } else {
-    for (const section of pack.sections) {
+    for (const section of volatileSections) {
       lines.push(`## ${section.title}`);
       for (const item of section.items) lines.push(formatItem(item));
       lines.push('');
     }
   }
-
-  lines.push(MAILBOX_OPERATING_GUIDE);
-  lines.push('');
 
   // 注入历史相关记忆：帮助 Agent 获取与当前线程相关的历史经验
   if (historicalReferences && historicalReferences.length > 0) {
@@ -300,6 +299,23 @@ function formatMarkdown(pack: Omit<AgentContextPack, 'markdown'>, mailThread?: M
     lines.push('');
   }
 
+  return lines.join('\n').trimEnd();
+}
+
+// KM-301/D6：稳定区内容——天级变更的长期知识，放在系统提示末尾让前缀稳定命中 KV cache。
+// 不包含 query/asOf/generatedAt 等每轮变化的字段，保证跨轮字节一致。
+const STABLE_KINDS = new Set<string>(['preference', 'constraint', 'procedure']);
+
+function formatStableMarkdown(sections: AgentContextPack['sections']): string {
+  const stableSections = sections.filter(section => STABLE_KINDS.has(section.kind));
+  if (stableSections.length === 0) return '';
+  const lines = ['# KeyMemory Stable Context'];
+  for (const section of stableSections) {
+    lines.push(`## ${section.title}`);
+    for (const item of section.items) lines.push(formatItem(item));
+    lines.push('');
+  }
+  lines.push(MAILBOX_OPERATING_GUIDE);
   return lines.join('\n').trimEnd();
 }
 
@@ -520,8 +536,15 @@ export async function buildAgentContextPack(input: AgentContextPackRequest = {})
     ...packBase,
     mailThread,
     historicalReferences,
-    markdown: formatMarkdown({ ...packBase, mailThread, historicalReferences }, mailThread, historicalReferences),
+    // KM-301：双区输出。volatile 每轮变化（放用户消息前）；stable 天级稳定（放系统提示末尾），
+    // 让稳定前缀命中 KV cache。markdown 保留为两者拼接，向后兼容旧调用方。
+    volatileMarkdown: formatMarkdown({ ...packBase, mailThread, historicalReferences }, mailThread, historicalReferences),
+    stableMarkdown: formatStableMarkdown(packBase.sections),
+    markdown: '',
   };
+  result.markdown = result.stableMarkdown
+    ? `${result.volatileMarkdown}\n\n${result.stableMarkdown}`
+    : `${result.volatileMarkdown}\n\n${MAILBOX_OPERATING_GUIDE}`;
 
   // 记录 agent 活动到 loop_runs 表，让使用动态页能看到智能体何时访问了记忆库。
   if (input.recordActivity !== false) recordAgentActivity(input, result);

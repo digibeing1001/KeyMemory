@@ -553,10 +553,12 @@ program
   .option('--agent-id <agentId>', 'agent identifier')
   .option('--projectId <projectId>', 'current project ID')
   .action(async (opts) => {
+    // CLI 为短命进程：同步等待提炼完成，避免任务留在队列里随进程退出丢失。
     const result = await autoRemember({
       content: opts.content,
       agentId: opts.agentId,
       currentProjectId: opts.projectId,
+      awaitRefine: true,
     });
 
     const format: OutputFormat = program.opts().format || 'json';
@@ -1263,7 +1265,7 @@ async function handleDirectiveFallback(positional: string[]): Promise<void> {
   ensureInit();
 
   if (REMEMBER_DIRECTIVE_HEADS.has(head) && rest) {
-    const result = await autoRemember({ content: rest, agentId: 'cli-directive' });
+    const result = await autoRemember({ content: rest, agentId: 'cli-directive', awaitRefine: true });
     printAndExit(result, format);
     return;
   }
@@ -1283,7 +1285,7 @@ async function handleDirectiveFallback(positional: string[]): Promise<void> {
   if (/(记住|记一下|帮我记|remember)/i.test(joined)) {
     const content = joined.replace(/^(请|帮我|麻烦)?(记住|记一下|记录|remember)([:：]|\s)*/i, '').trim();
     if (content) {
-      const result = await autoRemember({ content, agentId: 'cli-directive' });
+      const result = await autoRemember({ content, agentId: 'cli-directive', awaitRefine: true });
       printAndExit(result, format);
       return;
     }

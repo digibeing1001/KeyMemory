@@ -23,6 +23,7 @@ process.env.KEYMEMORY_DB_PATH = path.join(dataDir, 'data.db');
 const { initDatabase, closeDatabase, getDatabase } = await import('../packages/server/dist/db/sqlite.js');
 const { createMemory } = await import('../packages/server/dist/core/atom.js');
 const { searchHybrid } = await import('../packages/server/dist/core/query.js');
+const { ensureEntity, linkMemoryEntity } = await import('../packages/server/dist/graph/entity.js');
 initDatabase();
 const db = getDatabase();
 
@@ -114,6 +115,17 @@ RARE_TOKENS.forEach((token, i) => {
 });
 
 assert.ok(memories.length >= 200, `记忆数量需 ≥200，实际 ${memories.length}`);
+
+/* ---------------- KM-107/108：实体路由与多跳用例 ----------------
+ * hopA 正文含“青鸾链路”（可被 FTS 命中）；hopB 正文完全不含查询词，
+ * 仅通过实体链接与 hopA 共享实体“青鸾链路”。首跳候选稀疏时必须经
+ * 实体一跳扩展才能召回 hopB——直接检验 KM-108。 */
+const hopA = addMemory('青鸾链路改造由专项小组主导，压测全部通过，报告已经归档留存。', { meta: { entity: '青鸾链路', kind: 'hop-a' } });
+const hopB = addMemory('回滚预案存放在运维空间并演练过两次，随时可以执行。', { meta: { entity: '青鸾链路', kind: 'hop-b' } });
+const hopEntity = ensureEntity('青鸾链路', 'concept');
+linkMemoryEntity(hopA.id, hopEntity.id);
+linkMemoryEntity(hopB.id, hopEntity.id);
+queries.push({ category: 'multihop', query: '青鸾链路 压测 报告', gold: [hopA.id, hopB.id] });
 
 /* ---------------- 生成 60+ 条 query（六类，每类 ≥10 条） ---------------- */
 const byKind = (entity, kind) => memories.filter(m => m.entity === entity && m.kind === kind).map(m => m.id);

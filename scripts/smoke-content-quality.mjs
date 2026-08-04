@@ -91,13 +91,14 @@ ok(fragmentMem.agentSpace === 'agent:probe' && fragmentMem.source === 'smoke-qua
 
 console.log('\n== 4. 写入链路：autoRemember 准入评估 + 证据式补全 ==');
 
-const autoRejected = await autoRemember({ content: '收到收到，谢谢，辛苦了！', agentId: 'probe' });
+const autoRejected = await autoRemember({ content: '收到收到，谢谢，辛苦了！', agentId: 'probe', awaitRefine: true });
 ok(!autoRejected.recorded && autoRejected.reason.includes('准入过滤'), `autoRemember 拒绝套话：${autoRejected.reason}`);
 
 const autoCompleted = await autoRemember({
   content: fragment,
   agentId: 'probe',
   sourceContext: [sourceMessage],
+  awaitRefine: true,
 });
 ok(autoCompleted.quality?.completeness?.status === 'completed', 'autoRemember 基于上下文补全残缺内容');
 ok(autoCompleted.quality?.completeness?.basis?.excerpt?.includes('旧端口与内部工具冲突'), '补全依据写入结果可审计');
@@ -109,7 +110,7 @@ if (autoCompleted.recorded) {
   console.log(`  · 注：SelfCheck 未自动记录（${autoCompleted.reason}），补全依据仍已在 quality 字段验证`);
 }
 
-const autoNoContext = await autoRemember({ content: '我们决定把缓存策略改为 LRU，因为', agentId: 'probe' });
+const autoNoContext = await autoRemember({ content: '我们决定把缓存策略改为 LRU，因为', agentId: 'probe', awaitRefine: true });
 ok(
   !autoNoContext.recorded || autoNoContext.quality?.completeness?.status === 'incomplete',
   '无上下文证据时不编造补全（拒绝或标记 incomplete）'

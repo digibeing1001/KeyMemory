@@ -380,6 +380,12 @@ export function normalizeMemoryUpdate(input: UpdateMemoryInput, existing: Memory
       validFrom: validity.validFrom,
       ...(privacy ? { privacy } : {}),
     };
+    // 显式置 null 的键表示删除（合并语义下的移除通道，如清除 refinePending 标记）。
+    if (redactedMetadata) {
+      for (const [key, value] of Object.entries(redactedMetadata)) {
+        if (value === null) delete mergedMetadata[key];
+      }
+    }
     if (validity.validTo) mergedMetadata.validTo = validity.validTo;
     else delete mergedMetadata.validTo;
     output.validFrom = validity.validFrom;

@@ -130,12 +130,27 @@ export function registerMCPRoutes(app: FastifyInstance): void {
           agentSpaces: adapter.getAgentSpaces?.(),
         });
 
+        // KM-302：双区注入——易变段（本轮召回）置于用户消息前；稳定段（长期知识）
+        // 标注应置于系统提示末尾，保持前缀稳定以命中 KV cache（对齐腾讯双区实践）。
+        const messages: { role: 'user'; content: { type: 'text'; text: string } }[] = [
+          { role: 'user', content: { type: 'text', text: pack.volatileMarkdown ?? pack.markdown } },
+        ];
+        if (pack.stableMarkdown) {
+          messages.push({
+            role: 'user',
+            content: {
+              type: 'text',
+              text: `[SYSTEM-STABLE] 以下内容是天级稳定的长期记忆与操作指南，请置于系统提示末尾（不要每轮重复插入用户消息），以保持前缀稳定命中 KV cache：\n\n${pack.stableMarkdown}`,
+            },
+          });
+        }
+
         return {
           jsonrpc: '2.0',
           id: mcpRequest.id,
           result: {
-            description: 'Inject relevant memories into the conversation context',
-            messages: [{ role: 'user' as const, content: { type: 'text' as const, text: pack.markdown } }],
+            description: 'Inject relevant memories: volatile segment before the user message, stable segment at the end of the system prompt',
+            messages,
           },
         };
       }
