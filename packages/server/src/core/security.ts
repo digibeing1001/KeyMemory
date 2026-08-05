@@ -91,6 +91,7 @@ export function shouldAuthenticateHttpPath(path: string): boolean {
 const PUBLIC_PATHS = new Set<string>([
   '/api/auth/login',
   '/api/auth/register',
+  '/api/auth/status',
   '/api/health',
 ]);
 

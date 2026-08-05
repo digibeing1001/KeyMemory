@@ -146,7 +146,9 @@
     overflow: hidden;
     transform: translateX(-104%);
     transition: transform var(--transition);
-    z-index: 80;
+    /* Sidebar.tsx has a desktop inline z-index of 40; override it so the
+       opened mobile drawer remains above the z-index:70 backdrop. */
+    z-index: 80 !important;
     box-shadow: 22px 0 44px rgba(45, 38, 27, 0.18);
   }
 
@@ -298,4 +300,3 @@
     justify-content: flex-start;
   }
 }
-

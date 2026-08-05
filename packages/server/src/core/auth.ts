@@ -46,6 +46,15 @@ interface SessionRow {
 const SESSION_TTL_DAYS = 30;
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_PARAMS: crypto.ScryptOptions = { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
+export const MIN_PASSWORD_LENGTH = 8;
+
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(email));
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -124,6 +133,8 @@ export function createUser(input: CreateUserInput): AuthUser {
   const db = getDatabase();
   const id = uuidv4();
   const now = nowIso();
+  const name = input.name.trim();
+  const email = normalizeEmail(input.email);
   const role: UserRole = input.role ?? 'member';
   const isMain = input.isMainAccount ? 1 : 0;
   const passwordHash = hashPassword(input.password);
@@ -132,8 +143,8 @@ export function createUser(input: CreateUserInput): AuthUser {
     VALUES (@id, @name, @email, @passwordHash, @role, @isMain, 'active', @companyId, @createdAt, @updatedAt)
   `).run({
     id,
-    name: input.name,
-    email: input.email,
+    name,
+    email,
     passwordHash,
     role,
     isMain,
@@ -143,8 +154,8 @@ export function createUser(input: CreateUserInput): AuthUser {
   });
   return {
     id,
-    name: input.name,
-    email: input.email,
+    name,
+    email,
     role,
     isMainAccount: isMain === 1,
     userStatus: 'active',
@@ -157,7 +168,7 @@ export function createUser(input: CreateUserInput): AuthUser {
  */
 export function authenticateUser(email: string, password: string): AuthUser | null {
   const db = getDatabase();
-  const row = db.prepare('SELECT * FROM users WHERE email = ? LIMIT 1').get(email) as UserRow | undefined;
+  const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE LIMIT 1').get(normalizeEmail(email)) as UserRow | undefined;
   if (!row) return null;
   if (!verifyPassword(password, row.password_hash)) return null;
   return rowToUser(row);

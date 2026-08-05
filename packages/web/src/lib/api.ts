@@ -21,9 +21,20 @@ export interface ListedUser extends AuthUser {
   updatedAt: string;
 }
 
-export class ApiUnauthorizedError extends Error {
-  constructor(message = 'Unauthorized') {
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+  ) {
     super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
+export class ApiUnauthorizedError extends ApiRequestError {
+  constructor(message = 'Unauthorized', code?: string) {
+    super(message, 401, code);
     this.name = 'ApiUnauthorizedError';
   }
 }
@@ -65,8 +76,9 @@ export function clearUserToken(): void {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body != null;
-  const isMutating = options?.method === 'POST' || options?.method === 'PUT' || options?.method === 'PATCH';
-  const headers: Record<string, string> = (hasBody || isMutating) ? { 'Content-Type': 'application/json' } : {};
+  // Fastify rejects an empty request advertised as JSON before it reaches the
+  // route. Only declare JSON when this request actually carries a body.
+  const headers: Record<string, string> = hasBody ? { 'Content-Type': 'application/json' } : {};
   // 优先使用用户 token；如无则回退到旧 API key（向后兼容）
   const userToken = getUserToken();
   if (userToken) {
@@ -81,12 +93,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { ...headers, ...(options?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    if (res.status === 401) {
+    const body = await res.json().catch(() => ({ error: res.statusText, code: undefined }));
+    if (res.status === 401 && path !== '/auth/login') {
       window.dispatchEvent(new CustomEvent('keymemory:unauthorized'));
-      throw new ApiUnauthorizedError(body.error || 'Unauthorized');
+      throw new ApiUnauthorizedError(body.error || 'Unauthorized', body.code);
     }
-    throw new Error(body.error || `HTTP ${res.status}`);
+    throw new ApiRequestError(body.error || `HTTP ${res.status}`, res.status, body.code);
   }
   return res.json();
 }
@@ -96,6 +108,10 @@ export interface AuthLoginResponse {
   token: string;
   expiresAt?: string;
   user: AuthUser;
+}
+
+export async function authStatus(): Promise<{ hasUsers: boolean }> {
+  return request<{ hasUsers: boolean }>('/auth/status');
 }
 
 export async function authLogin(email: string, password: string): Promise<AuthLoginResponse> {

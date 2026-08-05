@@ -16,6 +16,7 @@ import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
 import LLMConfigView from './components/LLMConfigView';
 import MigrationView from './components/MigrationView';
+import ProjectSuggestionsView from './components/ProjectSuggestionsView';
 import MailboxView from './components/MailboxView';
 import WorkingSetView from './components/WorkingSetView';
 import IntegrationView from './components/IntegrationView';
@@ -51,11 +52,15 @@ function isViewMode(value: string | null): value is ViewMode {
   return value === 'mailbox'
     || value === 'memories'
     || value === 'valley'
+    || value === 'nebula'
     || value === 'tags'
     || value === 'dream'
+    || value === 'llm'
     || value === 'migration'
+    || value === 'organize'
     || value === 'recycle'
     || value === 'workingSet'
+    || value === 'integrations'
     || value === 'users'
     || value === 'today'
     || value === 'timeline'
@@ -484,6 +489,12 @@ function AppInner() {
           {viewMode === 'migration' && (
             <div className="flex-1 overflow-y-auto">
               <MigrationView onImported={handleProjectChanged} onToast={toast} />
+            </div>
+          )}
+
+          {viewMode === 'organize' && isAdmin && (
+            <div className="flex-1 overflow-y-auto">
+              <ProjectSuggestionsView onChanged={handleProjectChanged} onToast={toast} />
             </div>
           )}
 

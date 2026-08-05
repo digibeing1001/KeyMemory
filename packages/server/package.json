@@ -36,7 +36,7 @@
     "download-model": "node ../../scripts/download-model.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "node --import tsx --test src/core/__tests__/cjk.test.ts src/core/__tests__/token-estimate.test.ts src/core/__tests__/privacy.test.ts src/core/__tests__/content-quality.test.ts src/core/__tests__/memory-schema.test.ts src/core/__tests__/cache.test.ts"
+    "test": "node --import tsx --test src/core/__tests__/cjk.test.ts src/core/__tests__/token-estimate.test.ts src/core/__tests__/privacy.test.ts src/core/__tests__/content-quality.test.ts src/core/__tests__/memory-schema.test.ts src/core/__tests__/cache.test.ts src/core/__tests__/auth.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
