@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>会议综合信息图 · 录音卡商业化立项会</title>
+<style>
+  :root{
+    --bg:#0f1419; --card:#1a2129; --card2:#222b35; --line:#2e3a45;
+    --txt:#e8edf2; --sub:#9aa7b4; --dim:#6b7785;
+    --pri:#4fd1c5; --pri2:#3aa8e0; --acc:#f6c453; --warn:#ef6f6f; --ok:#7ed957;
+    --p0:#ef6f6f; --p1:#f6c453; --p2:#7ed957;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{scroll-behavior:smooth}
+  body{
+    background:linear-gradient(180deg,#0c1116 0%,#0f1419 100%);
+    color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    line-height:1.65;font-size:15px;padding:14px;min-height:100vh;
+  }
+  .wrap{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr;gap:14px}
+  @media(min-width:760px){.wrap{grid-template-columns:1fr 1fr;gap:16px}.full{grid-column:1/-1}}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 16px 14px;
+    box-shadow:0 2px 10px rgba(0,0,0,.25);position:relative;overflow:hidden;
+  }
+  .card::before{content:"";position:absolute;left:0;top:0;width:4px;height:100%;background:var(--pri)}
+  .card.acc::before{background:var(--acc)}
+  .card.warn::before{background:var(--warn)}
+  .card.ok::before{background:var(--ok)}
+  .card.pri2::before{background:var(--pri2)}
+  .h{display:flex;align-items:center;gap:9px;margin-bottom:11px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  .h .n{width:26px;height:26px;border-radius:8px;background:var(--pri2);color:#06121a;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .h .t{font-size:16px;font-weight:700;letter-spacing:.3px}
+  .h .s{margin-left:auto;font-size:11px;color:var(--dim)}
+  /* hero */
+  .hero{grid-column:1/-1;background:linear-gradient(135deg,#15202b 0%,#1e2a36 60%,#243440 100%);border:1px solid #2c3e50;padding:18px}
+  .hero::before{background:linear-gradient(180deg,var(--pri),var(--pri2))}
+  .hero .ttl{font-size:21px;font-weight:800;margin-bottom:3px;letter-spacing:.4px}
+  .hero .meta{font-size:12px;color:var(--sub);margin-bottom:13px;display:flex;flex-wrap:wrap;gap:6px 14px}
+  .hero .meta b{color:var(--pri);font-weight:600}
+  .hero .sum{background:rgba(0,0,0,.22);border-radius:11px;padding:13px 14px;border:1px solid #2a3a48}
+  .hero .sum p{margin-bottom:8px}
+  .hero .sum p:last-child{margin-bottom:0}
+  .hero .sum b{color:var(--acc)}
+  .hero .sum .k{color:var(--pri);font-weight:700}
+  .seg{margin-top:9px}
+  .seg .lab{font-size:11px;color:var(--pri2);font-weight:700;margin-bottom:5px;letter-spacing:.5px}
+  .seg p{font-size:13.5px;margin-bottom:5px}
+  /* lists */
+  ul.clean{list-style:none}
+  ul.clean li{padding:6px 0 6px 18px;position:relative;font-size:13.8px;border-bottom:1px dashed rgba(255,255,255,.05)}
+  ul.clean li:last-child{border-bottom:0}
+  ul.clean li::before{content:"▸";position:absolute;left:0;color:var(--pri);font-size:13px;top:6px}
+  /* logic flow */
+  .flow{display:flex;flex-direction:column;gap:7px}
+  .flow .step{background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:13.3px;position:relative;padding-left:30px}
+  .flow .step::before{content:attr(data-n);position:absolute;left:8px;top:9px;width:16px;height:16px;border-radius:50%;background:var(--pri2);color:#06121a;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .flow .arr{text-align:center;color:var(--pri);font-size:14px;line-height:1;margin:-2px 0}
+  /* tags */
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;margin:0 4px 4px 0;vertical-align:middle}
+  .t-new{background:rgba(239,111,111,.18);color:#ff9b9b;border:1px solid rgba(239,111,111,.4)}
+  .t-cont{background:rgba(246,196,83,.18);color:#ffd97a;border:1px solid rgba(246,196,83,.4)}
+  .t-done{background:rgba(126,217,87,.18);color:#a8ee88;border:1px solid rgba(126,217,87,.4)}
+  .t-delay{background:rgba(154,167,180,.18);color:#c5d0db;border:1px solid rgba(154,167,180,.4)}
+  .t-p0{background:#ef6f6f;color:#fff}
+  .t-p1{background:#f6c453;color:#1a1300}
+  .t-p2{background:#7ed957;color:#06121a}
+  .t-sev-h{background:#ef6f6f;color:#fff}
+  .t-sev-m{background:#f6c453;color:#1a1300}
+  .t-sev-l{background:#7ed957;color:#06121a}
+  /* todo rows */
+  .row{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed rgba(255,255,255,.06);font-size:13.5px}
+  .row:last-child{border-bottom:0}
+  .row .tags{flex-shrink:0;width:96px}
+  .row .body{flex:1}
+  .row .body small{color:var(--sub);font-size:11.5px}
+  /* emotion */
+  .emo{display:grid;grid-template-columns:1fr;gap:8px}
+  .emo .e{background:var(--card2);border-radius:9px;padding:10px 12px;border-left:3px solid var(--pri)}
+  .emo .e .who{font-weight:700;color:var(--acc);font-size:13.5px;margin-bottom:4px}
+  .emo .e .tr{font-size:12px;color:var(--sub);margin-bottom:5px}
+  .emo .e .pow{font-size:11.5px;color:var(--pri2)}
+  /* progress */
+  .pb{margin:8px 0}
+  .pb .top{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+  .pb .top b{color:var(--acc)}
+  .pb .bar{height:9px;background:#0c1116;border-radius:5px;overflow:hidden;border:1px solid var(--line)}
+  .pb .bar i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--pri),var(--pri2))}
+  /* timeline */
+  .tl{position:relative;padding-left:18px}
+  .tl::before{content:"";position:absolute;left:5px;top:4px;bottom:4px;width:2px;background:var(--line)}
+  .tl .it{position:relative;padding:0 0 12px 8px;font-size:13.3px}
+  .tl .it::before{content:"";position:absolute;left:-17px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--pri2);border:2px solid var(--card)}
+  .tl .it .d{color:var(--acc);font-size:11.5px;font-weight:700}
+  .tl .it .c{color:var(--sub);font-size:12.5px;margin-top:2px}
+  /* first principles 3 col */
+  .fp{display:grid;grid-template-columns:1fr;gap:8px}
+  @media(min-width:760px){.fp{grid-template-columns:1fr 1fr 1fr}}
+  .fp .col{border-radius:9px;padding:10px 11px;font-size:12.8px}
+  .fp .c1{background:rgba(239,111,111,.12);border:1px solid rgba(239,111,111,.35)}
+  .fp .c2{background:rgba(79,209,197,.12);border:1px solid rgba(79,209,197,.35)}
+  .fp .c3{background:rgba(246,196,83,.12);border:1px solid rgba(246,196,83,.35)}
+  .fp .col .ch{font-weight:800;font-size:12px;margin-bottom:6px;letter-spacing:.4px}
+  .fp .c1 .ch{color:#ff9b9b}
+  .fp .c2 .ch{color:var(--pri)}
+  .fp .c3 .ch{color:var(--acc)}
+  .fp .issue{font-size:12px;color:var(--sub);margin:10px 0 6px;font-weight:700;border-top:1px dashed rgba(255,255,255,.1);padding-top:8px}
+  .fp .issue:first-of-type{margin-top:0;border-top:0;padding-top:0}
+  /* insight cards */
+  .ins{background:var(--card2);border-radius:9px;padding:10px 12px;margin-bottom:8px;border-left:3px solid var(--acc)}
+  .ins .ih{font-size:13px;font-weight:700;color:var(--acc);margin-bottom:4px}
+  .ins p{font-size:12.8px;color:var(--txt)}
+  .ins .src{font-size:11px;color:var(--dim);margin-top:4px}
+  .kw{color:var(--pri);font-weight:600}
+  .pos{color:var(--ok);font-weight:600}
+  .neg{color:#ff9b9b;font-weight:600}
+  .small{font-size:12px;color:var(--sub)}
+  .pill{display:inline-block;background:rgba(79,209,197,.15);color:var(--pri);padding:1px 7px;border-radius:5px;font-size:11px;font-weight:600;margin-left:4px}
+  .ft{text-align:center;color:var(--dim);font-size:11px;padding:6px 0 2px;grid-column:1/-1}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 1. 结论先行 -->
+  <section class="card hero full">
+    <div class="ttl">录音卡商业化立项会 · 综合信息图</div>
+    <div class="meta">
+      <span>项目：<b>录音卡商业化</b></span>
+      <span>性质：<b>立项首次会议</b></span>
+      <span>时间：2026-08-05 16:09–16:54（45min）</span>
+      <span>参与：约 3 人</span>
+      <span>类型：商务沟通 + 个人闲聊</span>
+    </div>
+    <div class="sum">
+      <p><span class="k">一句话定性：</span>本场是"录音卡商业化"项目的<b>首次正式立项会</b>，一次性敲定了产品定位、商业化路径、定价模型、合作身份与利润分配，方向清晰、分工明确，是项目从 0 到 1 的关键节点。</p>
+      <p><span class="k">五项核心决策：</span>① 录音卡卖的是<b>老板的"掌控感/情绪价值"</b>而非全维度监控；② 商业化分三阶：<b>公开课 99–199 元引流 → 咨询 998–9800 元/月 → 项目合作</b>；③ 产品形态为<b>"会员+录音卡+Skill+Agent"整套方案，定价 1500–2000 元</b>；④ 合作身份用<b>新技术应用研究所研究员</b>抬头，进退灵活；⑤ 付费课程利润<b>51% 给合作方 / 49% 归己</b>。</p>
+      <p><span class="k">人物意图与权力：</span><b>我（笔记主人）</b>主导全程——定产品、定定价、定方法论，话语权最强；<b>说话人 3</b>是执行落地者，承担黄会长/杜主任渠道对接，主动度高但方案能力依赖我，形成"我出方案+他出渠道"的联盟；<b>邓土生</b>缺席被讨论，被定性为"一手好牌打得稀烂"，作为反面教材被边缘化。</p>
+      <p><span class="k">情绪曲线：</span>开场理性剖析高龄高管动机 → 中段兴奋（产品方案成型）→ 收尾放松（闲聊晚餐）。整体积极、方向一致，无重大冲突。</p>
+      <p><span class="k">最关键判断：</span>"<b>恐惧大于机会</b>"与"<b>只有高频才能建立信任</b>"两条底层人性律，贯穿产品定位、定价与推广逻辑，是本次会议的方法论内核。</p>
+    </div>
+  </section>
+
+  <!-- 2. 核心事项与核心观点 -->
+  <section class="card pri2 full">
+    <div class="h"><span class="n">2</span><span class="t">核心事项与核心观点</span></div>
+    <ul class="clean">
+      <li><b>产品定位：</b>核心是给老板<b>情绪价值与安全感</b>，不是真做全维度监控；员工每日交拜访录音、遇私密可关，既满足老板又易推行。</li>
+      <li><b>商业化路径：</b>公开课（99/199 元）引流加微信 → 付费咨询（998–9800 元/月，上门挖需求出可行性报告）→ 项目合作分层变现。</li>
+      <li><b>产品选型：</b><span class="neg">不与老王合作</span>（无开放 API/MCP、数据无法自主调用、质量差）；<span class="pos">采购成熟带 API 录音卡 + 自研 Skill</span>，录音汇总生成日报。</li>
+      <li><b>目标客户：</b>中小企业老板；<span class="neg">排除银行国企</span>（违规、风险最终归我方）。商会渠道获客精准。</li>
+      <li><b>定价模型：</b>不单卖硬件，卖"一年会员+录音卡+Skill 部署+Agent 服务"整套，1500–2000 元，利润空间充足。</li>
+      <li><b>合作身份：</b>新技术应用研究所研究员抬头（层级高、对公对私皆可、进退灵活）；备选健康产业协会/软协，8 月与软协确认。</li>
+      <li><b>利润分配：</b>付费课程与研究院合作按 <b>51% 合作方 / 49% 己方</b>，人力成本自负，规则清晰便结算。</li>
+      <li><b>服务器项目归因：</b>推进缓慢因两位体制内老人不理解业务、无变现能力与主动性，需我方持续推动，对方不作为可随时撇开。</li>
+      <li><b>邓土生月子会所失败归因：</b>低频服务（一生一次）无法建立信任，电商商城不成立；对比华住/携程高频成功。</li>
+      <li><b>两条底层律：</b>① <b>恐惧 &gt; 机会</b>（老板为"不做会损失"买单意愿远高于"做能增长"）；② <b>高频建信任</b>（低频难留存）。</li>
+      <li><b>区域法规：</b>中、美、东南亚允许收集员工录音；欧盟、香港严隐私不允许，赴港推广须先确认合规。</li>
+    </ul>
+  </section>
+
+  <!-- 3. 关键逻辑梳理 -->
+  <section class="card full">
+    <div class="h"><span class="n">3</span><span class="t">关键逻辑梳理（推理路径）</span></div>
+    <div class="flow">
+      <div class="step" data-n="1">中小企业老板的<b>第一驱动是"恐惧损失"</b>，而非"获得增长机会"</div>
+      <div class="arr">↓</div>
+      <div class="step" data-n="2">老板愿为"<b>掌控感/安全感</b>"付溢价，但不需要真正全维度监控</div>
+      <div class="arr">↓</div>
+      <div class="step" data-n="3">录音卡满足"安全感"而非"监控"：员工每天交拜访录音 + 遇私密可关 → <b>易推行</b></div>
+      <div class="arr">↓</div>
+      <div class="step" data-n="4">不卖硬件，卖"<b>会员+硬件+Skill+Agent</b>"整套掌控方案，定价 1500–2000 元</div>
+      <div class="arr">↓</div>
+      <div class="step" data-n="5">获客走<b>商会渠道</b>（黄会长付费课 + 杜主任江西鹰潭商会），客户都是未接触过的精准中小企业老板</div>
+      <div class="arr">↓</div>
+      <div class="step" data-n="6">公开课 99–199 引流 → 咨询 998–9800 挖需求 → 项目合作分层变现</div>
+      <div class="arr">↓</div>
+      <div class="step" data-n="7">利润 <b>51/49</b> 分给合作方 → 合作方吃到甜头愿开放资源 → 渠道正向循环</div>
+    </div>
+  </section>
+
+  <!-- 4. 情绪转变与意图 + 权力动态 -->
+  <section class="card acc full">
+    <div class="h"><span class="n">4</span><span class="t">对话者情绪转变、意图识别与权力动态</span></div>
+    <div class="emo">
+      <div class="e">
+        <div class="who">我（笔记主人）｜方案设计者 · 方法论输出者</div>
+        <div class="tr">情绪：理性剖析高龄高管动机 → 兴奋（产品方案成型、金句频出）→ 放松（闲聊晚餐）</div>
+        <div class="tr">意图：定产品本质、定商业逻辑、输出底层方法论；把控全场方向与节奏</div>
+        <div class="pow">权力：<b>主导者</b>。定调产品定位/定价/路径/身份，否决老王方案与多版名片建议，议程与决策权最强。</div>
+      </div>
+      <div class="e">
+        <div class="who">说话人 3｜执行落地者 · 渠道对接者</div>
+        <div class="tr">情绪：积极承接 → 主动认领明日任务（约黄会长、对接杜主任）→ 顺从我的判断</div>
+        <div class="tr">意图：获取方案与背书支持、推进手中资源变现；曾提"两版名片""对接东鹏林木琴"被驳回</div>
+        <div class="pow">权力：<b>执行层/联盟方</b>。方案能力依赖我，但掌握黄会长/杜主任渠道，是落地关键；与我形成"方案+渠道"互补联盟。</div>
+      </div>
+      <div class="e">
+        <div class="who">邓土生（缺席·被讨论）｜反面案例</div>
+        <div class="tr">情绪/意图（历史）：蹭资源、找贷款解资金危机、自称操刀顺德项目（实际仅 3 店）</div>
+        <div class="pow">权力：<b>被边缘化</b>。月子会所电商失败被作为"低频无信任"反面教材，已排除在新录音卡业务之外。</div>
+      </div>
+    </div>
+    <div class="seg small" style="margin-top:10px"><span class="kw">联盟结构：</span>我 + 说话人 3 = 方案+渠道闭环；体制内两位老人 + 邓土生 = 需借其身份背书但不绑定、可随时撇开的外围。</div>
+  </section>
+
+  <!-- 5. 决策与待办 -->
+  <section class="card warn full">
+    <div class="h"><span class="n">5</span><span class="t">决策与待办（结合历史 · 标签+优先级）</span></div>
+    <div class="row"><div class="tags"><span class="tag t-new">新决策</span><span class="tag t-p0">P0</span></div><div class="body"><b>说话人 3 明日约黄会长</b>，敲定付费课程合作与 <b>51/49 利润分配</b>。<small>合作方吃甜头才开放资源</small></div></div>
+    <div class="row"><div class="tags"><span class="tag t-new">新决策</span><span class="tag t-p0">P0</span></div><div class="body"><b>产品定型</b>：会员+录音卡+Skill 部署+Agent 服务整套，定价 <b>1500–2000 元</b>。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-new">新决策</span><span class="tag t-p0">P0</span></div><div class="body"><b>名片定型</b>：印"新技术应用研究所研究员"抬头，办公地址用研究所现址。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-new">新决策</span><span class="tag t-p1">P1</span></div><div class="body"><b>说话人 3 对接杜主任</b>，推进江西鹰潭商业商会合作，挖掘潜在客户。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-new">新决策</span><span class="tag t-p1">P1</span></div><div class="body"><b>采购成熟带 API 录音卡，弃用老王产品</b>；自研 Skill 将录音汇总生成日报。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-new">新决策</span><span class="tag t-p1">P1</span></div><div class="body"><b>我：8 月与软协沟通</b>确认使用软协抬头事宜。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-cont">延续</span><span class="tag t-p2">P2</span></div><div class="body"><b>服务器项目持续主动推动</b>（历史停滞），借体制内老人身份背书获客，不作为可撇开。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-delay">推迟</span><span class="tag t-p2">P2</span></div><div class="body"><b>香港/海外推广录音卡</b>：须先确认当地隐私法规，避免违规。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-delay">推迟</span><span class="tag t-p2">P2</span></div><div class="body"><b>健康产业协会抬头</b>作为备选，待软协确认后再定。</div></div>
+  </section>
+
+  <!-- 6. 分歧点与未决事项 -->
+  <section class="card warn full">
+    <div class="h"><span class="n">6</span><span class="t">分歧点与未决事项（带严重度）</span></div>
+    <div class="row"><div class="tags"><span class="tag t-sev-l">低·已解</span></div><div class="body"><b>是否与老王合作：</b>说话人 3 曾考虑 vs 我反对（无 API/MCP、质量差）→ <span class="pos">已解决：弃用，采购成熟带 API 产品</span></div></div>
+    <div class="row"><div class="tags"><span class="tag t-sev-l">低·已解</span></div><div class="body"><b>名片是否印多版本：</b>说话人 3 建议两版应对不同场景 vs 我主张一版足够（研究员本身层级高）→ <span class="pos">已解决：一版</span></div></div>
+    <div class="row"><div class="tags"><span class="tag t-sev-h">高·未决</span></div><div class="body"><b>服务器项目如何激活体制内老人：</b>根因是对方无变现能力与主动性，无根本解，只能持续推动或撇开。<span class="neg">结构性难题</span></div></div>
+    <div class="row"><div class="tags"><span class="tag t-sev-m">中·未决</span></div><div class="body"><b>香港推广合规性：</b>港欧严隐私，须先确认法规；参考 Meta 美可用/欧盟不可用。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-sev-l">低·未决</span></div><div class="body"><b>抬头选择（健康产业协会 vs 软协）：</b>8 月与软协确认后再定。</div></div>
+    <div class="row"><div class="tags"><span class="tag t-sev-m">中·未决</span></div><div class="body"><b>整套方案交付能力：</b>Skill 自研与 Agent 服务尚未启动，能否如期交付支撑 1500–2000 定价待验证。</div></div>
+  </section>
+
+  <!-- 7. 角色贡献度 -->
+  <section class="card ok">
+    <div class="h"><span class="n">7</span><span class="t">角色贡献度（结合历史累计）</span></div>
+    <div class="small" style="margin-bottom:8px">本项目为首次会议，按本场发言+相关历史观点累计评估</div>
+    <div class="pb"><div class="top"><span>我（方案+方法论）</span><b>85%</b></div><div class="bar"><i style="width:85%"></i></div></div>
+    <div class="pb"><div class="top"><span>说话人 3（渠道+执行）</span><b>60%</b></div><div class="bar"><i style="width:60%"></i></div></div>
+    <div class="pb"><div class="top"><span>邓土生（反面案例·无正向贡献）</span><b>10%</b></div><div class="bar"><i style="width:10%;background:linear-gradient(90deg,#ef6f6f,#f6c453)"></i></div></div>
+    <div class="small" style="margin-top:6px"><span class="kw">注：</span>"我"在同主题历史个人观点中已多次输出"恐惧驱动""高频信任""硬件即传感器"等底层律，本场将其系统化落地为产品方案，贡献度最高。</div>
+  </section>
+
+  <!-- 8. 上下文锚点 -->
+  <section class="card pri2">
+    <div class="h"><span class="n">8</span><span class="t">上下文锚点（议题演进脉络）</span></div>
+    <div class="small" style="margin-bottom:9px">同项目"录音卡商业化"无历史会议，本场为<span class="pill">立项首场</span>。下列为跨项目/个人观点的脉络锚点：</div>
+    <div class="tl">
+      <div class="it"><div class="d">历史 · 邓土生月子会所电商</div><div class="c">低频服务做电商失败 → 本场作为"低频无信任"反面教材，支撑"高频建信任"律</div></div>
+      <div class="it"><div class="d">2026-08-05 18:22 · 个人观点</div><div class="c">"AI 下一个十年=物理世界隐性数据显性化""硬件即传感器" → 录音卡正是把前线"隐性数据"显性化的传感器，为本场产品定位提供底层逻辑</div></div>
+      <div class="it"><div class="d">2026-08-05 18:37 · 个人观点</div><div class="c">"华为管理变革史=恐惧驱动变革" → 呼应本场"恐惧&gt;机会"方法论</div></div>
+      <div class="it"><div class="d">2026-08-05 18:47 · 个人观点</div><div class="c">"危机感驱动学习才能改变行为" → 呼应"老板因恐惧买单"</div></div>
+      <div class="it"><div class="d">2026-08-05 16:09 · 本场会议</div><div class="c">录音卡商业化立项：产品定位/路径/定价/身份/分工一次性敲定</div></div>
+    </div>
+  </section>
+
+  <!-- 9. 项目进度演进 -->
+  <section class="card ok full">
+    <div class="h"><span class="n">9</span><span class="t">项目进度演进（相对历史）</span></div>
+    <div class="small" style="margin-bottom:9px">首次会议，进度态：<b style="color:var(--ok)">0 → 1（立项+定型）</b>，无历史可对比，以下为各模块当前态：</div>
+    <div class="row"><div class="tags"><span class="tag t-done">完成</span></div><div class="body"><b>立项定型：</b>产品定位/商业化路径/定价/合作身份/利润分配/近期分工 — 全部敲定</div></div>
+    <div class="row"><div class="tags"><span class="tag t-cont">待推进</span></div><div class="body"><b>渠道拓展：</b>黄会长付费课、杜主任江西鹰潭商会 — 明日起对接</div></div>
+    <div class="row"><div class="tags"><span class="tag t-delay">未启动</span></div><div class="body"><b>产品交付：</b>需采购带 API 录音卡 + 自研 Skill + Agent 服务 — 尚未启动</div></div>
+    <div class="row"><div class="tags"><span class="tag t-delay">待确认</span></div><div class="body"><b>合规：</b>香港/海外法规待确认；银行国企客户已排除</div></div>
+    <div class="row"><div class="tags"><span class="tag t-cont">延续·停滞</span></div><div class="body"><b>服务器项目：</b>历史停滞，本场确认根因（体制内老人无变现动力），策略调整为"借背书+可撇开"</div></div>
+  </section>
+
+  <!-- 10. 第一性原理解读 -->
+  <section class="card acc full">
+    <div class="h"><span class="n">10</span><span class="t">第一性原理解读（经验假设 vs 底层真相 vs 重构方案）</span></div>
+    <div class="fp">
+      <div class="col c1">
+        <div class="ch">经验假设（可被打破的惯例）</div>
+        <div class="issue">议题①：录音卡产品本质</div>
+        <div>要做"全维度员工监控"系统才算有价值；监控越全面产品越强。</div>
+        <div class="issue">议题②：商业化定价</div>
+        <div>录音卡是硬件，按硬件单价卖，比拼硬件成本与功能参数。</div>
+      </div>
+      <div class="col c2">
+        <div class="ch">底层真相（不可再分的硬约束）</div>
+        <div class="issue">议题①</div>
+        <div>老板付费第一驱动是<b>恐惧损失</b>→需要的是"掌控感/安全感"而非真监控；员工有私密空间才配合，强监控推行不了且违规。硬约束=人性律+合规底线。</div>
+        <div class="issue">议题②</div>
+        <div>硬件只是<b>传感器/入口</b>，真正价值是把前线"隐性数据"显性化并生成日报的服务；老板愿为"恐惧"付高溢价，不愿为"机会"付低价。硬约束=价值在数据服务不在硬件。</div>
+      </div>
+      <div class="col c3">
+        <div class="ch">重构方案（从底层真相推导）</div>
+        <div class="issue">议题①</div>
+        <div>卖"掌控感"而非"监控工具"：员工每日交拜访录音+遇私密可关，既满足老板安全感又易推行；<b>不卖硬件，卖"会员+硬件+Skill+Agent"整套掌控方案</b>。</div>
+        <div class="issue">议题②</div>
+        <div>整套定价 <b>1500–2000 元</b>（远超硬件成本）；用公开课 99–199 引流→咨询 998–9800→项目合作分层变现；利润 51/49 分渠道换资源。<b>白痴指数高=成品贵/原料便宜</b>，正好用服务包摊薄硬件放大价值。</div>
+      </div>
+    </div>
+    <div class="small" style="margin-top:10px"><span class="kw">验证：</span>重构方案满足"老板愿为恐惧付溢价"+"员工可接受易推行"+"合规（排除银行国企）"三重硬约束，逻辑自洽、可执行。</div>
+  </section>
+
+  <!-- 11. 多维度综合洞察 -->
+  <section class="card pri2 full">
+    <div class="h"><span class="n">11</span><span class="t">多维度综合洞察（会议 + 个人观点 + 收藏内容）</span></div>
+
+    <div class="ins">
+      <div class="ih">① 硬件即传感器：录音卡的真正价值在数据显性化</div>
+      <p>个人观点"AI 下一个十年=物理世界隐性数据显性化"+"iPhone 史即传感器史" + 收藏《马斯克原理》"白痴指数" → 录音卡本质是"<span class="kw">前线数据传感器</span>"，价值在"把拜访录音压缩成日报"的服务，不在硬件本身。这从底层验证了"不卖硬件、卖整套方案"的判断。</p>
+      <div class="src">来源：个人观点(08-05 18:22) + 《马斯克原理》+ 本场会议</div>
+    </div>
+
+    <div class="ins">
+      <div class="ih">② 恐惧驱动一致律：跨场景同构</div>
+      <p>个人观点"危机感驱动学习才能改变行为""华为恐惧驱动变革" + 本场"恐惧&gt;机会" + 保险案例 → 组织变革、个人学习、老板买单<b>同构遵循"恐惧&gt;机会"</b>。这是底层人性律，录音卡营销话术应主打"不监控会损失"而非"监控能增长"。</p>
+      <div class="src">来源：个人观点(08-05 18:37/18:47) + 本场会议</div>
+    </div>
+
+    <div class="ins">
+      <div class="ih">③ 高频建信任：录音卡的"每日交录音"是一石二鸟</div>
+      <p>会议"月子会所低频失败 vs 华住/携程高频成功" → 录音卡要求"<span class="kw">员工每日交录音</span>"恰是制造高频接触，既给老板掌控感，又养成使用习惯、建立依赖，反向强化续费。低频一次性卖硬件=月子会所式失败路径。</p>
+      <div class="src">来源：本场会议 + 个人观点(记忆与压缩)</div>
+    </div>
+
+    <div class="ins">
+      <div class="ih">④ FDE 现场交付：整套方案定价的交付层支撑</div>
+      <p>今日收藏《腾讯研究院 FDE 模式》《AI 竞争转向现场交付》+ 个人观点"AI 焦点转向现场交付" → 录音卡落地需 FDE 式现场交付（适配方言/流程偏差/光照）。"<span class="kw">Skill 部署+Agent 服务</span>"正是交付层，是 1500–2000 元定价的合理性来源，也是护城河。</p>
+      <div class="src">来源：收藏文章(FDE/现场交付) + 个人观点(08-05 18:44) + 本场会议</div>
+    </div>
+
+    <div class="ins">
+      <div class="ih">⑤ 记忆与压缩：日报的本质是高压缩率认知</div>
+      <p>个人观点"智能源于记忆与信息压缩"+ 收藏《Agent Memory Leaderboard》→ 录音卡生成的日报本质是"<span class="kw">对前线信息的压缩</span>"，压缩率高的日报=更高认知价值。Skill 的设计目标应是"高压缩率、可溯源、低幻觉"的总结，而非流水账转写。</p>
+      <div class="src">来源：个人观点(08-05 21:39) + 收藏(AML) + 本场会议</div>
+    </div>
+
+    <div class="ins">
+      <div class="ih">⑥ 第一性原理×五步法：删减再优化</div>
+      <p>收藏《马斯克原理》"五步工作法（质疑需求→删减→简化→加速→自动化）" → 应用于录音卡方案：先<b>质疑"全维度监控"需求</b>→<b>删减</b>到"每日拜访录音+可关私密"→<b>简化</b>为整套方案→再加速迭代 Skill。顺序不能反（先自动化再删减=白做）。</p>
+      <div class="src">来源：收藏《马斯克原理》(08-05) + 本场会议</div>
+    </div>
+
+    <div class="ins">
+      <div class="ih">⑦ 风险提示：合规与交付是两大软肋</div>
+      <p>收藏《豆包千问下架智能体/AI 拟人化新规》+ 香港隐私讨论 → 录音卡涉及员工数据收集，<span class="neg">合规是生死线</span>（银行国企已排除，海外需逐地确认）；同时整套方案交付能力尚未验证，定价若撑不起交付将反噬口碑。</p>
+      <div class="src">来源：收藏(AI 拟人化新规) + 本场会议</div>
+    </div>
+  </section>
+
+  <div class="ft">— 录音卡商业化立项会 · 综合信息图 —</div>
+</div>
+</body>
+</html>
