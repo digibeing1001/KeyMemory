@@ -18,6 +18,7 @@ import {
   type MailboxStats,
 } from '../lib/api';
 import type { MailThreadFolder } from '@keymemory/shared';
+import ConfirmDialog from './ConfirmDialog';
 
 type Notice = { text: string; tone: 'success' | 'error'; undo?: { label: string; action: () => void } } | null;
 
@@ -231,6 +232,8 @@ export default function MailboxView() {
   const [density, setDensity] = useState<'compact' | 'comfortable' | 'relaxed'>('comfortable');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [agentIntegrations, setAgentIntegrations] = useState<AgentIntegrationStatus[]>([]);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
 
   const toggleGroup = useCallback((group: string) => {
     setCollapsedGroups(prev => {
@@ -365,10 +368,11 @@ export default function MailboxView() {
   };
 
   const patchThread = useCallback(async (data: Parameters<typeof updateMailboxThread>[1], successText?: string) => {
-    if (!selectedId) return;
-    const previous = threads.find((item) => item.id === selectedId);
+    if (!selectedId) return false;
+    const threadId = selectedId;
+    const previous = threads.find((item) => item.id === threadId);
     try {
-      const updated = await updateMailboxThread(selectedId, data);
+      const updated = await updateMailboxThread(threadId, data);
       setThreads((current) => current.map((item) => item.id === updated.id ? updated : item));
       setDetail((current) => current ? { ...current, thread: updated } : current);
       if (data.folder && data.folder !== folder && folder !== 'all') {
@@ -384,9 +388,11 @@ export default function MailboxView() {
           text: successText,
           tone: 'success',
           undo: undoable ? {
-            label: zh ? '撤销' : 'Undo',
+            label: data.folder === 'archive'
+              ? (zh ? '移回收件箱（报告保留）' : 'Move back (report kept)')
+              : (zh ? '撤销' : 'Undo'),
             action: () => {
-              void updateMailboxThread(selectedId, { folder: previous.folder as MailThreadFolder })
+              void updateMailboxThread(threadId, { folder: previous.folder as MailThreadFolder })
                 .then(() => { setNotice(null); void refresh(); void getMailboxStats().then(setStats); })
                 .catch((cause) => setNotice({ text: cause instanceof Error ? cause.message : (zh ? '撤销失败' : 'Undo failed'), tone: 'error' }));
             },
@@ -394,10 +400,28 @@ export default function MailboxView() {
         });
       }
       void getMailboxStats().then(setStats);
+      return true;
     } catch (cause) {
       setNotice({ text: cause instanceof Error ? cause.message : (zh ? '操作失败' : 'Action failed'), tone: 'error' });
+      return false;
     }
   }, [selectedId, folder, zh, threads, refresh]);
+
+  const requestArchive = useCallback(() => {
+    if (!selectedId || detail?.thread.folder === 'archive') return;
+    setArchiveConfirmOpen(true);
+  }, [selectedId, detail?.thread.folder]);
+
+  const archiveThread = useCallback(async () => {
+    if (archiving) return;
+    setArchiving(true);
+    const success = await patchThread(
+      { folder: 'archive' },
+      zh ? '已归档，完整项目报告已整理到记忆库' : 'Archived; the complete project report is now in memory',
+    );
+    if (success) setArchiveConfirmOpen(false);
+    setArchiving(false);
+  }, [archiving, patchThread, zh]);
 
   const sendReply = async () => {
     if (!selectedId || !reply.trim()) return;
@@ -473,9 +497,7 @@ export default function MailboxView() {
         }
         case 'e': {
           e.preventDefault();
-          if (selectedId) {
-            void patchThread({ folder: 'archive' }, zh ? '已归档' : 'Archived');
-          }
+          requestArchive();
           break;
         }
         case 's': {
@@ -504,7 +526,7 @@ export default function MailboxView() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, detail, folder, filteredThreads, zh, mobileDetail, patchThread, refresh]);
+  }, [selectedId, detail, folder, filteredThreads, zh, mobileDetail, patchThread, refresh, requestArchive]);
 
   return (
     <div className="mailbox-shell">
@@ -522,18 +544,25 @@ export default function MailboxView() {
             <span className="agent-pulse" />
             {zh ? '已发现的 Agent' : 'Discovered Agents'}
           </span>
-          <div className="mailbox-agents-avatars">
+          <div className="mailbox-agents-list">
             {connectedAgents.map(agent => (
-              <span key={agent.id} className={`agent-avatar is-${agent.status}`} title={`${agent.name} · ${agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '已安装，待接入' : 'Detected')}`} style={{ '--agent-active-color': agent.color } as React.CSSProperties}>
-                <img src={agent.logo} alt={agent.name} width={28} height={28} />
-                <span className="agent-status-dot" style={{ background: agent.status === 'active' ? agent.color : '#999' }} />
-              </span>
+              <div key={agent.id} className="mailbox-agent-row" title={`${agent.name} · ${agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '已安装，待接入' : 'Detected')}`}>
+                <span className={`agent-avatar is-${agent.status}`} style={{ '--agent-active-color': agent.color } as React.CSSProperties}>
+                  <img src={agent.logo} alt="" width={28} height={28} />
+                  <span className="agent-status-dot" style={{ background: agent.status === 'active' ? agent.color : '#999' }} />
+                </span>
+                <span className="mailbox-agent-copy">
+                  <strong>{agent.name}</strong>
+                  <small>{agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '已安装，待接入' : 'Detected')}</small>
+                </span>
+              </div>
             ))}
           </div>
         </div>}
         <div className="mailbox-rule-card">
-          <strong>{zh ? '一个主题，一项工作' : 'One subject, one body of work'}</strong>
-          <p>{zh ? '项目、任务和事件用邮件串接力；通用事实仍保存在记忆库。' : 'Projects, tasks, and events continue as mail threads. Reusable facts stay in memory.'}</p>
+          <strong>{zh ? '人与 Agent 的上下文中转站' : 'Human-Agent context relay'}</strong>
+          <p>{zh ? '每项工作使用一个主题。Agent 会先结合主题和记忆整理上下文，再用邮件汇报理解与进展。' : 'Each body of work uses one subject. Agents combine the thread with memory before reporting context and progress.'}</p>
+          <p>{zh ? '归档主题时，完整过程会整理成长期项目报告，不会删除原邮件。' : 'Archiving consolidates the full history into a durable project report without deleting the mail.'}</p>
         </div>
         <div className="mailbox-shortcuts-hint">
           <span>{zh ? '快捷键: J/K 导航 · Enter 打开 · S 星标 · R 回复 · Esc 返回' : 'Shortcuts: J/K navigate · Enter open · S star · R reply · Esc back'}</span>
@@ -637,7 +666,7 @@ export default function MailboxView() {
           <>
             <div className="mail-reader-toolbar">
               <button type="button" className="mail-icon-button mail-mobile-back" onClick={() => setMobileDetail(false)} aria-label={zh ? '返回' : 'Back'}><ArrowLeft size={17} /></button>
-              <button type="button" className="mail-icon-button" onClick={() => patchThread({ folder: 'archive' }, zh ? '已归档' : 'Archived')} title={zh ? '归档' : 'Archive'}><Archive size={17} /></button>
+              <button type="button" className="mail-icon-button" onClick={requestArchive} disabled={archiving || detail.thread.folder === 'archive'} title={detail.thread.folder === 'archive' ? (zh ? '这个主题已经归档' : 'Already archived') : (zh ? '归档并生成项目报告' : 'Archive and create project report')}><Archive size={17} /></button>
               <button type="button" className="mail-icon-button" onClick={() => patchThread({ folder: 'trash' }, zh ? '已移到垃圾箱' : 'Moved to trash')} title={zh ? '移到垃圾箱' : 'Move to trash'}><Trash size={17} /></button>
               <button type="button" className="mail-icon-button" onClick={() => patchThread({ starred: !detail.thread.starred })} title={zh ? '星标' : 'Star'}><Star size={17} style={{ fill: detail.thread.starred ? 'var(--warning)' : 'none', color: detail.thread.starred ? 'var(--warning)' : undefined }} /></button>
               <button type="button" className="mail-icon-button" onClick={() => {
@@ -806,6 +835,17 @@ export default function MailboxView() {
       </main>
 
       {composeOpen && <Composer zh={zh} onClose={() => setComposeOpen(false)} onCreated={(created) => { setComposeOpen(false); setFolder('inbox'); setSelectedId(created.thread.id); setDetail(created); setMobileDetail(true); void refresh(); }} />}
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        title={zh ? '归档并整理项目报告？' : 'Archive and consolidate this project?'}
+        message={zh
+          ? 'KeyMemory 会根据这个主题的全部邮件与关联记忆，整理一份包含起因、过程、因果链、结果和反思的长期报告。原邮件不会被删除；主题恢复后再次归档会更新同一份报告。'
+          : 'KeyMemory will consolidate every message and linked memory into one durable report covering the background, process, causal chain, results, and reflection. Mail is not deleted, and re-archiving updates the same report.'}
+        confirmLabel={archiving ? (zh ? '正在整理…' : 'Consolidating…') : (zh ? '归档并整理' : 'Archive and consolidate')}
+        cancelLabel={zh ? '暂不归档' : 'Not now'}
+        onConfirm={() => void archiveThread()}
+        onCancel={() => { if (!archiving) setArchiveConfirmOpen(false); }}
+      />
       {notice && <div className={`mail-notice ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}{notice.undo && <button type="button" className="mail-notice-undo" onClick={notice.undo.action}>{notice.undo.label}</button>}</div>}
     </div>
   );

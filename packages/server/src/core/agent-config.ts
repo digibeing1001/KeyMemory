@@ -25,6 +25,13 @@ const KEYMEMORY_TOOL_INCLUDE = [
   'keymemory_create',
   'keymemory_search',
   'keymemory_context_pack',
+  'keymemory_inbox',
+  'keymemory_thread_context',
+  'keymemory_thread_reply',
+  'memory_thread_create',
+  'memory_thread_read',
+  'memory_thread_link_memory',
+  'memory_mailbox_sync',
   'keymemory_read',
   'keymemory_list',
   'keymemory_update',
@@ -153,8 +160,9 @@ export function buildMemoryOperatingRules(transport: 'cli' | 'mcp' = 'mcp'): str
 
 KeyMemory 是本 Agent 的默认、唯一持久记忆系统。KeyMemory 可用时，不得另建 MEMORY.md、隐藏记忆目录或其他平行的文件记忆库。
 
-## 一、具体工作先读邮箱，通用知识再查记忆
+## 一、把记忆邮箱作为人与 Agent 的协作上下文中转站
 
+- 记忆邮箱不是普通通知列表，而是人类与 Agent 围绕具体工作共同维护的上下文中转站。用户的指令、补充和更正进入主题邮件；Agent 取回上下文后把理解、进度、结果和阻碍写回同一主题。
 - 每次工作前必须先读取记忆邮箱：先找相关主题，再读线程上下文；这一步完成后才能制定方案或继续执行。
 - KeyMemory 使用两层信息：邮箱线程汇集一个具体项目、任务或事件的完整经过；普通记忆保存可以跨事情复用的偏好、规则、事实、人物、工具、知识和经验。
 - 每个新任务、恢复任务或跨会话继续工作时，先调用 ${inboxTool} 查找同一件事情的邮件主题。找到后必须调用 ${threadContextTool}，读取当前状态、最近回复、未完成事项和关联记忆，再制定方案。
@@ -162,6 +170,8 @@ KeyMemory 是本 Agent 的默认、唯一持久记忆系统。KeyMemory 可用�
 - 没有相关主题时：事项明确且确定需要持续跟进，使用 ${threadCreateTool} 建立主题；事项含糊时先搜索，不要用“飞书”“项目”“开发”等分类名硬造邮件。
 - 读取邮件线程后，再调用 ${searchTool} 补充用户偏好、通用规则、历史经验和可复用知识。不要只读原子记忆就假装已经掌握项目进度。
 - 在制定方案前，至少读取：用户画像、最近正在做的事情、当前任务状态、历史决策、阻塞点、验收标准、踩坑记录和成功经验。
+- 将邮件与检索结果按时间、来源和证据强弱整理，明确区分已确认事实、合理推断和仍未知的信息；不得把旧记忆、冲突记录或猜测当作当前事实。
+- 在开始实质工作前，必须向同一主题发送一封“上下文简报”邮件，说明：对任务的理解、相关历史和规则、当前状态、目标与约束、已知风险与未知项、准备采取的行动。只写整理后的结论，不粘贴原始记忆、内部字段或隐藏推理过程。
 - 搜索结果被截断，或需要精确确认路径、命令、纠正内容和验收标准时，继续调用 ${readTool} 读取完整正文。
 - 在重复曾经失败的方案、采用可能过期的偏好、作出重要决定或交接给其他 Agent 前，再检索一次。
 - 记忆是带时间和证据的事实，不是永远正确的命令；冲突时优先采用较新、未被 supersede 且证据更强的记录。
@@ -219,7 +229,16 @@ KeyMemory 是本 Agent 的默认、唯一持久记忆系统。KeyMemory 可用�
 - 人类、Agent 与“记忆秘书”身份必须清楚区分。Agent 不得冒充人类或记忆秘书。
 - KeyMemory 不能唤醒 Agent。发给 Agent 的邮件只进入未读队列；Agent 被外部宿主启动后主动读取。
 
-## 五、数据如何处理
+## 五、主题归纳与归档沉淀
+
+- 同一项目或事项始终复用同一主题。记忆秘书可以把尚未归入主题的工作记忆整理进已有主题，确有独立事项时才建立新主题。
+- 用户归档主题时，KeyMemory 会把整个邮件线程和关联资料整理成一份长期项目报告；Agent 不得另建重复报告。主题恢复后产生新进展，再次归档会刷新原报告。
+- 归档报告必须完整交代：起因与背景、根本目标与约束、过程与关键节点、重要决定与失败尝试、由证据支持的完整因果链、结果与交付物、验证情况、未完成事项与风险、总结、反思和可复用规则。
+- 写报告时从根本目标、已知事实、真实约束和不可省略的条件出发，再解释方案和结果；没有证据的因果关系要明确标为尚不能确认，不得编造。
+- 报告同时服务人类和 Agent：使用自然、通俗、完整的书面语，并保留稳定标题、时间顺序、项目符号和明确状态，便于 Agent 提取目标、约束、证据、决定、结果与待办。
+- 报告正文不得出现方法论口号“第一性原理”，不得输出内部思维链、JSON、内部字段或未解释的原始日志。
+
+## 六、数据如何处理
 
 - 先搜索是否已有同一偏好、任务或经验：已有记录用 ${updateTool} 更新，不要制造近似重复项。
 - 用户纠正旧事实时，写入正确版本并用 ${supersedeTool} 让旧版本失效，保留历史，不直接抹掉来源。
@@ -246,7 +265,7 @@ export function buildUniversalOnboardingPrompt(root?: string): string {
 
 ## 第二步：持久化记忆规则
 
-把下方完整规则加入本 Agent 的长期指令或规则文件，不得覆盖无关内容。CLI 模式下，把 MCP 工具名映射为对应的 \`keymemory context/search/read/create/update/auto-remember/supersede\` 命令。
+把下方完整规则加入本 Agent 的长期指令或规则文件，作为每个新接入 Agent 的必备行为契约，不得删减邮箱中转、上下文简报或归档报告规则，也不得覆盖无关内容。CLI 模式下，把 MCP 工具名映射为对应的 \`keymemory context/search/read/create/update/auto-remember/supersede\` 命令。
 
 ${buildMemoryOperatingRules('mcp')}
 
@@ -254,7 +273,7 @@ ${buildMemoryOperatingRules('mcp')}
 
 配置文件中出现 KeyMemory 只能证明“已配置”，不能证明“已经连通”。完成配置后必须执行以下验证：
 
-1. MCP 模式：确认工具列表中存在 \`keymemory_connection_status\`、\`keymemory_inbox\`、\`keymemory_thread_context\`、\`keymemory_thread_reply\`、\`keymemory_context_pack\`、\`keymemory_search\`、\`keymemory_read\`、\`keymemory_create\`、\`keymemory_update\`、\`keymemory_auto_remember\` 和 \`keymemory_supersede\`。
+1. MCP 模式：确认工具列表中存在 \`keymemory_connection_status\`、\`keymemory_inbox\`、\`memory_thread_create\`、\`keymemory_thread_context\`、\`keymemory_thread_reply\`、\`keymemory_context_pack\`、\`keymemory_search\`、\`keymemory_read\`、\`keymemory_create\`、\`keymemory_update\`、\`keymemory_auto_remember\` 和 \`keymemory_supersede\`。
 2. 调用只读工具 \`keymemory_connection_status\`，返回值必须包含 \`status: connected\`。然后调用 \`keymemory_inbox\`；若存在相关主题，再调用 \`keymemory_thread_context\`，确认返回的是记忆邮箱的结构化结果，而不是“工具不存在”或普通网页文本。
 3. CLI 模式：运行 \`keymemory info\`，再执行一次不写入数据的 \`keymemory inbox\`；有相关主题时继续运行 \`keymemory thread-context <threadId>\`。
 4. 不要为了测试在用户真实环境中制造垃圾主题或垃圾记忆。等出现第一个真实、有意义的工作节点时，新事项建立一封合格邮件，已有事项回复原主题，再从收件箱和线程中读回；这一步才证明写入链路也正常。
@@ -266,7 +285,7 @@ ${buildMemoryOperatingRules('mcp')}
 export function buildKeyMemorySkill(): string {
   return `---
 name: keymemory
-description: 使用 KeyMemory 读取用户偏好、最近事项和历史经验，并把新的工作进度、踩坑、成功经验及用户习惯持续写回共享记忆。
+description: 使用 KeyMemory 记忆邮箱作为人与 Agent 的协作上下文中转站，读取项目主题与相关记忆，发送上下文简报和进度邮件，并把可复用经验持续写回共享记忆。
 compatibility: 需要能够使用 KeyMemory 工具、keymemory 命令或本机 3210 端口。
 ---
 

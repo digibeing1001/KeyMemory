@@ -200,7 +200,8 @@ export function isMeaningfulTag(tag: string): boolean {
   if (TAG_PROCESS_STATE.test(trimmed)) return false;
   if (/[\/\\~]/.test(trimmed)) return false;
   if (/[\r\n]/.test(trimmed)) return false;
-  if (/^[\d\W_]+$/.test(trimmed)) return false;
+  if (/^\p{N}+$/u.test(trimmed)) return false;
+  if (!/[\p{L}\p{N}]/u.test(trimmed)) return false;
   if (trimmed.includes('（') || trimmed.includes('(')) return false;
   return true;
 }

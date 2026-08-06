@@ -19,6 +19,7 @@ import type {
 } from '@keymemory/shared';
 import { getDatabase } from '../db/sqlite.js';
 import { rowToMemory } from '../db/mapper.js';
+import { createMemory, updateMemory } from './atom.js';
 import { createProject } from './project.js';
 import { chatWithLLM, isLLMAvailable } from './llm-provider.js';
 import { searchHybrid } from './query.js';
@@ -600,16 +601,189 @@ export function getMailThreadDetail(
   };
 }
 
-export function updateMailThread(threadId: string, updates: {
+function archiveSenderLabel(message: MailMessage): string {
+  if (message.senderType === 'secretary') return '记忆秘书';
+  if (message.senderType === 'human') return '用户';
+  return `Agent ${message.senderId?.replace(/^agent:/, '') || '未知'}`;
+}
+
+function archiveExcerpt(value: string, max = 900): string {
+  const clean = cleanPlainText(value);
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+function buildArchiveEvidence(detail: MailThreadDetail): string {
+  const messageBlocks = detail.messages.map((message, index) => {
+    const attachments = message.attachments
+      .filter(attachment => attachment.content)
+      .map(attachment => `  附件《${attachment.title}》：${archiveExcerpt(attachment.content!, 1200)}`)
+      .join('\n');
+    return [
+      `### ${index + 1}. ${archiveSenderLabel(message)} · ${(message.sentAt ?? message.createdAt).slice(0, 16).replace('T', ' ')} · ${message.messageType}`,
+      archiveExcerpt(message.body, 4000),
+      attachments,
+    ].filter(Boolean).join('\n');
+  });
+  const memories = detail.linkedMemories
+    .filter(memory => memory.source !== 'mailbox-archive')
+    .map(memory => `- ${memory.title}：${archiveExcerpt(memory.content, 1800)}`);
+  return [
+    '## 邮件全过程',
+    ...messageBlocks,
+    '',
+    '## 已关联的记忆资料',
+    ...(memories.length ? memories : ['- 没有额外关联资料。']),
+  ].join('\n').slice(0, 60000);
+}
+
+function fallbackArchiveReport(detail: MailThreadDetail): string {
+  const messages = detail.messages.filter(message => message.status === 'sent');
+  const first = messages[0];
+  const last = messages.at(-1);
+  const openItems = extractOpenItems(messages);
+  const decisions = messages.filter(message => message.messageType === 'decision' || message.messageType === 'correction');
+  const timeline = messages.map((message, index) => {
+    const when = (message.sentAt ?? message.createdAt).slice(0, 10);
+    return `${index + 1}. **${when} · ${archiveSenderLabel(message)}**：${archiveExcerpt(message.body, 1100)}`;
+  });
+  const attachmentNotes = detail.messages.flatMap(message => message.attachments)
+    .filter(attachment => attachment.content)
+    .map(attachment => `- **${attachment.title}**：${archiveExcerpt(attachment.content!, 700)}`);
+  const linkedNotes = detail.linkedMemories
+    .filter(memory => memory.source !== 'mailbox-archive')
+    .map(memory => `- **${memory.title}**：${archiveExcerpt(memory.content, 900)}`);
+  const causalSteps = messages.map((message, index) => {
+    const prefix = index === 0 ? '起点' : index === messages.length - 1 ? '结果' : '推进';
+    return `- **${prefix}**：${firstReadableSentence(message.body, 260)}`;
+  });
+  return cleanPlainText(`# ${detail.thread.subject}｜项目归档报告
+
+## 一、起因与背景
+
+${first ? archiveExcerpt(first.body, 1600) : '邮件中没有留下明确的起因说明。'}
+
+## 二、根本目标与约束
+
+这项工作的根本目标，是解决“${detail.thread.subject}”所描述的具体问题，并让人类与 Agent 能够依据同一份连续上下文协作。以下内容只依据邮件和已关联资料整理，不把没有证据的推测写成事实。
+
+${linkedNotes.length ? linkedNotes.join('\n') : '- 当前没有额外关联记忆，主要证据来自邮件往来。'}
+
+## 三、过程与关键节点
+
+${timeline.length ? timeline.join('\n\n') : '没有可整理的过程记录。'}
+
+## 四、整个项目的因果与推进链
+
+${causalSteps.length ? causalSteps.join('\n') : '- 邮件内容不足，暂时无法确认推进链。'}
+
+上述链条表示邮件中能够确认的先后与推进关系；只有正文明确说明原因时，才把它视为因果关系。
+
+## 五、结果与交付
+
+${last ? archiveExcerpt(last.body, 1600) : '邮件中没有留下明确的最终结果。'}
+
+${attachmentNotes.length ? `### 关键附件与证据\n\n${attachmentNotes.join('\n')}` : '邮件没有附带需要单独说明的附件。'}
+
+## 六、未完成事项与风险
+
+${openItems.length ? openItems.map(item => `- ${item}`).join('\n') : '- 归档时没有识别到明确的未完成事项。'}
+
+## 七、总结与反思
+
+${decisions.length
+    ? decisions.map(message => `- ${archiveSenderLabel(message)}记录的${message.messageType === 'correction' ? '更正' : '决定'}：${firstReadableSentence(message.body, 420)}`).join('\n')
+    : '- 邮件中没有单独标记的决定或更正；复用本报告时应优先核对结果、证据和仍未完成的事项。'}
+
+## 八、可复用原则
+
+- 先从根本目标、已知事实和真实约束出发，再选择方案，不用工具名或惯例代替问题本身。
+- 关键决定必须说明它解决了什么问题、依赖什么证据、带来什么结果。
+- 技术日志保留为证据，面向人类的正文应解释这些证据意味着什么。
+- 新信息如果改变旧结论，应在原主题中明确更正，避免后续 Agent 继续使用过期上下文。
+`);
+}
+
+async function writeArchiveReport(detail: MailThreadDetail): Promise<string> {
+  const fallback = fallbackArchiveReport(detail);
+  if (!isLLMAvailable()) return fallback;
+  try {
+    const result = await chatWithLLM({
+      systemPrompt: `你是 KeyMemory 的项目归档编辑。请依据完整邮件线程和关联资料，撰写一份细节充分、可长期复用的中文项目报告。
+
+底层原则是第一性原理：先还原根本目标、已知事实、真实约束和不可省略的条件，再解释方案与结果；不要用惯例、工具名或空泛口号代替原因。因果关系必须有邮件证据，无法确认时明确写“尚不能确认”，不得编造。
+
+必须使用以下章节：一、起因与背景；二、根本目标与约束；三、过程与关键节点；四、整个项目的因果链；五、结果与交付；六、未完成事项与风险；七、总结与反思；八、可复用原则。
+
+保留关键参与者、日期、决定、更正、失败尝试、原因、交付物和验证结果。区分“已确认事实”“合理推断”和“尚未确认”。正文使用自然、通俗、完整的人类书面语，先讲清事实再解释意义；同时使用稳定的标题、时间顺序、项目符号和明确的状态描述，让后续 Agent 能可靠提取目标、约束、证据、决定、结果与待办。不要在报告中出现“第一性原理”这个词，避免 AI 套话、内部字段、JSON 和原始日志。只输出 Markdown 报告正文。`,
+      userMessage: `邮件主题：${detail.thread.subject}\n类型：${detail.thread.kind}\n创建时间：${detail.thread.createdAt}\n归档时间：${new Date().toISOString()}\n\n${buildArchiveEvidence(detail)}`,
+      temperature: 0.15,
+      maxTokens: 3500,
+      timeoutMs: 60000,
+    });
+    const report = cleanPlainText(result.content);
+    const required = ['起因', '根本目标', '过程', '因果', '结果', '总结', '反思'];
+    return report.length >= 600 && !report.includes('第一性原理') && required.every(section => report.includes(section)) ? report : fallback;
+  } catch (error) {
+    console.error('[Mailbox] 归档报告生成失败，使用本地结构化报告：', (error as Error).message);
+    return fallback;
+  }
+}
+
+export async function consolidateMailThreadForArchive(threadId: string): Promise<Memory> {
+  const db = getDatabase();
+  const detail = getMailThreadDetail(threadId, DEFAULT_HUMAN_ID, undefined, false);
+  if (!detail) throw new Error('找不到要归档的邮件主题');
+  const report = await writeArchiveReport(detail);
+  const now = new Date().toISOString();
+  const title = `${detail.thread.subject}｜项目归档报告`;
+  const tags = ['项目归档', '邮箱归档报告'];
+  const metadata = {
+    mailboxArchiveReport: true,
+    archiveThreadId: threadId,
+    threadKind: detail.thread.kind,
+    messageCount: detail.messages.length,
+    participantIds: detail.thread.participantIds,
+    generatedAt: now,
+    humanReadable: true,
+    agentReadable: true,
+    completeness: { status: 'completed', checkedAt: now },
+  };
+  const existingRow = db.prepare(`
+    SELECT * FROM memories
+    WHERE source = 'mailbox-archive' AND source_id = ? AND status = 'active'
+    ORDER BY updated_at DESC LIMIT 1
+  `).get(threadId) as Record<string, unknown> | undefined;
+  const memory = existingRow
+    ? updateMemory(String(existingRow.id), { title, content: report, layer: 'long', tags, source: 'mailbox-archive', metadata }, '邮件主题再次归档，刷新完整项目报告')
+    : createMemory({
+      title,
+      content: report,
+      layer: 'long',
+      agentSpace: detail.thread.agentSpace,
+      confidence: 1,
+      tags,
+      source: 'mailbox-archive',
+      sourceId: threadId,
+      metadata,
+      bypassQualityGate: true,
+    } as Parameters<typeof createMemory>[0] & { bypassQualityGate: boolean });
+  if (!memory) throw new Error('归档报告写入记忆库失败');
+  linkMemoryToThread(threadId, memory.id, 'reference');
+  return memory;
+}
+
+export async function updateMailThread(threadId: string, updates: {
   subject?: string;
   status?: MailThreadStatus;
   folder?: MailThreadFolder;
   starred?: boolean;
   snoozedUntil?: string | null;
-}): MailThread | null {
+}): Promise<MailThread | null> {
   const db = getDatabase();
   const existing = getMailThread(threadId);
   if (!existing) return null;
+  const shouldArchive = updates.folder === 'archive' && existing.folder !== 'archive';
+  if (shouldArchive) await consolidateMailThreadForArchive(threadId);
   const values: string[] = [];
   const params: Record<string, unknown> = { id: threadId, updatedAt: new Date().toISOString() };
   if (updates.subject !== undefined) {
@@ -625,6 +799,7 @@ export function updateMailThread(threadId: string, updates: {
     params.normalizedSubject = normalizeSubject(updates.subject);
   }
   if (updates.status !== undefined) { values.push('status = @status'); params.status = updates.status; }
+  else if (shouldArchive) { values.push('status = @status'); params.status = 'completed'; }
   if (updates.folder !== undefined) { values.push('folder = @folder'); params.folder = updates.folder; }
   if (updates.starred !== undefined) { values.push('starred = @starred'); params.starred = updates.starred ? 1 : 0; }
   if (updates.snoozedUntil !== undefined) { values.push('snoozed_until = @snoozedUntil'); params.snoozedUntil = updates.snoozedUntil; }
@@ -778,7 +953,9 @@ export async function syncMailThread(threadId: string, agentSpaces?: string[]): 
   const rows = db.prepare(`
     SELECT DISTINCT m.* FROM memories m
     JOIN mail_thread_memories tm ON tm.memory_id = m.id
-    WHERE tm.thread_id = ? AND m.status = 'active' AND (? = '' OR m.updated_at > ?)
+    WHERE tm.thread_id = ? AND m.status = 'active'
+      AND COALESCE(m.source, '') != 'mailbox-archive'
+      AND (? = '' OR m.updated_at > ?)
     ORDER BY m.updated_at DESC
   `).all(threadId, lastCoverage, lastCoverage) as Record<string, unknown>[];
   const memories = rows.map(rowToMemory);
@@ -873,7 +1050,7 @@ function unorganizedWorkMemories(agentSpaces?: string[]): Memory[] {
     WHERE m.status = 'active'
       AND (ol.memory_id IS NULL OR ol.source_updated_at < m.updated_at)
       AND NOT EXISTS (SELECT 1 FROM mail_thread_memories tm WHERE tm.memory_id = m.id)
-      AND COALESCE(m.source, '') NOT IN ('mailbox', 'memory-secretary', 'system')
+      AND COALESCE(m.source, '') NOT IN ('mailbox', 'mailbox-archive', 'memory-secretary', 'system')
       ${scope}
     ORDER BY m.updated_at DESC
     LIMIT 250

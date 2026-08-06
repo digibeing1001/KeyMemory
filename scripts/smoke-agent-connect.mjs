@@ -37,6 +37,10 @@ const workBuddyRules = fs.readFileSync(path.join(homeDir, '.workbuddy', 'KEYMEMO
 assert.match(workBuddyRules, /KEYMEMORY:START/);
 assert.match(workBuddyRules, /每次工作前必须先读取/);
 assert.match(workBuddyRules, /用户最近正在做的所有事情/);
+assert.match(workBuddyRules, /协作上下文中转站/);
+assert.match(workBuddyRules, /上下文简报/);
+assert.match(workBuddyRules, /用户归档主题时/);
+assert.match(workBuddyRules, /报告同时服务人类和 Agent/);
 
 const replay = connectAgentIntegration('workbuddy', options);
 assert.equal(replay.changed, false, 'reapplying the same integration must be idempotent');
@@ -74,8 +78,15 @@ for (const required of [
   '工作过程、踩坑与成功经验',
   '用户画像、偏好与使用习惯',
   '用户最近正在做的所有事情',
+  '协作上下文中转站',
+  '上下文简报',
+  '起因与背景',
+  '完整因果链',
+  '报告同时服务人类和 Agent',
+  '报告正文不得出现方法论口号',
   '配置检测 / 读取验证 / 写入验证',
   'keymemory_connection_status',
+  'memory_thread_create',
   'keymemory_context_pack',
   'keymemory_create',
   'keymemory_update',

@@ -125,6 +125,8 @@ describe('isMeaningfulTag', () => {
     assert.equal(isMeaningfulTag('preference'), true);
     assert.equal(isMeaningfulTag('typescript'), true);
     assert.equal(isMeaningfulTag('react19'), true);
+    assert.equal(isMeaningfulTag('项目归档'), true);
+    assert.equal(isMeaningfulTag('邮箱归档报告'), true);
   });
 
   it('accepts sensitivity:redacted as special case', () => {
@@ -162,8 +164,8 @@ describe('normalizeTags', () => {
   });
 
   it('filters out meaningless tags', () => {
-    const result = normalizeTags(['good', 'a', 'type:bad', 'path/to/file']);
-    assert.deepEqual(result, ['good']);
+    const result = normalizeTags(['good', '项目归档', 'a', '123', '___', 'type:bad', 'path/to/file']);
+    assert.deepEqual(result, ['good', '项目归档']);
   });
 
   it('limits to 8 tags', () => {

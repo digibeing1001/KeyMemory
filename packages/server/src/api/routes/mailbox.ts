@@ -120,7 +120,7 @@ export function registerMailboxRoutes(app: FastifyInstance): void {
       snoozedUntil?: string | null;
     };
     try {
-      const thread = updateMailThread(id, body);
+      const thread = await updateMailThread(id, body);
       if (!thread) {
         reply.code(404);
         return { error: 'Mail thread not found', code: 'THREAD_NOT_FOUND' };

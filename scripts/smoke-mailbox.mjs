@@ -85,8 +85,19 @@ const second = mailbox.createMailThread({
 const linkCount = database.getDatabase().prepare('SELECT COUNT(DISTINCT thread_id) AS count FROM mail_thread_memories WHERE memory_id = ?').get(reusableMemory.id).count;
 assert.equal(linkCount, 2, 'one reusable memory may support multiple mail threads');
 
-mailbox.updateMailThread(second.thread.id, { folder: 'archive', status: 'completed' });
+await mailbox.updateMailThread(second.thread.id, { folder: 'archive', status: 'completed' });
 assert.ok(mailbox.listMailThreads({ folder: 'archive' }).some((thread) => thread.id === second.thread.id));
+const firstArchiveReports = database.getDatabase().prepare("SELECT * FROM memories WHERE source = 'mailbox-archive' AND source_id = ?").all(second.thread.id);
+assert.equal(firstArchiveReports.length, 1, 'archiving a thread must create exactly one durable project report');
+assert.match(firstArchiveReports[0].content, /起因与背景[\s\S]*根本目标与约束[\s\S]*因果与推进链[\s\S]*总结与反思/, 'archive report must preserve the complete first-principles structure');
+assert.doesNotMatch(firstArchiveReports[0].content, /第一性原理/, 'archive report must apply the method without displaying its slogan');
+assert.deepEqual(JSON.parse(firstArchiveReports[0].tags), ['项目归档', '邮箱归档报告'], 'archive report tags must survive normalization without triggering the legacy project-journal workflow');
+assert.deepEqual(
+  { humanReadable: JSON.parse(firstArchiveReports[0].metadata).humanReadable, agentReadable: JSON.parse(firstArchiveReports[0].metadata).agentReadable },
+  { humanReadable: true, agentReadable: true },
+  'archive report must explicitly support both human reading and Agent extraction',
+);
+assert.equal(database.getDatabase().prepare('SELECT COUNT(*) AS count FROM mail_thread_memories WHERE thread_id = ? AND memory_id = ?').get(second.thread.id, firstArchiveReports[0].id).count, 1, 'archive report must stay linked to its source thread');
 
 for (const toolName of ['memory_inbox_list', 'memory_thread_create', 'memory_thread_read', 'memory_thread_context', 'memory_thread_reply', 'memory_thread_link_memory', 'memory_mailbox_sync']) {
   assert.ok(mcpTools.MCP_TOOLS.some((tool) => tool.name === toolName), `${toolName} must be advertised to every Agent`);
@@ -106,6 +117,10 @@ const mcpReply = await mcpExecutor.executeMcpTool('memory_thread_reply', {
 assert.equal(Boolean(mcpReply.isError), false, 'Agent must be able to reply through MCP');
 const repliedDetail = mailbox.getMailThreadDetail(second.thread.id, 'human:local', ['global'], false);
 assert.equal(repliedDetail?.messages.at(-1)?.senderId, 'agent:mailbox-smoke-agent', 'mail must show the exact sending Agent');
+await mailbox.updateMailThread(second.thread.id, { folder: 'archive' });
+const refreshedArchiveReports = database.getDatabase().prepare("SELECT * FROM memories WHERE source = 'mailbox-archive' AND source_id = ?").all(second.thread.id);
+assert.equal(refreshedArchiveReports.length, 1, 're-archiving must update the existing report instead of creating a duplicate');
+assert.match(refreshedArchiveReports[0].content, /Qoder、Codex/, 're-archiving must incorporate new replies into the durable report');
 
 for (const target of ['codex', 'workbuddy', 'trae', 'qoder']) {
   const mode = target === 'codex' ? 'mcp' : undefined;
