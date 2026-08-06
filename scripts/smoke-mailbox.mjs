@@ -6,13 +6,14 @@ import path from 'node:path';
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'keymemory-mailbox-smoke-'));
 process.env.KEYMEMORY_DATA_DIR = dataDir;
 
-const [database, atom, mailbox, mcpTools, mcpExecutor, hermes] = await Promise.all([
+const [database, atom, mailbox, mcpTools, mcpExecutor, hermes, agentConfig] = await Promise.all([
   import('../packages/server/dist/db/sqlite.js'),
   import('../packages/server/dist/core/atom.js'),
   import('../packages/server/dist/core/mailbox.js'),
   import('../packages/server/dist/core/mcp-tools.js'),
   import('../packages/server/dist/core/mcp-executor.js'),
   import('../packages/server/dist/adapters/hermes.js'),
+  import('../packages/server/dist/core/agent-config.js'),
 ]);
 
 database.initDatabase();
@@ -66,6 +67,13 @@ assert.equal(agentDetail.messages.at(-1)?.attachments.length, 1, 'Agent technica
 const context = mailbox.getMailThreadContext(first.thread.id, 'agent:next-agent', ['global']);
 assert.ok(context?.markdown.includes('仍需处理'));
 assert.ok(context?.linkedMemories.some((memory) => memory.id === reusableMemory.id));
+assert.ok(context?.readers.some((reader) => reader.recipientId === 'agent:next-agent' && reader.readAt), 'Agent read must create an exact-identity receipt');
+
+const humanDetail = mailbox.getMailThreadDetail(first.thread.id, 'human:local', ['global'], true);
+assert.ok(humanDetail?.readers.some((reader) => reader.recipientId === 'agent:next-agent' && reader.readAt), 'human UI must see which Agent read the thread');
+const contextAfterHumanRead = mailbox.getMailThreadContext(first.thread.id, 'agent:next-agent', ['global']);
+assert.ok(contextAfterHumanRead?.readers.some((reader) => reader.recipientId === 'human:local' && reader.readAt), 'Agent context must know that the human read the thread');
+assert.match(contextAfterHumanRead?.markdown ?? '', /已读状态[\s\S]*用户：最近读取于/, 'Agent handoff must explain human read state');
 
 const second = mailbox.createMailThread({
   subject: 'Agent 邮箱接入说明准备发布',
@@ -87,8 +95,23 @@ const contextTool = mcpTools.MCP_TOOLS.find((tool) => tool.name === 'memory_thre
 assert.match(contextTool.description, /可读|书面|上下文|接力/, 'Agent tool description must teach the mailbox handoff contract');
 
 const adapter = hermes.createHermesAdapter({ agentId: 'mailbox-smoke-agent', isolationMode: 'hybrid' });
+assert.equal(adapter.name, 'mailbox-smoke-agent', 'adapter identity must preserve the concrete Agent name');
 const result = await mcpExecutor.executeMcpTool('memory_inbox_list', { folder: 'inbox' }, adapter, { responseStyle: 'json' });
 assert.equal(Boolean(result.isError), false, 'Agent must be able to read the inbox through MCP');
+const mcpReply = await mcpExecutor.executeMcpTool('memory_thread_reply', {
+  threadId: second.thread.id,
+  body: 'Qoder、Codex 和其他 Agent 现在会使用各自身份发送邮件并记录读取状态。',
+  messageType: 'progress',
+}, adapter, { responseStyle: 'json' });
+assert.equal(Boolean(mcpReply.isError), false, 'Agent must be able to reply through MCP');
+const repliedDetail = mailbox.getMailThreadDetail(second.thread.id, 'human:local', ['global'], false);
+assert.equal(repliedDetail?.messages.at(-1)?.senderId, 'agent:mailbox-smoke-agent', 'mail must show the exact sending Agent');
+
+for (const target of ['codex', 'workbuddy', 'trae', 'qoder']) {
+  const mode = target === 'codex' ? 'mcp' : undefined;
+  const snippet = agentConfig.buildAgentConfigSnippet(target, mode);
+  assert.match(snippet.snippet, new RegExp(`KEYMEMORY_AGENT_ID[^\\n]*${target}`), `${target} config must preserve mailbox identity`);
+}
 
 database.closeDatabase();
 fs.rmSync(dataDir, { recursive: true, force: true });

@@ -4,6 +4,7 @@ import * as d3 from 'd3';
 import { Search, Close, Link, Inbox, ArrowLeft } from './Icons';
 import { useI18n } from '../i18n';
 import { redactSensitiveText } from '../lib/memoryFormat';
+import { userFacingLayer, userFacingRelation } from '../lib/userFacing';
 import type { MemoryGraphData, GraphEdge } from '../lib/api';
 
 /* ── Constants ─────────────────────────────────────────────────────── */
@@ -51,14 +52,7 @@ function compactDate(value: string | undefined, locale: string): string {
 }
 
 function edgeLabel(edge: GraphEdge, language: 'zh' | 'en'): string {
-  if (edge.label && !/^(shared_tag|shared_project|shared_entity)$/i.test(edge.label)) return edge.label;
-  const labels: Record<string, [string, string]> = {
-    shared_tag: ['共享标签', 'Shared tag'], shared_project: ['同一项目', 'Same project'],
-    shared_entity: ['相关人物或事物', 'Shared entity'], extends: ['补充了', 'Extends'],
-    supersedes: ['更新了', 'Supersedes'], supports: ['支持', 'Supports'],
-    contradicts: ['存在分歧', 'Contradicts'],
-  };
-  return labels[edge.type]?.[language === 'zh' ? 0 : 1] ?? (language === 'zh' ? '相关记忆' : 'Related memory');
+  return userFacingRelation(edge.type || edge.label || 'relates_to', language);
 }
 
 function nodeRadius(node: SimNode, degree: number): number {
@@ -426,7 +420,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
       .attr('filter', (d: SimNode) => d.isClusterHead ? 'url(#valley-head-glow)' : 'url(#valley-glow)')
       .attr('cursor', 'pointer')
       .attr('role', 'button')
-      .attr('aria-label', (d: SimNode) => `${d.title} (${d.layer})`)
+      .attr('aria-label', (d: SimNode) => `${d.title} (${userFacingLayer(d.layer, language)})`)
       .on('mouseenter', function(_event: unknown, d: SimNode) {
         setHoveredNode(d.id);
         d3.select(this).attr('stroke', '#fff').attr('stroke-width', 2.5);
@@ -594,6 +588,13 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
       g.attr('transform', `${base} rotate(${rotation + delta}, ${W / 2}, ${H / 2})`);
     }
   }, [rotation]);
+  const handleRotateReset = useCallback(() => {
+    setRotation(0);
+    if (!svgRef.current) return;
+    const g = d3.select(svgRef.current).select<SVGGElement>('.valley-root');
+    const current = g.attr('transform') || '';
+    g.attr('transform', current.replace(/rotate\([^)]*\)/g, '').trim());
+  }, []);
 
   /* ── Layer panel data ──────────────────────────────────── */
   const layerNodes = useMemo(() => {
@@ -711,9 +712,9 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
         <div className="valley-controls-group">
           <span className="valley-controls-label">{language === 'zh' ? '旋转' : 'Rotate'}</span>
           <span className="valley-controls-value">{rotation}°</span>
-          <button onClick={() => handleRotate(-15)} title="Rotate left">↺</button>
-          <button onClick={() => handleRotate(15)} title="Rotate right">↻</button>
-          <button onClick={() => { setRotation(0); if (svgRef.current) { const g = d3.select(svgRef.current).select<SVGGElement>('.valley-root'); const t = g.attr('transform') || ''; g.attr('transform', t.replace(/rotate\([^)]*\)/g, '').trim()); } }} title={language === 'zh' ? '重置旋转' : 'Reset rotation'}>N</button>
+          <button onClick={() => handleRotate(-15)} title={language === 'zh' ? '向左旋转' : 'Rotate left'}>↺</button>
+          <button onClick={() => handleRotate(15)} title={language === 'zh' ? '向右旋转' : 'Rotate right'}>↻</button>
+          <button onClick={handleRotateReset} title={language === 'zh' ? '重置旋转' : 'Reset rotation'}>N</button>
         </div>
         {/* 等高线密度滑块 */}
         <div className="valley-control-group">
@@ -724,7 +725,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
           <span>{contourThresholds}</span>
         </div>
         {/* 指南针 - 重置旋转 */}
-        <button className="valley-control-btn" onClick={() => setRotation(0)} title={language === 'zh' ? '重置方向' : 'Reset rotation'}>
+        <button className="valley-control-btn" onClick={handleRotateReset} title={language === 'zh' ? '重置方向' : 'Reset rotation'}>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="10" cy="10" r="8"/>
             <polygon points="10,3 12,9 10,8 8,9" fill="currentColor" stroke="none"/>
@@ -741,17 +742,6 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
 
       {/* Bottom toolbar */}
       <div className="valley-toolbar">
-        <div className="valley-toolbar-left">
-          <button className="valley-toolbar-btn" onClick={() => {/* theme toggle or placeholder */}} title={language === 'zh' ? '切换主题' : 'Toggle theme'}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5"/><path d="M8 2a6 6 0 0 1 0 12z"/></svg>
-          </button>
-          <button className="valley-toolbar-btn" title={language === 'zh' ? '帮助' : 'Help'}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6"/><text x="8" y="11" textAnchor="middle" fontSize="9" fill="currentColor" stroke="none">?</text></svg>
-          </button>
-          <button className="valley-toolbar-btn" onClick={() => {/* refresh data */}} title={language === 'zh' ? '刷新' : 'Refresh'}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 4A6 6 0 1 0 14 8"/><path d="M14 2v4h-4"/></svg>
-          </button>
-        </div>
         <div className="valley-toolbar-center">
           <span className="valley-toolbar-label">{language === 'zh' ? '记录足迹' : 'Timeline'}</span>
           <select className="valley-toolbar-select" value={timeRangeDays} onChange={e => handleTimeRangeDaysChange(Number(e.target.value))}>
@@ -766,9 +756,6 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
           )}
         </div>
         <div className="valley-toolbar-right">
-          <button className="valley-toolbar-btn valley-toolbar-primary" title={language === 'zh' ? '分享图' : 'Share'}>
-            {language === 'zh' ? '分享图' : 'Share'}
-          </button>
           <span className="valley-toolbar-disclaimer">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="6" cy="6" r="5.5" fill="none" stroke="currentColor"/><text x="6" y="9" textAnchor="middle" fontSize="8" fill="currentColor">i</text></svg>
             {language === 'zh' ? '当前内容由 AI 生成，仅供参考' : 'AI-generated content, for reference only'}
@@ -790,7 +777,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
                 <button key={layer} className={activeLayer === layer ? 'is-active' : ''}
                   onClick={() => setActiveLayer(activeLayer === layer ? null : layer)}
                   style={{ borderColor: LAYER_ACCENTS[layer] }}>
-                  <span style={{ color: LAYER_ACCENTS[layer] }}>●</span> {layer} ({count})
+                  <span style={{ color: LAYER_ACCENTS[layer] }}>●</span> {userFacingLayer(layer, language)} ({count})
                 </button>
               );
             })}
@@ -817,7 +804,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
           <header>
             <button onClick={() => setSelectedNode(null)}><ArrowLeft size={16} /></button>
             <div>
-              <span style={{ color: LAYER_ACCENTS[selectedNode.layer] }}>● {selectedNode.layer}</span>
+              <span style={{ color: LAYER_ACCENTS[selectedNode.layer] }}>● {userFacingLayer(selectedNode.layer, language)}</span>
               <h3>{redactSensitiveText(selectedNode.title)}</h3>
             </div>
           </header>
@@ -848,7 +835,7 @@ export default function MemoryValley({ data, onNodeClick, loading }: Props) {
                     <span style={{ background: LAYER_ACCENTS[rNode.layer] }} />
                     <div>
                       <strong>{redactSensitiveText(rNode.title)}</strong>
-                      <small>{rNode.layer} · {compactDate(rNode.updatedAt, locale)}</small>
+                      <small>{userFacingLayer(rNode.layer, language)} · {compactDate(rNode.updatedAt, locale)}</small>
                     </div>
                   </button>
                 );

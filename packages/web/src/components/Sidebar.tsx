@@ -32,6 +32,7 @@ const LAYER_ICONS: Record<Layer, typeof Flash> = {
 };
 
 const ALL_VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers; adminOnly?: boolean }> = [
+  { mode: 'mailbox', labelKey: 'nav.mailbox', icon: Inbox },
   { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
   { mode: 'today', labelKey: 'nav.today', icon: Sun },
   { mode: 'timeline', labelKey: 'nav.timeline', icon: Clock },
@@ -43,8 +44,8 @@ const ALL_VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Lay
   { mode: 'valley', labelKey: 'nav.valley', icon: Globe },
   { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
   { mode: 'dream', labelKey: 'nav.dream', icon: Moon, adminOnly: true },
+  { mode: 'llm', labelKey: 'nav.llm', icon: GitMerge, adminOnly: true },
   { mode: 'migration', labelKey: 'nav.migration', icon: Inbox, adminOnly: true },
-  { mode: 'organize', labelKey: 'nav.organize', icon: GitMerge, adminOnly: true },
   { mode: 'users', labelKey: 'nav.users', icon: User, adminOnly: true },
   { mode: 'recycle', labelKey: 'nav.recycle', icon: Trash },
 ];

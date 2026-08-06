@@ -802,10 +802,10 @@ export default function DreamView({ onMemorySelect, onHealthChanged }: DreamView
             return (
               <div className="empty-state">
                 <div className="empty-state-icon">💤</div>
-                <div className="empty-state-title">{language === 'zh' ? '还没有 Dream 记录' : 'No dreams yet'}</div>
-                <div className="empty-state-desc">{language === 'zh' ? 'Dream 机制会在后台自动整理和关联你的记忆' : 'Dreams automatically organize and connect your memories in the background'}</div>
+                <div className="empty-state-title">{language === 'zh' ? '还没有自动整理记录' : 'No organization history yet'}</div>
+                <div className="empty-state-desc">{language === 'zh' ? 'KeyMemory 会在后台自动整理和关联你的记忆' : 'KeyMemory automatically organizes and connects memories in the background'}</div>
                 <button type="button" className="empty-state-action" onClick={handleRunDream}>
-                  {language === 'zh' ? '运行首次 Dream' : 'Run First Dream'}
+                  {language === 'zh' ? '开始首次整理' : 'Run first organization'}
                 </button>
               </div>
             );

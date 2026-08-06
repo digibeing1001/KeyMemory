@@ -110,7 +110,7 @@ function AppInner() {
   const prefPrefix = user?.id ? `keymemory_${user.id}_` : 'keymemory_';
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
     const saved = localStorage.getItem(`${prefPrefix}view_mode`);
-    return isViewMode(saved) ? saved : 'memories';
+    return isViewMode(saved) ? saved : 'mailbox';
   });
   const [recycleBinData, setRecycleBinData] = useState<Memory[]>([]);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);

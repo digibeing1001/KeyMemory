@@ -20,11 +20,11 @@ const ISSUE_COPY: Record<MemoryQualityIssue['code'], {
     en: { label: 'No project home', action: 'Assign a project path or project tag.' },
   },
   missing_kind: {
-    zh: { label: '缺少记忆类型', action: '补充 kind 标签或 memoryKind。' },
+    zh: { label: '缺少内容类型', action: '选择这是事实、决定、偏好还是其他内容。' },
     en: { label: 'No memory kind', action: 'Add a kind tag or memoryKind.' },
   },
   missing_source: {
-    zh: { label: '缺少来源证据', action: '补充 source、sourceId 或 evidence。' },
+    zh: { label: '缺少来源说明', action: '补充这条内容来自哪里，或附上支持它的资料。' },
     en: { label: 'No source evidence', action: 'Add source, sourceId, or evidence.' },
   },
   missing_domain_tags: {
@@ -40,7 +40,7 @@ const ISSUE_COPY: Record<MemoryQualityIssue['code'], {
     en: { label: 'Decaying', action: 'Update, use, or archive it.' },
   },
   stale_flash: {
-    zh: { label: '闪念过久未整理', action: '升级、归类或归档。' },
+    zh: { label: '零碎记录过久未整理', action: '确认是否保留、归类或归档。' },
     en: { label: 'Old flash memory', action: 'Promote, assign, or archive it.' },
   },
   stale_short: {

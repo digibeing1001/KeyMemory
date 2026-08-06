@@ -12,6 +12,7 @@ import type {
   MailThreadFolder,
   MailThreadKind,
   MailThreadMemoryLink,
+  MailThreadReader,
   MailThreadStatus,
   MailboxMigrationReport,
   Memory,
@@ -521,6 +522,53 @@ export function markThreadRead(threadId: string, recipientId = DEFAULT_HUMAN_ID)
   return messages.length;
 }
 
+function getThreadReaders(threadId: string): MailThreadReader[] {
+  const db = getDatabase();
+  const messageRows = db.prepare(`
+    SELECT sender_id, recipient_ids FROM mail_messages WHERE thread_id = ?
+  `).all(threadId) as Array<{ sender_id: string | null; recipient_ids: string }>;
+  const receiptRows = db.prepare(`
+    SELECT DISTINCT r.recipient_id
+    FROM mail_receipts r
+    JOIN mail_messages m ON m.id = r.message_id
+    WHERE m.thread_id = ?
+  `).all(threadId) as Array<{ recipient_id: string }>;
+  const participantIds = Array.from(new Set([
+    ...messageRows.flatMap(row => [row.sender_id, ...parseStrings(row.recipient_ids)]),
+    ...receiptRows.map(row => row.recipient_id),
+  ].filter((id): id is string => Boolean(id) && id !== 'agent:*' && id !== SECRETARY_ID)));
+
+  return participantIds.map((recipientId): MailThreadReader => {
+    const receipt = db.prepare(`
+      SELECT MAX(r.read_at) AS read_at
+      FROM mail_receipts r
+      JOIN mail_messages m ON m.id = r.message_id
+      WHERE m.thread_id = ? AND r.recipient_id = ? AND r.read_at IS NOT NULL
+    `).get(threadId, recipientId) as { read_at: string | null } | undefined;
+    const unread = db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM mail_messages m
+      LEFT JOIN mail_receipts r ON r.message_id = m.id AND r.recipient_id = ?
+      WHERE m.thread_id = ?
+        AND m.status = 'sent'
+        AND COALESCE(m.sender_id, '') != ?
+        AND r.read_at IS NULL
+    `).get(recipientId, threadId, recipientId) as { count: number };
+    const readerType = recipientId.startsWith('human:') ? 'human' : 'agent';
+    const rawName = recipientId.replace(/^(?:agent|human):/, '');
+    return {
+      recipientId,
+      readerType,
+      displayName: readerType === 'human' && rawName === 'local' ? '用户' : rawName,
+      readAt: receipt?.read_at ?? undefined,
+      unreadCount: unread.count,
+    };
+  }).sort((a, b) => {
+    if (a.readerType !== b.readerType) return a.readerType === 'human' ? -1 : 1;
+    return a.displayName.localeCompare(b.displayName);
+  });
+}
+
 export function getMailThreadDetail(
   threadId: string,
   recipientId = DEFAULT_HUMAN_ID,
@@ -544,7 +592,12 @@ export function getMailThreadDetail(
     WHERE tm.thread_id = ? AND m.status = 'active'
     ORDER BY m.updated_at DESC
   `).all(threadId) as Record<string, unknown>[];
-  return { thread: { ...thread, unreadCount: 0 }, messages, linkedMemories: memoryRows.map(rowToMemory) };
+  return {
+    thread: { ...thread, unreadCount: 0 },
+    messages,
+    linkedMemories: memoryRows.map(rowToMemory),
+    readers: getThreadReaders(threadId),
+  };
 }
 
 export function updateMailThread(threadId: string, updates: {
@@ -645,6 +698,17 @@ export function getMailThreadContext(
   if (openItems.length > 0) {
     lines.push('', '## 仍需处理', ...openItems.map(item => `- ${item}`));
   }
+  if (detail.readers.length > 0) {
+    lines.push('', '## 已读状态');
+    for (const reader of detail.readers) {
+      const name = reader.readerType === 'human' ? reader.displayName : `Agent ${reader.displayName}`;
+      const state = reader.readAt
+        ? `最近读取于 ${reader.readAt.slice(0, 16).replace('T', ' ')}`
+        : '尚未读取';
+      const unread = reader.unreadCount > 0 ? `，还有 ${reader.unreadCount} 封未读` : '';
+      lines.push(`- ${name}：${state}${unread}`);
+    }
+  }
   if (recentMessages.length > 0) {
     lines.push('', '## 最近来信');
     for (const message of recentMessages) {
@@ -656,7 +720,15 @@ export function getMailThreadContext(
     lines.push('', '## 相关记忆');
     for (const memory of linkedMemories) lines.push(`- [${memory.id}] ${memory.title}：${firstReadableSentence(memory.content, 160)}`);
   }
-  return { thread: detail.thread, currentState, recentMessages, openItems, linkedMemories, markdown: lines.join('\n').trim() };
+  return {
+    thread: detail.thread,
+    currentState,
+    recentMessages,
+    openItems,
+    linkedMemories,
+    readers: detail.readers,
+    markdown: lines.join('\n').trim(),
+  };
 }
 
 function fallbackSecretaryBody(thread: MailThread, memories: Memory[]): string {

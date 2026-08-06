@@ -102,10 +102,20 @@ export interface MailThreadMemoryLink {
   createdAt: string;
 }
 
+/** A participant's current read state for a shared mailbox thread. */
+export interface MailThreadReader {
+  recipientId: string;
+  readerType: 'human' | 'agent';
+  displayName: string;
+  readAt?: string;
+  unreadCount: number;
+}
+
 export interface MailThreadDetail {
   thread: MailThread;
   messages: Array<MailMessage & { attachments: MailAttachment[]; readAt?: string }>;
   linkedMemories: Memory[];
+  readers: MailThreadReader[];
 }
 
 /** Agent 读取线程时使用的紧凑接力上下文。 */
@@ -115,6 +125,7 @@ export interface MailThreadContext {
   recentMessages: MailMessage[];
   openItems: string[];
   linkedMemories: Memory[];
+  readers: MailThreadReader[];
   markdown: string;
 }
 

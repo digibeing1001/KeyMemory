@@ -10,6 +10,7 @@ import {
   LAYER_COLORS,
   summarizeMemory,
 } from '../lib/memoryFormat';
+import { userFacingLoopStatus } from '../lib/userFacing';
 
 interface WorkingSetViewProps {
   onMemorySelect: (id: string) => void;
@@ -88,14 +89,14 @@ export default function WorkingSetView({ onMemorySelect }: WorkingSetViewProps) 
 
       <div className="mail-filter-panel" style={{ borderBottom: '1px solid var(--border-primary)', marginBottom: 16 }}>
         <div className="mail-filter-group">
-          <label>{language === 'zh' ? '层级' : 'Layer'}</label>
+          <label>{language === 'zh' ? '记忆状态' : 'Memory state'}</label>
           <div className="mail-filter-chips">
             {[
               ['', language === 'zh' ? '全部' : 'All'],
-              ['flash', 'Flash'],
-              ['short', language === 'zh' ? '短期' : 'Short'],
-              ['long', language === 'zh' ? '长期' : 'Long'],
-              ['entity', language === 'zh' ? '实体' : 'Entity']
+              ['flash', layerLabel('flash')],
+              ['short', layerLabel('short')],
+              ['long', layerLabel('long')],
+              ['entity', layerLabel('entity')]
             ].map(([val, label]) => (
               <button key={val} type="button"
                 className={`mail-filter-chip${(wsFilter === val || (!val && !wsFilter)) ? ' is-active' : ''}`}
@@ -375,10 +376,10 @@ function LoopRunRow({ run, language }: { run: LoopRun; language: 'zh' | 'en' }) 
             className="tag-pill"
             style={{ color: statusColor, background: `${statusColor}1a`, fontSize: 10 }}
           >
-            {run.status}
+            {userFacingLoopStatus(run.status, language)}
           </span>
           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-            · {language === 'zh' ? `v${run.checkpointVersion}` : `v${run.checkpointVersion}`}
+            · {language === 'zh' ? `进度 ${run.checkpointVersion}` : `progress ${run.checkpointVersion}`}
           </span>
           <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
             {formatRelativeTime(run.updatedAt, language)}

@@ -17,7 +17,8 @@ export function createOpenClawAdapter(options: OpenClawAdapterOptions): MemoryAd
   const accessibleSpaces = visibleSpacesFor(options.agentId, ctx.isolationMode, options.userId);
 
   return {
-    name: 'openclaw',
+    // Mailbox sender/read receipts need the concrete host identity, not the adapter family.
+    name: options.agentId,
 
     async read(id: string): Promise<Memory | null> {
       const mem = getMemory(id);

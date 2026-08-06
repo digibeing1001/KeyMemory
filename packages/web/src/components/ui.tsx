@@ -135,14 +135,14 @@ export interface DegradedNotice {
 export function DegradedBanner({ paths }: { paths: string[] }) {
   if (!paths || paths.length === 0) return null;
   const noticeMap: Record<string, Omit<DegradedNotice, 'key'>> = {
-    embeddings_unavailable: { message: '语义检索不可用，当前仅关键词匹配', fixHint: '下载嵌入模型：pnpm download-model，或在设置中配置' },
-    llm_unavailable: { message: 'LLM 未配置：关联推理与语义冲突判定已关闭', fixHint: '在 LLM 设置页配置 baseUrl 与模型' },
-    fts_unavailable: { message: '中文检索出现模糊匹配降级，结果排序可能不准确', fixHint: '升级后首次重建索引：POST /api/embeddings/rebuild-all' },
-    refine_backlog: { message: '异步提炼积压超过 50 条', fixHint: '等待后台提炼或重启服务触发恢复' },
+    embeddings_unavailable: { message: '按含义搜索暂不可用，目前仍可使用关键词搜索', fixHint: '打开“智能整理设置”，检查本地语义模型' },
+    llm_unavailable: { message: '智能整理模型尚未连接，自动判断功能暂时关闭', fixHint: '打开“智能整理设置”并完成模型连接' },
+    fts_unavailable: { message: '中文搜索暂时使用兼容模式，排序可能不够准确', fixHint: '重启 KeyMemory；若仍异常，请打开诊断信息' },
+    refine_backlog: { message: '还有较多新内容等待后台整理', fixHint: '保持 KeyMemory 运行，系统会继续自动处理' },
   };
   const notices: DegradedNotice[] = paths.map(key => ({
     key,
-    ...(noticeMap[key] ?? { message: `降级路径生效：${key}`, fixHint: '查看服务日志定位原因' }),
+    ...(noticeMap[key] ?? { message: '部分增强功能暂时不可用', fixHint: '打开记忆健康页面查看诊断说明' }),
   }));
   return (
     <div role="alert" style={{ display: 'grid', gap: 6 }}>

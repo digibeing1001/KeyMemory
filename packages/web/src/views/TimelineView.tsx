@@ -8,10 +8,13 @@ import type { Memory } from '@keymemory/shared';
 import { listMemories } from '../lib/api';
 import { Card, EmptyState, Timeline } from '../components/ui';
 import type { TimelineEntry } from '../components/ui';
+import { useI18n } from '../i18n';
+import { userFacingLayer } from '../lib/userFacing';
 
 const DAY_MS = 86400000;
 
 export default function TimelineView() {
+  const { language } = useI18n();
   const [offsetDays, setOffsetDays] = useState(0); // 0 = 现在
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(false);
@@ -34,17 +37,17 @@ export default function TimelineView() {
       .map(mem => ({
         time: new Date(mem.updatedAt).toLocaleString(),
         title: mem.title,
-        description: `${mem.layer} 层${mem.validTo ? ` · 有效期至 ${new Date(mem.validTo).toLocaleDateString()}` : ''}`,
+        description: `${userFacingLayer(mem.layer, language)}${mem.validTo ? ` · 有效期至 ${new Date(mem.validTo).toLocaleDateString()}` : ''}`,
         tone: mem.layer === 'long' || mem.layer === 'entity' ? 'good' : mem.layer === 'short' ? 'neutral' : 'warn',
       }))
-  ), [memories]);
+  ), [language, memories]);
 
   return (
     <div style={{ display: 'grid', gap: 14, padding: 20, maxWidth: 980 }}>
       <header>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>Timeline · 时点回溯</h2>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>时间回溯</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-          拖动滑块，查看任意历史时刻有效的记忆（as-of 查询）。
+          拖动滑块，查看过去某一天当时仍然有效的记忆。
         </p>
       </header>
 
@@ -58,7 +61,7 @@ export default function TimelineView() {
           max={365}
           value={offsetDays}
           onChange={event => setOffsetDays(Number(event.target.value))}
-          aria-label="as-of 时间滑块（距今天数）"
+          aria-label="历史时间滑块（距今天数）"
           style={{ width: '100%' }}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--text-muted)' }}>

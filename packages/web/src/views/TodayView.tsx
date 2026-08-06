@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
 import type { DreamReport, DreamTodoItem } from '../lib/api';
 import { listDreamReports, rollbackDream, getDreamTodos } from '../lib/api';
 import { Card, Badge, EmptyState, DegradedBanner } from '../components/ui';
+import { useI18n } from '../i18n';
+import { userFacingDreamStatus } from '../lib/userFacing';
 
 interface TodayViewProps {
   degradedPaths: string[];
@@ -14,6 +16,7 @@ interface TodayViewProps {
 }
 
 export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
+  const { language } = useI18n();
   const [reports, setReports] = useState<DreamReport[]>([]);
   const [todos, setTodos] = useState<DreamTodoItem[]>([]);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
@@ -34,7 +37,7 @@ export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
     setRollingBack(reportId);
     try {
       await rollbackDream(reportId);
-      onToast('已撤销该次 Dream 整理（快照回滚）', 'success');
+      onToast('已撤销该次自动整理', 'success');
       await load();
     } catch (err) {
       onToast((err as Error).message, 'error');
@@ -48,9 +51,9 @@ export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
   return (
     <div style={{ display: 'grid', gap: 14, padding: 20, maxWidth: 980 }}>
       <header>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>Today · 系统动态</h2>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>最近整理</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-          自治整理做了什么、待你确认什么——全部可撤销。
+          查看 KeyMemory 最近自动整理了什么，以及哪些内容仍需要你确认。所有整理都可以撤销。
         </p>
       </header>
 
@@ -58,10 +61,10 @@ export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
 
       {latest ? (
         <Card
-          title="最近一次 Dream 整理"
+          title="最近一次自动整理"
           extra={
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <Badge tone={latest.status === 'completed' ? 'good' : latest.status === 'failed' ? 'bad' : 'warn'}>{latest.status}</Badge>
+              <Badge tone={latest.status === 'completed' ? 'good' : latest.status === 'failed' ? 'bad' : 'warn'}>{userFacingDreamStatus(latest.status, language)}</Badge>
               {(latest.status === 'completed' || latest.status === 'rolled_back') && latest.status === 'completed' && (
                 <button className="btn" disabled={rollingBack === latest.id} onClick={() => void handleRollback(latest.id)}>
                   {rollingBack === latest.id ? '撤销中…' : '一键撤销'}
@@ -79,7 +82,7 @@ export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
           </div>
         </Card>
       ) : (
-        <EmptyState title="还没有 Dream 整理记录" hint="在 Dream 页手动运行一次，或等待定时整理" />
+        <EmptyState title="还没有自动整理记录" hint="等待定时整理，或在记忆健康中手动检查" />
       )}
 
       <Card title={`待确认队列（${todos.length}）`}>
@@ -116,7 +119,7 @@ export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
               {reports.slice(1).map(report => (
                 <tr key={report.id} style={{ borderTop: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
                   <td style={{ padding: '6px 8px' }}>{new Date(report.createdAt).toLocaleString()}</td>
-                  <td style={{ padding: '6px 8px' }}>{report.status}</td>
+                  <td style={{ padding: '6px 8px' }}>{userFacingDreamStatus(report.status, language)}</td>
                   <td style={{ padding: '6px 8px' }}>{report.promoted} / {report.archived} / {report.merged}</td>
                   <td style={{ padding: '6px 8px' }}>
                     {report.status === 'completed' && (

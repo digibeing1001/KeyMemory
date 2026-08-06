@@ -5,6 +5,7 @@ import { Archive, ArrowLeft, ChevronDown, Clock, Close, Inbox, Layers, Mail, Pap
 import { useI18n } from '../i18n';
 import {
   createMailboxThread,
+  discoverAgentIntegrations,
   getMailboxStats,
   getMailboxThread,
   listMailboxThreads,
@@ -12,6 +13,7 @@ import {
   syncMailbox,
   syncMailboxThread,
   updateMailboxThread,
+  type AgentIntegrationStatus,
   type MailboxFolder,
   type MailboxStats,
 } from '../lib/api';
@@ -79,11 +81,16 @@ interface AgentConfig {
 }
 
 const AGENT_CONFIGS: AgentConfig[] = [
-  { id: 'openclaw',   name: 'OpenClaw',   logo: '/agents/agent-openclaw.svg',   color: '#ff4d4d', status: 'active' },
-  { id: 'hermes',     name: 'Hermes',     logo: '/agents/agent-hermes.png',     color: '#6C5CE7', status: 'active' },
-  { id: 'codex',      name: 'Codex',      logo: '/agents/agent-codex.svg',      color: '#10A37F', status: 'active' },
-  { id: 'secretary',  name: 'Secretary',  logo: '/agents/agent-secretary.svg',  color: '#F39C12', status: 'active' },
-  { id: 'workbuddy',  name: 'WorkBuddy',  logo: '/agents/agent-workbuddy.svg',  color: '#6C4DFF', status: 'idle' },
+  { id: 'openclaw',   name: 'OpenClaw',   logo: '/agents/agent-openclaw.svg',   color: '#ff4d4d', status: 'offline' },
+  { id: 'hermes',     name: 'Hermes',     logo: '/agents/agent-hermes.png',     color: '#6C5CE7', status: 'offline' },
+  { id: 'codex',      name: 'Codex',      logo: '/agents/agent-codex.svg',      color: '#10A37F', status: 'offline' },
+  { id: 'secretary',  name: 'Secretary',  logo: '/agents/agent-secretary.svg',  color: '#F39C12', status: 'offline' },
+  { id: 'workbuddy',  name: 'WorkBuddy',  logo: '/agents/agent-workbuddy.svg',  color: '#6C4DFF', status: 'offline' },
+  { id: 'trae',       name: 'TRAE Work',   logo: '/agents/agent-default.svg',    color: '#4B7BEC', status: 'offline' },
+  { id: 'traework',   name: 'TRAE Work',   logo: '/agents/agent-default.svg',    color: '#4B7BEC', status: 'offline' },
+  { id: 'qoder',      name: 'Qoder',       logo: '/agents/agent-default.svg',    color: '#8E5AE8', status: 'offline' },
+  { id: 'claude',     name: 'Claude',      logo: '/agents/agent-default.svg',    color: '#D97757', status: 'offline' },
+  { id: 'opencode',   name: 'OpenCode',    logo: '/agents/agent-default.svg',    color: '#267DFF', status: 'offline' },
 ];
 
 function getAgentConfig(id: string): AgentConfig {
@@ -95,14 +102,15 @@ function getAgentConfig(id: string): AgentConfig {
 
 function senderLabel(type: string, senderId: string | undefined, zh: boolean): string {
   if (type === 'secretary') return zh ? '记忆秘书' : 'Memory Secretary';
-  if (type === 'agent') return senderId ? `Agent · ${senderId.replace(/^agent:/, '')}` : 'Agent';
+  if (type === 'agent' && senderId) return getAgentConfig(senderId.replace(/^agent:/, '')).name;
+  if (type === 'agent') return zh ? '未知 Agent' : 'Unknown Agent';
   return zh ? '我' : 'Me';
 }
 
-function senderInitial(type: string, zh: boolean): string {
+function senderInitial(type: string, zh: boolean, senderId?: string): string {
   // E10：头像首字母随语言切换，英文模式下不再显示中文字符。
   if (type === 'secretary') return zh ? '秘' : 'S';
-  if (type === 'agent') return 'A';
+  if (type === 'agent') return getAgentConfig((senderId ?? 'agent').replace(/^agent:/, '')).name.charAt(0).toUpperCase();
   return zh ? '我' : 'M';
 }
 
@@ -222,6 +230,7 @@ export default function MailboxView() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<'compact' | 'comfortable' | 'relaxed'>('comfortable');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [agentIntegrations, setAgentIntegrations] = useState<AgentIntegrationStatus[]>([]);
 
   const toggleGroup = useCallback((group: string) => {
     setCollapsedGroups(prev => {
@@ -260,6 +269,12 @@ export default function MailboxView() {
   useEffect(() => { void refresh(false); }, [folder, search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    discoverAgentIntegrations()
+      .then(report => setAgentIntegrations(report.agents))
+      .catch(() => setAgentIntegrations([]));
+  }, []);
+
+  useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
     setDetailLoading(true);
     getMailboxThread(selectedId)
@@ -281,12 +296,23 @@ export default function MailboxView() {
   const selected = useMemo(() => threads.find((item) => item.id === selectedId), [threads, selectedId]);
 
   const agentReaders = useMemo(() => {
-    const readers = (detail as any)?.thread?.metadata?.agentReaders as Array<{
-      id: string; hasRead: boolean; readAt?: string;
-    }> | undefined;
-    if (!readers || readers.length === 0) return [];
-    return readers.map(r => ({ ...r, ...getAgentConfig(r.id) }));
+    return (detail?.readers ?? [])
+      .filter(reader => reader.readerType === 'agent')
+      .map(reader => ({
+        id: reader.recipientId.replace(/^agent:/, ''),
+        hasRead: Boolean(reader.readAt),
+        readAt: reader.readAt,
+        unreadCount: reader.unreadCount,
+      }));
   }, [detail]);
+
+  const connectedAgents = useMemo(() => agentIntegrations
+    .filter(agent => agent.connected || agent.detected)
+    .map(agent => ({
+      ...getAgentConfig(agent.id),
+      name: agent.label,
+      status: agent.connected ? 'active' as const : 'idle' as const,
+    })), [agentIntegrations]);
 
   function formatAgentReadTime(readAt: string): string {
     const diff = Date.now() - new Date(readAt).getTime();
@@ -403,7 +429,7 @@ export default function MailboxView() {
         : sent > 0
           ? (zh ? '记忆秘书已补充一封新邮件' : 'Memory Secretary added an update')
           : skipped.length > 0
-            ? `${String(skipped[0])}${created === 0 && sent === 0 ? (zh ? '——请前往“设置 > LLM”配置模型后重试' : ' — please configure LLM in Settings and try again') : ''}`
+            ? `${String(skipped[0])}${created === 0 && sent === 0 ? (zh ? '——请打开“智能整理设置”完成模型连接后重试' : ' — connect a model in Smart organization and try again') : ''}`
             : (zh ? '已检查，目前没有需要补充的新变化' : 'Checked; there are no new changes');
       setNotice({ text, tone: skipped.length > 0 && created === 0 && sent === 0 ? 'error' : 'success' });
     } catch (cause) {
@@ -460,22 +486,6 @@ export default function MailboxView() {
           }
           break;
         }
-        case 'u': {
-          // 本地状态切换：服务端未提供未读状态写接口，刷新后以服务端为准
-          e.preventDefault();
-          if (selectedId) {
-            const thread = items.find(t => t.id === selectedId);
-            if (thread) {
-              const newUnread = thread.unreadCount > 0 ? 0 : 1;
-              setThreads(current => current.map(item => item.id === thread.id ? { ...item, unreadCount: newUnread } : item));
-              setDetail(current => current && current.thread.id === thread.id
-                ? { ...current, thread: { ...current.thread, unreadCount: newUnread } }
-                : current);
-              setNotice({ text: newUnread === 0 ? (zh ? '已标记为已读' : 'Marked as read') : (zh ? '已标记为未读' : 'Marked as unread'), tone: 'success' });
-            }
-          }
-          break;
-        }
         case 'r': {
           e.preventDefault();
           const replyTextarea = document.querySelector('.mail-reply-box textarea') as HTMLTextAreaElement;
@@ -507,20 +517,20 @@ export default function MailboxView() {
             return <button type="button" key={item.key} className={folder === item.key ? 'active' : ''} onClick={() => { setFolder(item.key); setMobileDetail(false); }}><Icon size={16} /><span>{zh ? item.zh : item.en}</span>{Boolean(count) && <b>{count}</b>}</button>;
           })}
         </nav>
-        <div className="mailbox-agents-online">
+        {connectedAgents.length > 0 && <div className="mailbox-agents-online">
           <span className="mailbox-agents-label">
             <span className="agent-pulse" />
-            {zh ? '在线 Agent' : 'Agents Online'}
+            {zh ? '已发现的 Agent' : 'Discovered Agents'}
           </span>
           <div className="mailbox-agents-avatars">
-            {AGENT_CONFIGS.filter(a => a.status !== 'offline').map(agent => (
-              <span key={agent.id} className={`agent-avatar is-${agent.status}`} title={agent.name} style={{ '--agent-active-color': agent.color } as React.CSSProperties}>
+            {connectedAgents.map(agent => (
+              <span key={agent.id} className={`agent-avatar is-${agent.status}`} title={`${agent.name} · ${agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '已安装，待接入' : 'Detected')}`} style={{ '--agent-active-color': agent.color } as React.CSSProperties}>
                 <img src={agent.logo} alt={agent.name} width={28} height={28} />
                 <span className="agent-status-dot" style={{ background: agent.status === 'active' ? agent.color : '#999' }} />
               </span>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="mailbox-rule-card">
           <strong>{zh ? '一个主题，一项工作' : 'One subject, one body of work'}</strong>
           <p>{zh ? '项目、任务和事件用邮件串接力；通用事实仍保存在记忆库。' : 'Projects, tasks, and events continue as mail threads. Reusable facts stay in memory.'}</p>
@@ -659,6 +669,8 @@ export default function MailboxView() {
                           {reader.hasRead && reader.readAt && (
                             <time className="mail-agent-time">{formatAgentReadTime(reader.readAt)}</time>
                           )}
+                          {!reader.hasRead && <span className="mail-agent-time">{zh ? '尚未读取' : 'Not read'}</span>}
+                          {reader.unreadCount > 0 && <span className="mail-agent-time">{zh ? `${reader.unreadCount} 封未读` : `${reader.unreadCount} unread`}</span>}
                         </span>
                       );
                     })}
@@ -726,7 +738,7 @@ export default function MailboxView() {
                     const typeConfig = MESSAGE_TYPE_CONFIG[msg.messageType];
                     const avatarColor = avatarColors[msg.senderType] || avatarColors.human;
                     const avatarTextColor = avatarTextColors[msg.senderType] || avatarTextColors.human;
-                    const avatarLetter = senderInitial(msg.senderType, zh);
+                    const avatarLetter = senderInitial(msg.senderType, zh, msg.senderId);
                     const sLabel = senderLabel(msg.senderType, msg.senderId, zh);
                     const timeStr = formatRelativeTime(msg.sentAt || msg.createdAt || '', language);
                     const fullTimeStr = (msg.sentAt || msg.createdAt) ? new Date(msg.sentAt || msg.createdAt).toLocaleString(zh ? 'zh-CN' : 'en-US') : '';

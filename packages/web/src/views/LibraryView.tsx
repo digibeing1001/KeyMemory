@@ -7,15 +7,11 @@ import { useEffect, useState } from 'react';
 import type { Memory, Layer, SearchResult } from '@keymemory/shared';
 import { listMemories, searchMemoriesExplained } from '../lib/api';
 import { Card, Badge, EmptyState } from '../components/ui';
-
-const LAYER_LABELS: Record<Layer, string> = {
-  flash: '待整理 flash',
-  short: '短期 short',
-  long: '长期 long',
-  entity: '实体 entity',
-};
+import { useI18n } from '../i18n';
+import { userFacingLayer } from '../lib/userFacing';
 
 export default function LibraryView() {
+  const { language } = useI18n();
   const [layerFilter, setLayerFilter] = useState<Layer | 'all'>('all');
   const [query, setQuery] = useState('');
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -57,9 +53,9 @@ export default function LibraryView() {
   return (
     <div style={{ display: 'grid', gap: 14, padding: 20, maxWidth: 1080 }}>
       <header>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>Library · 记忆库</h2>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>搜索与筛选</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-          分面筛选 + 搜索；点开任意结果查看"为什么召回它"。
+          按用途筛选或搜索；点开任意结果可以查看它为什么与关键词相关。
         </p>
       </header>
 
@@ -80,8 +76,8 @@ export default function LibraryView() {
             style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13 }}
           >
             <option value="all">全部层级</option>
-            {(Object.keys(LAYER_LABELS) as Layer[]).map(layer => (
-              <option key={layer} value={layer}>{LAYER_LABELS[layer]}</option>
+            {(['flash', 'short', 'long', 'entity'] as Layer[]).map(layer => (
+              <option key={layer} value={layer}>{userFacingLayer(layer, language)}</option>
             ))}
           </select>
         </div>
@@ -96,9 +92,9 @@ export default function LibraryView() {
           {rows.map(({ memory, breakdown, score }) => (
             <Card key={memory.id}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Badge>{LAYER_LABELS[memory.layer] ?? memory.layer}</Badge>
+                <Badge>{userFacingLayer(memory.layer, language)}</Badge>
                 <strong style={{ fontSize: 13.5, color: 'var(--text-primary)', flex: 1 }}>{memory.title}</strong>
-                {score !== undefined && <Badge tone="good">score {score.toFixed(4)}</Badge>}
+                {score !== undefined && <Badge tone="good">相关结果</Badge>}
                 {breakdown && (
                   <button className="btn" onClick={() => setExpandedId(expandedId === memory.id ? null : memory.id)}>
                     {expandedId === memory.id ? '收起' : '为什么召回'}
@@ -110,12 +106,11 @@ export default function LibraryView() {
               </span>
               {expandedId === memory.id && breakdown && (
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, display: 'grid', gap: 4, fontSize: 12.5, color: 'var(--text-secondary)' }}>
-                  <strong style={{ fontSize: 12.5 }}>评分构成（finalScore = (全文+语义) × 质量乘数）</strong>
-                  <span>全文贡献 {breakdown.fulltextContribution.toFixed(6)}{breakdown.fulltextRank ? `（rank ${breakdown.fulltextRank}）` : ''}</span>
-                  <span>语义贡献 {breakdown.semanticContribution.toFixed(6)}{breakdown.semanticRank ? `（rank ${breakdown.semanticRank}）` : ''}</span>
-                  <span>热度加成 {breakdown.hitBoost.toFixed(6)} · 置信加成 {breakdown.confidenceBoost.toFixed(6)} · 持久层加成 {breakdown.durableLayerBoost.toFixed(6)}</span>
-                  {breakdown.qualityMultiplier !== undefined && <span>质量乘数 ×{breakdown.qualityMultiplier.toFixed(4)}（乘性微调，上限 ±15%）</span>}
-                  <span>最终得分 {breakdown.finalScore.toFixed(6)}</span>
+                  <strong style={{ fontSize: 12.5 }}>为什么找到这条记忆</strong>
+                  <span>{breakdown.fulltextContribution > 0 ? '内容中包含相关关键词。' : '没有直接命中关键词。'}</span>
+                  <span>{breakdown.semanticContribution > 0 ? '表达的含义与搜索内容相近。' : '主要不是通过含义相似找到的。'}</span>
+                  <span>{breakdown.hitBoost > 0 ? '过去曾被使用，因此排序有所提升。' : '过去使用次数没有影响本次排序。'}</span>
+                  <span>{breakdown.confidenceBoost > 0 || breakdown.durableLayerBoost > 0 ? '可信度和保留价值提高了它的排序。' : '排序未获得额外的可信度加成。'}</span>
                 </div>
               )}
             </Card>

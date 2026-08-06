@@ -2,7 +2,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-export type AgentConfigTarget = 'generic' | 'claude-desktop' | 'claude-code' | 'workbuddy' | 'trae' | 'hermes' | 'openclaw' | 'codex' | 'opencode';
+export type AgentConfigTarget = 'generic' | 'claude-desktop' | 'claude-code' | 'workbuddy' | 'trae' | 'qoder' | 'hermes' | 'openclaw' | 'codex' | 'opencode';
 export type AgentMode = 'cli' | 'mcp' | 'auto';
 
 export interface AgentConfigSnippet {
@@ -16,7 +16,7 @@ export interface AgentConfigSnippet {
   mode: AgentMode;
 }
 
-const TARGETS: AgentConfigTarget[] = ['generic', 'claude-desktop', 'claude-code', 'workbuddy', 'trae', 'hermes', 'openclaw', 'codex', 'opencode'];
+const TARGETS: AgentConfigTarget[] = ['generic', 'claude-desktop', 'claude-code', 'workbuddy', 'trae', 'qoder', 'hermes', 'openclaw', 'codex', 'opencode'];
 const KEYMEMORY_MCP_PERMISSION = 'mcp__keymemory__*';
 const KEYMEMORY_HOST_TOOL_PATTERNS = [KEYMEMORY_MCP_PERMISSION, 'keymemory_*', 'memory_*'];
 const KEYMEMORY_TOOL_INCLUDE = [
@@ -55,10 +55,11 @@ function cliPath(root?: string): string {
   return path.join(resolveProjectRoot(root), 'bin', 'keymemory.js');
 }
 
-function mcpServerConfig(root?: string): { command: string; args: string[] } {
+function mcpServerConfig(root?: string, agentId = 'keymemory-agent'): { command: string; args: string[]; env: Record<string, string> } {
   return {
     command: 'node',
     args: [launcherPath(root)],
+    env: { KEYMEMORY_AGENT_ID: agentId },
   };
 }
 
@@ -77,7 +78,7 @@ function keymemoryPermissionConfig(): { allow: string[] } {
 
 function hermesMcpServerConfig(root?: string) {
   return {
-    ...mcpServerConfig(root),
+    ...mcpServerConfig(root, 'hermes'),
     enabled: true,
     supports_parallel_tool_calls: true,
     tools: { include: KEYMEMORY_TOOL_INCLUDE },
@@ -117,6 +118,7 @@ export function defaultModeForTarget(target: AgentConfigTarget): AgentMode {
     case 'claude-desktop':
     case 'workbuddy':
     case 'trae':
+    case 'qoder':
     case 'openclaw':
     case 'opencode':
     case 'generic':
@@ -326,7 +328,7 @@ function genericMcpSnippet(root?: string): AgentConfigSnippet {
     format: 'json',
     launcherPath: launcherPath(root),
     configPathHints: [],
-    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
+    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root, 'generic-agent') } }),
     notes: [
       'Use the launcher path, not packages/server/dist/mcp-server.js, so logs stay off stdout.',
       'Prefer keymemory_* tools for durable memory; memory_* names remain compatibility aliases.',
@@ -345,7 +347,7 @@ function claudeDesktopMcpSnippet(root?: string): AgentConfigSnippet {
       appDataPath('Claude', 'claude_desktop_config.json'),
       homePath('.config', 'Claude', 'claude_desktop_config.json'),
     ],
-    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
+    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root, 'claude-desktop') } }),
     notes: [
       'Restart Claude Desktop after updating the config file.',
       'Claude Desktop does not support direct CLI invocation; MCP is the only integration path.',
@@ -390,7 +392,7 @@ function claudeCodeMcpSnippet(root?: string): AgentConfigSnippet {
       homePath('.claude', 'settings.json'),
     ],
     snippet: jsonSnippet({
-      mcpServers: { keymemory: mcpServerConfig(root) },
+      mcpServers: { keymemory: mcpServerConfig(root, 'claude-code') },
       permissions: keymemoryPermissionConfig(),
     }),
     notes: [
@@ -413,7 +415,7 @@ function workbuddyMcpSnippet(root?: string): AgentConfigSnippet {
       homePath('.workbuddy'),
       homePath('.workbuddy', 'connectors', 'default', 'mcp.json'),
     ],
-    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
+    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root, 'workbuddy') } }),
     notes: [
       'Open WorkBuddy Settings → MCP → Add MCP Server, then add the local stdio server shown above.',
       'WorkBuddy configuration is versioned independently under ~/.workbuddy; preserve existing connectors and permissions.',
@@ -435,11 +437,30 @@ function traeMcpSnippet(root?: string): AgentConfigSnippet {
       appDataPath('Trae'),
       appDataPath('Trae CN'),
     ],
-    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root) } }),
+    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root, 'trae') } }),
     notes: [
       'Open TRAE Settings → MCP and add a custom local stdio server using the command and args above.',
       'Keep existing MCP servers and TRAE rules; KeyMemory should be added, not used as a replacement config file.',
       'Paste the generated KeyMemory operating rules into TRAE custom rules so every built-in or custom Agent uses the same memory policy.',
+    ],
+    mode: 'mcp',
+  };
+}
+
+function qoderMcpSnippet(root?: string): AgentConfigSnippet {
+  return {
+    target: 'qoder',
+    label: 'Qoder',
+    format: 'json',
+    launcherPath: launcherPath(root),
+    configPathHints: [
+      homePath('.qoder', 'mcp.json'),
+      appDataPath('Qoder', 'User', 'settings.json'),
+    ],
+    snippet: jsonSnippet({ mcpServers: { keymemory: mcpServerConfig(root, 'qoder') } }),
+    notes: [
+      'Open Qoder MCP settings and merge the KeyMemory server into the existing configuration.',
+      'Keep existing servers and rules; the Agent identity enables accurate mailbox sender and read receipts.',
     ],
     mode: 'mcp',
   };
@@ -505,7 +526,7 @@ function openClawMcpSnippet(root?: string): AgentConfigSnippet {
       homePath('.config', 'openclaw', 'config.json'),
     ],
     snippet: jsonSnippet({
-      mcpServers: { keymemory: { ...mcpServerConfig(root), enabled: true } },
+      mcpServers: { keymemory: { ...mcpServerConfig(root, 'openclaw'), enabled: true } },
       memory: nativeMemoryConfig(),
       permissions: keymemoryPermissionConfig(),
       allowedTools: [KEYMEMORY_MCP_PERMISSION],
@@ -558,6 +579,7 @@ function codexMcpSnippet(root?: string): AgentConfigSnippet {
       'default_tools_approval_mode = "approve"',
       'command = "node"',
       `args = [${tomlString(launcher)}]`,
+      'env = { KEYMEMORY_AGENT_ID = "codex" }',
     ].join('\n'),
     notes: [
       'Append this TOML block to the Codex config and restart Codex.',
@@ -579,7 +601,7 @@ function opencodeMcpSnippet(root?: string): AgentConfigSnippet {
       homePath('.config', 'opencode', 'config.json'),
     ],
     snippet: jsonSnippet({
-      mcpServers: { keymemory: mcpServerConfig(root) },
+      mcpServers: { keymemory: mcpServerConfig(root, 'opencode') },
       permissions: keymemoryPermissionConfig(),
     }),
     notes: [
@@ -601,6 +623,7 @@ export function buildAgentConfigSnippet(target: AgentConfigTarget, mode?: AgentM
   if (target === 'claude-code') return resolved === 'cli' ? claudeCodeCliSnippet(root) : claudeCodeMcpSnippet(root);
   if (target === 'workbuddy') return workbuddyMcpSnippet(root);
   if (target === 'trae') return traeMcpSnippet(root);
+  if (target === 'qoder') return qoderMcpSnippet(root);
   if (target === 'hermes') return resolved === 'cli' ? hermesCliSnippet(root) : hermesMcpSnippet(root);
   if (target === 'openclaw') return openClawMcpSnippet(root);
   if (target === 'codex') return resolved === 'cli' ? codexCliSnippet(root) : codexMcpSnippet(root);

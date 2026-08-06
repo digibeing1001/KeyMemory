@@ -126,12 +126,13 @@ function connectPaths(target: AgentIntegrationStatus['id'], options: AgentConnec
   const windowsHostHome = !options.homeDir && process.platform === 'linux'
     ? process.env.KEYMEMORY_WINDOWS_HOME ?? path.join('/mnt/c/Users', path.basename(runtimeHome))
     : undefined;
-  const windowsCentric = new Set<AgentIntegrationStatus['id']>(['claude-desktop', 'claude-code', 'workbuddy', 'trae', 'codex']);
+  const windowsCentric = new Set<AgentIntegrationStatus['id']>(['claude-desktop', 'claude-code', 'workbuddy', 'trae', 'qoder', 'codex']);
   const hasWindowsHost = Boolean(windowsHostHome && exists(windowsHostHome));
   const installDirectory: Partial<Record<AgentIntegrationStatus['id'], string>> = {
     'claude-code': '.claude',
     workbuddy: '.workbuddy',
     trae: '.trae',
+    qoder: '.qoder',
     codex: '.codex',
   };
   const marker = installDirectory[target];
@@ -180,6 +181,16 @@ function connectPaths(target: AgentIntegrationStatus['id'], options: AgentConnec
           path.join(localAppData, 'Trae', 'User', 'settings.json'),
         ], path.join(home, '.trae', 'mcp.json')),
         instructionsPath: path.join(home, '.trae', 'KEYMEMORY_INSTRUCTIONS.md'),
+        skillPath: path.join(home, '.agents', 'skills', 'keymemory', 'SKILL.md'),
+      };
+    case 'qoder':
+      return {
+        configPath: firstExisting([
+          path.join(home, '.qoder', 'mcp.json'),
+          path.join(appData, 'Qoder', 'User', 'settings.json'),
+          path.join(localAppData, 'Qoder', 'User', 'settings.json'),
+        ], path.join(home, '.qoder', 'mcp.json')),
+        instructionsPath: path.join(home, '.qoder', 'KEYMEMORY_INSTRUCTIONS.md'),
         skillPath: path.join(home, '.agents', 'skills', 'keymemory', 'SKILL.md'),
       };
     case 'hermes':
@@ -397,6 +408,18 @@ function specs(): DetectionSpec[] {
         ...hostHomePaths('.agents', 'skills', 'keymemory', 'SKILL.md'),
         ...hostAppDataPaths('roaming', 'Trae', 'User', 'settings.json'),
         ...hostAppDataPaths('roaming', 'Trae CN', 'User', 'settings.json'),
+      ],
+    },
+    {
+      id: 'qoder',
+      label: 'Qoder',
+      recommendedMode: 'mcp',
+      installMarkers: [...hostHomePaths('.qoder'), ...hostAppDataPaths('roaming', 'Qoder'), ...hostAppDataPaths('local', 'Qoder')],
+      connectionFiles: [
+        ...hostHomePaths('.qoder', 'mcp.json'),
+        ...hostHomePaths('.qoder', 'KEYMEMORY_INSTRUCTIONS.md'),
+        ...hostHomePaths('.agents', 'skills', 'keymemory', 'SKILL.md'),
+        ...hostAppDataPaths('roaming', 'Qoder', 'User', 'settings.json'),
       ],
     },
     {

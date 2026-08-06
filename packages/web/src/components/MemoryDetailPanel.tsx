@@ -8,6 +8,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import MemoryQualityPanel from './MemoryQualityPanel';
 import { getRelatedMemories, type RelatedMemory } from '../lib/api';
 import { useI18n } from '../i18n';
+import { userFacingRelation } from '../lib/userFacing';
 import { formatDateTime, formatMemoryTitle, getMemoryKind, LAYER_COLORS, redactSensitiveText, summarizeMemory } from '../lib/memoryFormat';
 
 interface MemoryDetailPanelProps {
@@ -258,7 +259,7 @@ export default function MemoryDetailPanel({
               {related.slice(0, 5).map((item) => (
                 <div key={item.memoryId} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 10, background: 'var(--bg-card)' }}>
                   <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{redactSensitiveText(item.title)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{item.relationType} · {item.layer}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{userFacingRelation(item.relationType, language)} · {layerLabel(item.layer as Layer)}</div>
                 </div>
               ))}
             </div>
