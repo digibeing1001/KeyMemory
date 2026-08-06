@@ -9,12 +9,15 @@ export interface SchedulerConfig {
   dreamingCron: string;
   lastDreamRun: string | null;
   nextDreamRunAt: string | null;
+  /** 邮箱 digest 去重开关（指纹守卫、空水位修复、抑制窗口），默认 true；false 时回退旧行为 */
+  mailboxDigestDedup: boolean;
 }
 
 const DEFAULT_CONFIG: Omit<SchedulerConfig, 'nextDreamRunAt'> = {
   dreamingEnabled: true,
   dreamingCron: DREAM_CONFIG.defaultCron,
   lastDreamRun: null,
+  mailboxDigestDedup: true,
 };
 
 function parseCron(cron: string): { hour: number; minute: number } {
@@ -73,6 +76,7 @@ export function getSchedulerConfig(): SchedulerConfig {
       case 'dreamingEnabled': config.dreamingEnabled = row.value === 'true'; break;
       case 'dreamingCron': config.dreamingCron = row.value; break;
       case 'lastDreamRun': config.lastDreamRun = row.value || null; break;
+      case 'mailboxDigestDedup': config.mailboxDigestDedup = row.value !== 'false'; break;
     }
   }
   try {
@@ -102,6 +106,7 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
   ];
 
   if (updates.lastDreamRun !== undefined) entries.push(['lastDreamRun', merged.lastDreamRun || '']);
+  if (updates.mailboxDigestDedup !== undefined) entries.push(['mailboxDigestDedup', String(merged.mailboxDigestDedup)]);
 
   const transaction = db.transaction(() => {
     for (const [key, value] of entries) {
@@ -114,6 +119,7 @@ export function updateSchedulerConfig(updates: Partial<SchedulerConfig>): Schedu
     dreamingEnabled: merged.dreamingEnabled,
     dreamingCron: merged.dreamingCron,
     lastDreamRun: merged.lastDreamRun,
+    mailboxDigestDedup: merged.mailboxDigestDedup,
   });
 }
 
@@ -211,11 +217,17 @@ function scheduleNextQuickDream(): void {
       const report = runDreamCycle(true);
       lastQuickDreamAt = Date.now();
       console.error(`[Scheduler] Quick dream completed: ${report.promoted} promoted, ${report.archived} archived, ${report.merged} merged`);
-      try {
-        const mailboxReport = await syncMailbox();
-        console.error(`[Scheduler] Quick dream mailbox sync: ${JSON.stringify(mailboxReport)}`);
-      } catch (err) {
-        console.error(`[Scheduler] Quick dream mailbox sync failed (non-fatal):`, err);
+      // 触发器降噪：quick dream 没有产生任何变更时不同步邮箱，避免高频空跑制造 digest 噪声；
+      // 手动/HTTP/MCP 触发的 syncMailbox 路径不受影响。
+      if (report.promoted + report.archived + report.merged > 0) {
+        try {
+          const mailboxReport = await syncMailbox();
+          console.error(`[Scheduler] Quick dream mailbox sync: ${JSON.stringify(mailboxReport)}`);
+        } catch (err) {
+          console.error(`[Scheduler] Quick dream mailbox sync failed (non-fatal):`, err);
+        }
+      } else {
+        console.error('[Scheduler] Quick dream produced no changes, skipping mailbox sync');
       }
     } catch (err) {
       console.error('[Scheduler] Quick dream cycle failed:', (err as Error).message);

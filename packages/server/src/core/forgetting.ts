@@ -11,42 +11,41 @@ export function applyDecay(): { flashDecayed: number; shortDecayed: number; long
   const db = getDatabase();
   const now = new Date().toISOString();
 
+  // 纯衰减不是内容变更：不刷新 updated_at，避免邮箱 digest 水位被每日衰减假信号顶过。
+  // 降级、恢复、归档等真实状态变更路径仍保留 updated_at 更新。
   const flashConfig = LAYER_CONFIG.flash;
   const flashResult = db.prepare(`
     UPDATE memories
     SET decay_factor = decay_factor * @rate,
-        confidence = MAX(0.1, confidence * @rate),
-        updated_at = @now
+        confidence = MAX(0.1, confidence * @rate)
     WHERE layer = 'flash'
       AND status = 'active'
       AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
       AND decay_factor > @floor
-  `).run({ rate: flashConfig.decayRate, now, floor: DECAY_CONFIG.decayFloor }, `-${flashConfig.decayDays}`);
-
+  `).run({ rate: flashConfig.decayRate, floor: DECAY_CONFIG.decayFloor }, `-${flashConfig.decayDays}`);
+  
   const shortConfig = LAYER_CONFIG.short;
   const shortResult = db.prepare(`
     UPDATE memories
     SET decay_factor = decay_factor * @rate,
-        confidence = MAX(0.1, confidence * @rate),
-        updated_at = @now
+        confidence = MAX(0.1, confidence * @rate)
     WHERE layer = 'short'
       AND status = 'active'
       AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
       AND decay_factor > @floor
-  `).run({ rate: shortConfig.decayRate, now, floor: DECAY_CONFIG.decayFloor }, `-${shortConfig.decayDays}`);
-
+  `).run({ rate: shortConfig.decayRate, floor: DECAY_CONFIG.decayFloor }, `-${shortConfig.decayDays}`);
+  
   // long 层衰减：180 天未命中的内容每次衰减 1%（rate=0.99），不再"只进不出"
   const longConfig = LAYER_CONFIG.long;
   const longResult = db.prepare(`
     UPDATE memories
     SET decay_factor = decay_factor * @rate,
-        confidence = MAX(0.1, confidence * @rate),
-        updated_at = @now
+        confidence = MAX(0.1, confidence * @rate)
     WHERE layer = 'long'
       AND status = 'active'
       AND (last_hit_at IS NULL OR last_hit_at <= datetime('now', ? || ' days'))
       AND decay_factor > @floor
-  `).run({ rate: longConfig.decayRate, now, floor: DECAY_CONFIG.decayFloor }, `-${longConfig.decayDays}`);
+  `).run({ rate: longConfig.decayRate, floor: DECAY_CONFIG.decayFloor }, `-${longConfig.decayDays}`);
 
   // 反向降级 1：long 层长期未被命中的低 decay 内容降级到 short
   // 条件：decay_factor < demoteLongDecayFactor 且 demoteLongDays 天未命中 → layer_move long→short

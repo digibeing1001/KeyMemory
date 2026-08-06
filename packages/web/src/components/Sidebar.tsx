@@ -1,13 +1,15 @@
+import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { HealthReport, Layer } from '@keymemory/shared';
 import { LAYERS } from '@keymemory/shared';
-import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Globe, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, LogOut, Plug, Search, Link } from './Icons';
+import { Flash, Clock, Anchor, User, Layers, Plus, Heart, Tag, Moon, Trash, Sun, Inbox, GitMerge, Close, Activity, LogOut, Plug, Search, Link, ChevronRight, ChevronDown } from './Icons';
 import ProjectTree from './ProjectTree';
 import { useI18n, type Language } from '../i18n';
 import { LAYER_COLORS } from '../lib/memoryFormat';
 import { useAuth } from '../auth/AuthContext';
 import type { UserRole } from '../lib/api';
 
-type ViewMode = 'memories' | 'mailbox' | 'valley' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users' | 'today' | 'timeline' | 'library' | 'graph' | 'insights';
+type ViewMode = 'memories' | 'mailbox' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users' | 'today' | 'timeline' | 'library' | 'graph' | 'insights';
 
 interface SidebarProps {
   layerStats: Record<Layer, { count: number; active: number }>;
@@ -31,24 +33,63 @@ const LAYER_ICONS: Record<Layer, typeof Flash> = {
   entity: User,
 };
 
-const ALL_VIEW_ITEMS: Array<{ mode: ViewMode; labelKey: string; icon: typeof Layers; adminOnly?: boolean }> = [
-  { mode: 'mailbox', labelKey: 'nav.mailbox', icon: Inbox },
-  { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
-  { mode: 'today', labelKey: 'nav.today', icon: Sun },
-  { mode: 'timeline', labelKey: 'nav.timeline', icon: Clock },
-  { mode: 'library', labelKey: 'nav.library', icon: Search },
-  { mode: 'graph', labelKey: 'nav.graph', icon: Link },
-  { mode: 'insights', labelKey: 'nav.insights', icon: Heart },
-  { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
-  { mode: 'integrations', labelKey: 'nav.integrations', icon: Plug },
-  { mode: 'valley', labelKey: 'nav.valley', icon: Globe },
-  { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
-  { mode: 'dream', labelKey: 'nav.dream', icon: Moon, adminOnly: true },
-  { mode: 'llm', labelKey: 'nav.llm', icon: GitMerge, adminOnly: true },
-  { mode: 'migration', labelKey: 'nav.migration', icon: Inbox, adminOnly: true },
-  { mode: 'users', labelKey: 'nav.users', icon: User, adminOnly: true },
-  { mode: 'recycle', labelKey: 'nav.recycle', icon: Trash },
+interface SidebarViewItem {
+  mode: ViewMode;
+  labelKey: string;
+  icon: typeof Layers;
+  adminOnly?: boolean;
+}
+
+interface SidebarViewGroup {
+  labelKey: string;
+  collapsible?: boolean;
+  items: SidebarViewItem[];
+}
+
+const VIEW_GROUPS: SidebarViewGroup[] = [
+  {
+    labelKey: 'nav.group.workspace',
+    items: [
+      { mode: 'mailbox', labelKey: 'nav.mailbox', icon: Inbox },
+      { mode: 'memories', labelKey: 'nav.memories', icon: Layers },
+    ],
+  },
+  {
+    labelKey: 'nav.group.organize',
+    items: [
+      { mode: 'dream', labelKey: 'nav.dream', icon: Moon, adminOnly: true },
+      { mode: 'insights', labelKey: 'nav.insights', icon: Heart },
+      { mode: 'workingSet', labelKey: 'nav.workingSet', icon: Activity },
+    ],
+  },
+  {
+    labelKey: 'nav.group.connect',
+    items: [
+      { mode: 'integrations', labelKey: 'nav.integrations', icon: Plug },
+    ],
+  },
+  {
+    labelKey: 'nav.group.system',
+    collapsible: true,
+    items: [
+      { mode: 'llm', labelKey: 'nav.llm', icon: GitMerge, adminOnly: true },
+      { mode: 'migration', labelKey: 'nav.migration', icon: Inbox, adminOnly: true },
+      { mode: 'users', labelKey: 'nav.users', icon: User, adminOnly: true },
+      { mode: 'recycle', labelKey: 'nav.recycle', icon: Trash },
+      { mode: 'library', labelKey: 'nav.library', icon: Search },
+      { mode: 'tags', labelKey: 'nav.tags', icon: Tag },
+      { mode: 'graph', labelKey: 'nav.graph', icon: Link },
+    ],
+  },
 ];
+
+const GROUP_CAPTION_STYLE: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  color: 'var(--text-muted)',
+};
 
 function isAdminRole(role: UserRole | undefined): boolean {
   return role === 'boss' || role === 'admin';
@@ -119,7 +160,11 @@ export default function Sidebar({
   const { user, logout } = useAuth();
   const zh = language === 'zh';
   const isAdmin = isAdminRole(user?.role);
-  const visibleViewItems = ALL_VIEW_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+  // 系统分组默认折叠；当前正停留在系统分组内的视图时自动展开。
+  const [systemGroupOpen, setSystemGroupOpen] = useState(() => {
+    const systemGroup = VIEW_GROUPS.find((group) => group.collapsible);
+    return systemGroup ? systemGroup.items.some((item) => item.mode === viewMode) : false;
+  });
   const healthReviewCount = healthReport
     ? healthReport.duplicateCount + healthReport.orphanCount + healthReport.conflictCount + healthReport.decayingCount
     : 0;
@@ -191,20 +236,57 @@ export default function Sidebar({
         <div style={{ height: 1, background: 'var(--border)', margin: '0 16px 8px' }} />
 
         <nav style={{ padding: '4px 8px' }}>
-          {visibleViewItems.map((item) => {
-            const isActive = viewMode === item.mode;
-            const Icon = item.icon;
+          {VIEW_GROUPS.map((group) => {
+            const visibleItems = group.items.filter((item) => !item.adminOnly || isAdmin);
+            if (visibleItems.length === 0) return null;
+            const collapsed = Boolean(group.collapsible) && !systemGroupOpen;
             return (
-              <button
-                type="button"
-                key={item.mode}
-                className={`sidebar-item${isActive ? ' active' : ''}`}
-                onClick={() => onViewModeChange(item.mode)}
-                style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left' }}
-              >
-                <Icon size={16} />
-                <span>{t(item.labelKey)}</span>
-              </button>
+              <div key={group.labelKey} style={{ marginBottom: 8 }}>
+                {group.collapsible ? (
+                  <button
+                    type="button"
+                    onClick={() => setSystemGroupOpen((value) => !value)}
+                    aria-expanded={!collapsed}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 6,
+                      padding: '6px 8px',
+                      border: 'none',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <span style={GROUP_CAPTION_STYLE}>{t(group.labelKey)}</span>
+                    {collapsed
+                      ? <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />
+                      : <ChevronDown size={12} style={{ color: 'var(--text-muted)' }} />}
+                  </button>
+                ) : (
+                  <div style={{ padding: '6px 8px 4px' }}>
+                    <span style={GROUP_CAPTION_STYLE}>{t(group.labelKey)}</span>
+                  </div>
+                )}
+                {!collapsed && visibleItems.map((item) => {
+                  const isActive = viewMode === item.mode;
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      type="button"
+                      key={item.mode}
+                      className={`sidebar-item${isActive ? ' active' : ''}`}
+                      onClick={() => onViewModeChange(item.mode)}
+                      style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left' }}
+                    >
+                      <Icon size={16} />
+                      <span>{t(item.labelKey)}</span>
+                    </button>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>

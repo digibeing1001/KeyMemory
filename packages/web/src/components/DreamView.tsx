@@ -39,11 +39,14 @@ import ConfirmDialog from './ConfirmDialog';
 import { useI18n } from '../i18n';
 import MarkdownRenderer from './MarkdownRenderer';
 import MemoryQualityPanel from './MemoryQualityPanel';
+import TodayView from '../views/TodayView';
+import TimelineView from '../views/TimelineView';
 import { formatDateTime, formatMemoryTitle, getMemoryKind, LAYER_COLORS, redactSensitiveText } from '../lib/memoryFormat';
 
 interface DreamViewProps {
   onMemorySelect?: (id: string) => void;
   onHealthChanged?: () => void;
+  degradedPaths?: string[];
 }
 
 function formatTime(iso: string | null | undefined, locale: string): string {
@@ -96,10 +99,11 @@ function StatCard({ label, value, hint, icon: Icon, accent }: {
   );
 }
 
-export default function DreamView({ onMemorySelect, onHealthChanged }: DreamViewProps) {
+export default function DreamView({ onMemorySelect, onHealthChanged, degradedPaths = [] }: DreamViewProps) {
   const { language, t } = useI18n();
   const locale = language === 'zh' ? 'zh-CN' : 'en-US';
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<'organize' | 'timeline'>('organize');
   const [reports, setReports] = useState<DreamReport[]>([]);
   const [selectedReport, setSelectedReport] = useState<DreamReport | null>(null);
   const [signals, setSignals] = useState<DreamSignalEntry[]>([]);
@@ -414,6 +418,39 @@ export default function DreamView({ onMemorySelect, onHealthChanged }: DreamView
           </button>
         </div>
       </header>
+
+      {/* 最近整理报告 + 待确认 + 撤销（原 Today 视图内容） */}
+      <section style={{ marginBottom: 18 }}>
+        <TodayView degradedPaths={degradedPaths} onToast={toast} embedded />
+      </section>
+
+      {/* 页内 Tab：整理记录｜时间回溯 */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+        {(['organize', 'timeline'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            style={{
+              padding: '8px 16px',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 700,
+              color: activeTab === tab ? 'var(--accent)' : 'var(--text-secondary)',
+              borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
+            }}
+          >
+            {tab === 'organize' ? t('dream.history') : t('timeline.title')}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'timeline' ? (
+        <TimelineView embedded />
+      ) : (
+        <>
 
       {config && (
         <section
@@ -815,10 +852,13 @@ export default function DreamView({ onMemorySelect, onHealthChanged }: DreamView
             {filteredDreams.map((report) => {
               const isSelected = selectedReport?.id === report.id;
               return (
-                <button
+                <div
                   className="dream-history-row"
                   key={report.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleSelectReport(report)}
+                  onKeyDown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) { event.preventDefault(); void handleSelectReport(report); } }}
                   style={{
                     padding: '14px 16px',
                     borderRadius: 'var(--radius-md)',
@@ -852,13 +892,15 @@ export default function DreamView({ onMemorySelect, onHealthChanged }: DreamView
                       <Trash size={12} />
                     </button>
                   </span>
-                </button>
+                </div>
               );
             })}
           </div>
           );
         })()}
       </section>
+        </>
+      )}
     </main>
   );
 }

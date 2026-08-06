@@ -558,6 +558,8 @@
   .tag-cloud-projects > header { align-items: flex-start; flex-direction: column; }
   .mailbox-shell { display: block; position: relative; }
   .mailbox-folders { display: none; }
+  /* 左栏被隐藏时，Agent 面板以横向条带显示在邮件列表顶部 */
+  .mailbox-agents-mobile { display: block; }
   .mailbox-list { height: 100%; }
   .mail-thread-header, .mail-message-stack, .mail-reply-box { padding-left: 20px; padding-right: 20px; }
   .mail-compose { right: 8px; bottom: 8px; width: calc(100vw - 16px); }

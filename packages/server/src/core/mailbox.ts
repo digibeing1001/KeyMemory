@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { createHash } from 'node:crypto';
 import type {
   MailAttachment,
   MailAttachmentKind,
@@ -27,6 +28,38 @@ import { searchHybrid } from './query.js';
 const SECRETARY_ID = 'memory-secretary@keymemory.local';
 export const DEFAULT_HUMAN_ID = 'human:local';
 const DEFAULT_RECIPIENTS = [DEFAULT_HUMAN_ID, 'agent:*'];
+
+/**
+ * Digest 抑制窗口（小时）：仅作为旧数据兜底——上封 digest 没有内容指纹可比对时，
+ * 距上封不足该时长且本次候选记忆是上封来源子集，才跳过发信；指纹已变化（真实内容更新）不受窗口拦截。
+ */
+const DIGEST_SUPPRESS_WINDOW_HOURS = 6;
+
+/**
+ * 邮箱 digest 去重灰度开关（scheduler_config 中的 mailboxDigestDedup，默认 true）。
+ * 为 false 时完全回退旧行为（无指纹守卫、无空水位修复、无抑制窗口）。
+ * 直接读取 scheduler_config 表，避免 mailbox ↔ scheduler 循环依赖。
+ */
+function isMailboxDigestDedupEnabled(): boolean {
+  try {
+    const row = getDatabase().prepare("SELECT value FROM scheduler_config WHERE key = 'mailboxDigestDedup'").get() as { value: string } | undefined;
+    return row ? row.value !== 'false' : true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 候选记忆内容指纹：按 id 排序后逐行拼接 "id|title|content" 再做 sha256。
+ * 不含 updated_at，因此检索命中、每日衰减等“无内容变化”的 updated_at 刷新不会改变指纹。
+ */
+function computeMemoryFingerprint(memories: Memory[]): string {
+  const payload = [...memories]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map(memory => `${memory.id}|${memory.title}|${memory.content}`)
+    .join('\n');
+  return createHash('sha256').update(payload, 'utf8').digest('hex');
+}
 
 type JsonObject = Record<string, unknown>;
 
@@ -491,6 +524,35 @@ export function listMailThreads(options: ListMailThreadsOptions = {}): MailThrea
   `).all(params) as Record<string, unknown>[];
   const threads = rows.map(row => rowToThread(row, String(params.recipientId)));
 
+  // 已读 Agent 聚合：对当前页 threadIds 用单条批量 SQL（GROUP BY thread_id）一次取回，
+  // 避免逐主题 N+1 查询；只保留 recipientId 以 agent: 开头且 read_at 非空的回执。
+  if (threads.length > 0) {
+    const threadParams: Record<string, unknown> = {};
+    const placeholders = threads.map((item, index) => {
+      threadParams[`readerThread${index}`] = item.id;
+      return `@readerThread${index}`;
+    }).join(', ');
+    const readerRows = db.prepare(`
+      SELECT m.thread_id AS thread_id, r.recipient_id AS recipient_id, MAX(r.read_at) AS read_at
+      FROM mail_receipts r
+      JOIN mail_messages m ON m.id = r.message_id
+      WHERE m.thread_id IN (${placeholders})
+        AND r.recipient_id LIKE 'agent:%'
+        AND r.read_at IS NOT NULL
+      GROUP BY m.thread_id, r.recipient_id
+      ORDER BY read_at DESC
+    `).all(threadParams) as Array<{ thread_id: string; recipient_id: string; read_at: string }>;
+    const readersByThread = new Map<string, Array<{ recipientId: string; readAt: string }>>();
+    for (const readerRow of readerRows) {
+      const readers = readersByThread.get(readerRow.thread_id) ?? [];
+      readers.push({ recipientId: readerRow.recipient_id, readAt: readerRow.read_at });
+      readersByThread.set(readerRow.thread_id, readers);
+    }
+    for (const thread of threads) {
+      thread.agentReaders = readersByThread.get(thread.id) ?? [];
+    }
+  }
+
   // 检查 snooze 是否到期，自动清除过期的 snoozed_until
   for (const thread of threads) {
     if (thread.snoozedUntil && new Date(thread.snoozedUntil) < new Date()) {
@@ -940,16 +1002,21 @@ async function writeSecretaryBody(thread: MailThread, memories: Memory[]): Promi
   }
 }
 
-export async function syncMailThread(threadId: string, agentSpaces?: string[]): Promise<MailMessage | null> {
+export async function syncMailThread(threadId: string, agentSpaces?: string[], skipped?: string[]): Promise<MailMessage | null> {
   const db = getDatabase();
   const thread = getMailThread(threadId, SECRETARY_ID, agentSpaces);
   if (!thread) throw new Error('找不到邮件主题，或者当前 Agent 没有读取权限');
+  const dedupEnabled = isMailboxDigestDedupEnabled();
   const lastDigest = db.prepare(`
-    SELECT metadata FROM mail_messages
+    SELECT created_at, metadata FROM mail_messages
     WHERE thread_id = ? AND sender_type = 'secretary' AND message_type = 'digest' AND status = 'sent'
     ORDER BY created_at DESC LIMIT 1
-  `).get(threadId) as { metadata: string | null } | undefined;
-  const lastCoverage = String(parseObject(lastDigest?.metadata)?.coverageThrough ?? '');
+  `).get(threadId) as { created_at: string; metadata: string | null } | undefined;
+  const lastMetadata = parseObject(lastDigest?.metadata);
+  const lastCoverage = String(lastMetadata?.coverageThrough ?? '');
+  // 空水位修复：主题尚无 digest 时，以最近来信时间（其次创建时间）作为初始水位，
+  // 不再让旧逻辑的 `? = ''` 把所有关联记忆永远视为新内容。
+  const watermark = dedupEnabled && !lastCoverage ? (thread.lastMessageAt ?? thread.createdAt) : lastCoverage;
   const rows = db.prepare(`
     SELECT DISTINCT m.* FROM memories m
     JOIN mail_thread_memories tm ON tm.memory_id = m.id
@@ -957,9 +1024,27 @@ export async function syncMailThread(threadId: string, agentSpaces?: string[]): 
       AND COALESCE(m.source, '') != 'mailbox-archive'
       AND (? = '' OR m.updated_at > ?)
     ORDER BY m.updated_at DESC
-  `).all(threadId, lastCoverage, lastCoverage) as Record<string, unknown>[];
+  `).all(threadId, watermark, watermark) as Record<string, unknown>[];
   const memories = rows.map(rowToMemory);
   if (memories.length === 0) return null;
+  // 内容指纹（不含 updated_at）：发信时写入 digest metadata，供下次同步比对。
+  const fingerprint = dedupEnabled ? computeMemoryFingerprint(memories) : undefined;
+  if (dedupEnabled && lastDigest) {
+    const lastFingerprint = String(lastMetadata?.contentFingerprint ?? '');
+    // 指纹守卫：候选内容与上封 digest 完全一致时，updated_at 越过水位只是命中/衰减造成的假信号，
+    // 直接不发信、不调 LLM。指纹相同的无实质变化重复在这里就已被拦截。
+    if (fingerprint && lastFingerprint === fingerprint) return null;
+    // 抑制兜底：只在上封 digest 没有 contentFingerprint（旧数据无指纹可比对）时启用——
+    // 距上封不足抑制窗口且本次候选是上封来源记忆的子集，才跳过发信。
+    // 上封已有指纹且与本次不同，说明是真实内容更新，必须尽快发信，不能被窗口拦截。
+    const lastSentAt = Date.parse(lastDigest.created_at);
+    const previousIds = new Set(parseStrings(lastMetadata?.sourceMemoryIds));
+    const withinWindow = Number.isFinite(lastSentAt) && Date.now() - lastSentAt < DIGEST_SUPPRESS_WINDOW_HOURS * 60 * 60 * 1000;
+    if (!lastFingerprint && withinWindow && previousIds.size > 0 && memories.every(memory => previousIds.has(memory.id))) {
+      skipped?.push(`“${thread.subject}”距上封 digest 不足 ${DIGEST_SUPPRESS_WINDOW_HOURS} 小时且上封无内容指纹可比对、候选记忆未超出上封范围，跳过本次发信（主题编号：${threadId}）`);
+      return null;
+    }
+  }
   const coverageThrough = memories.reduce((latest, memory) => memory.updatedAt > latest ? memory.updatedAt : latest, lastCoverage);
   const body = await writeSecretaryBody(thread, memories);
   return db.transaction(() => {
@@ -976,7 +1061,11 @@ export async function syncMailThread(threadId: string, agentSpaces?: string[]): 
         memoryId: memory.id,
         collapsed: true,
       })),
-      metadata: { coverageThrough, sourceMemoryIds: memories.map(memory => memory.id) },
+      metadata: {
+        coverageThrough,
+        sourceMemoryIds: memories.map(memory => memory.id),
+        ...(fingerprint ? { contentFingerprint: fingerprint } : {}),
+      },
     });
     db.prepare('UPDATE mail_threads SET current_summary = ?, updated_at = ? WHERE id = ?').run(firstReadableSentence(body, 500), new Date().toISOString(), threadId);
     return message;
@@ -1132,6 +1221,8 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
           : existing.find(item => normalizeSubject(item.subject) === normalizeSubject(plan.subject));
         const selected = ids.map(id => allowed.get(id)!);
         const coverageThrough = selected.reduce((latest, memory) => memory.updatedAt > latest ? memory.updatedAt : latest, '');
+        // 内容指纹与 syncMailThread 保持一致，供后续同步去重比对。
+        const contentFingerprint = computeMemoryFingerprint(selected);
         const body = cleanPlainText(plan.body);
         if (targetThread) {
           // 归类模型已经生成并通过了正文校验，直接作为已有主题的新回复；
@@ -1145,7 +1236,7 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
               recipientIds: DEFAULT_RECIPIENTS,
               messageType: 'digest',
               attachments: selected.map(memory => ({ kind: 'memory', title: memory.title, content: firstReadableSentence(memory.content, 500), memoryId: memory.id, collapsed: true })),
-              metadata: { coverageThrough, sourceMemoryIds: ids, organizedBy: 'memory-secretary' },
+              metadata: { coverageThrough, sourceMemoryIds: ids, contentFingerprint, organizedBy: 'memory-secretary' },
             });
             db.prepare('UPDATE mail_threads SET current_summary = ?, updated_at = ? WHERE id = ?')
               .run(firstReadableSentence(body, 500), new Date().toISOString(), targetThread.id);
@@ -1163,7 +1254,7 @@ async function organizeUnlinkedMemories(agentSpaces?: string[]): Promise<{ creat
             memoryIds: ids,
             messageType: 'digest',
             attachments: selected.map(memory => ({ kind: 'memory', title: memory.title, content: firstReadableSentence(memory.content, 500), memoryId: memory.id, collapsed: true })),
-            metadata: { coverageThrough, sourceMemoryIds: ids, organizedBy: 'memory-secretary' },
+            metadata: { coverageThrough, sourceMemoryIds: ids, contentFingerprint, organizedBy: 'memory-secretary' },
           });
           createdThreads++;
           linkedMemories += ids.length;
@@ -1197,8 +1288,9 @@ export async function syncMailbox(agentSpaces?: string[]): Promise<MailboxSyncRe
   const organized = await organizeUnlinkedMemories(agentSpaces);
   const threads = listMailThreads({ folder: 'all', agentSpaces, limit: 250 });
   const messageIds: string[] = [];
+  const skipped = [...organized.skipped];
   for (const thread of threads) {
-    const message = await syncMailThread(thread.id, agentSpaces);
+    const message = await syncMailThread(thread.id, agentSpaces, skipped);
     if (message) messageIds.push(message.id);
   }
   return {
@@ -1207,7 +1299,7 @@ export async function syncMailbox(agentSpaces?: string[]): Promise<MailboxSyncRe
     messageIds,
     createdThreads: organized.createdThreads,
     linkedMemories: organized.linkedMemories,
-    skipped: organized.skipped,
+    skipped,
   };
 }
 

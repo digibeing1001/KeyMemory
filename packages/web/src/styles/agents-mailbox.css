@@ -3,7 +3,7 @@
 
 /* 在线 Agent 区域（侧边栏） */
 .mailbox-agents-online {
-  padding: 12px 16px;
+  padding: 12px 8px;
   border-top: 1px solid var(--border-primary);
 }
 .mailbox-agents-label {
@@ -18,47 +18,89 @@
 }
 .mailbox-agents-list {
   display: grid;
-  gap: 7px;
+  gap: 2px;
+  max-height: 248px; /* 约 5 行（44px 行高 + 行间距），超出滚动 */
+  overflow-y: auto;
 }
 .mailbox-agent-row {
   display: flex;
   align-items: center;
-  min-width: 0;
+  width: 100%;
+  height: 44px;
+  padding: 0 8px;
   gap: 9px;
-  padding: 3px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.mailbox-agent-row:hover {
+  background: var(--bg-hover);
 }
 .mailbox-agent-copy {
   display: grid;
+  flex: 1;
   min-width: 0;
   line-height: 1.25;
 }
-.mailbox-agent-copy strong,
-.mailbox-agent-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .mailbox-agent-copy strong {
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
-.mailbox-agent-copy small {
-  margin-top: 2px;
-  color: var(--text-muted);
+/* 状态文字徽章（取代原 8px 小圆点） */
+.mailbox-agent-status {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
   font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.mailbox-agent-status.is-connected {
+  color: #00B894;
+  background: color-mix(in srgb, #00B894 12%, transparent);
+}
+.mailbox-agent-status.is-pending {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+/* 移动端横向条带（.mailbox-folders 被隐藏时的备用展示，默认隐藏） */
+.mailbox-agents-mobile {
+  display: none;
+  border-top: none;
+  border-bottom: 1px solid var(--border-primary);
+  padding: 8px 12px;
+}
+.mailbox-agents-mobile .mailbox-agents-label {
+  margin-bottom: 6px;
+}
+.mailbox-agents-mobile .mailbox-agents-list {
+  display: flex;
+  overflow-x: auto;
+  max-height: none;
+  gap: 4px;
+}
+.mailbox-agents-mobile .mailbox-agent-row {
+  flex: 0 0 auto;
+  width: auto;
+  border: 1px solid var(--border-primary);
 }
 
-/* ===== Agent 头像 Logo ===== */
+/* ===== Agent 头像 Logo（方形圆角，不圆形裁剪） ===== */
 .agent-avatar {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   aspect-ratio: 1;
-  border-radius: 50%;
-  overflow: hidden;
+  border-radius: 7px;
   position: relative;
-  border: 2px solid var(--border-primary);
+  border: 1px solid var(--border-primary);
   background: var(--bg-secondary);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
@@ -68,21 +110,24 @@
 .agent-avatar img {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: 6px;
   object-fit: contain;
 }
 .agent-avatar.is-active {
   border-color: transparent;
-  box-shadow: 0 0 0 2px var(--agent-active-color, #00B894);
+  box-shadow: 0 0 0 1.5px var(--agent-active-color, #00B894);
 }
 .agent-avatar.is-active::after {
   content: '';
   position: absolute;
   inset: -3px;
-  border-radius: 50%;
+  border-radius: 10px;
   border: 1.5px solid var(--agent-active-color, #00B894);
   opacity: 0;
-  animation: agent-ring-pulse 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+/* 脉冲动画仅在 hover 行时触发，避免常驻动画干扰 */
+.mailbox-agent-row:hover .agent-avatar.is-active::after {
+  animation: agent-ring-pulse 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 .agent-avatar.is-idle {
   opacity: 0.55;
@@ -164,6 +209,30 @@
   font-size: 10px;
   color: var(--text-muted);
   margin-left: 2px;
+}
+
+/* ===== 邮件列表行已读 Agent 标识 ===== */
+.mail-row-read-indicators {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  animation: agent-activity-fadein 0.5s ease-out;
+}
+.mail-row-read-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  object-fit: contain;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.mail-row-read-logo:hover {
+  opacity: 1;
+}
+.mail-row-read-more {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1;
 }
 
 /* ===== 活动痕迹微交互 ===== */

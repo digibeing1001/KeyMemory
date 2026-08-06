@@ -402,7 +402,6 @@ export interface GraphNode {
   layer: string;
   tags?: string[];
   project?: string;
-  valley?: string;
   updatedAt?: string;
   mailThreadId?: string;
   relations?: string[];

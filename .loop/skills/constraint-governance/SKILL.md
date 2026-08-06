@@ -1,3 +1,18 @@
+---
+name: constraint-governance
+description: >-
+  Constraint governance for memory storage, processing, MCP tools, and loop
+  behavior changes. Use when editing adapter boundaries, tool schemas,
+  loop control logic, agent_space, or loop configuration files.
+trigger:
+  - Editing memory adapter, storage layer, or processing pipeline code under packages/server
+  - Modifying MCP tool schemas or adding/removing tools
+  - Changing loop control logic or circuit breaker behavior
+  - Adding, removing, or moving agent_space boundaries
+  - Editing .loop/constraints.json, .loop/config.json, or .loop/budget.json
+  - Changing any user-facing search/query path that touches FTS
+---
+
 # Constraint Governance
 
 Use this skill when changing memory storage, processing, MCP tools, or loop behavior.

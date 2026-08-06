@@ -13,9 +13,11 @@ import { userFacingDreamStatus } from '../lib/userFacing';
 interface TodayViewProps {
   degradedPaths: string[];
   onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  /** 嵌入其它页面（如智能整理）内嵌区块时去掉自身页边距 */
+  embedded?: boolean;
 }
 
-export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
+export default function TodayView({ degradedPaths, onToast, embedded = false }: TodayViewProps) {
   const { language } = useI18n();
   const [reports, setReports] = useState<DreamReport[]>([]);
   const [todos, setTodos] = useState<DreamTodoItem[]>([]);
@@ -49,7 +51,7 @@ export default function TodayView({ degradedPaths, onToast }: TodayViewProps) {
   const latest = reports[0];
 
   return (
-    <div style={{ display: 'grid', gap: 14, padding: 20, maxWidth: 980 }}>
+    <div style={{ display: 'grid', gap: 14, padding: embedded ? 0 : 20, maxWidth: 980 }}>
       <header>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>最近整理</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>

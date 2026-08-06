@@ -13,7 +13,7 @@ import { userFacingLayer } from '../lib/userFacing';
 
 const DAY_MS = 86400000;
 
-export default function TimelineView() {
+export default function TimelineView({ embedded = false }: { embedded?: boolean }) {
   const { language } = useI18n();
   const [offsetDays, setOffsetDays] = useState(0); // 0 = 现在
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -43,13 +43,15 @@ export default function TimelineView() {
   ), [language, memories]);
 
   return (
-    <div style={{ display: 'grid', gap: 14, padding: 20, maxWidth: 980 }}>
-      <header>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>时间回溯</h2>
-        <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-          拖动滑块，查看过去某一天当时仍然有效的记忆。
-        </p>
-      </header>
+    <div style={{ display: 'grid', gap: 14, padding: embedded ? 0 : 20, maxWidth: 980 }}>
+      {!embedded && (
+        <header>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 750, color: 'var(--text-primary)' }}>时间回溯</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
+            拖动滑块，查看过去某一天当时仍然有效的记忆。
+          </p>
+        </header>
+      )}
 
       <Card
         title={offsetDays === 0 ? '当前时刻' : `${offsetDays} 天前`}

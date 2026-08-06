@@ -144,7 +144,7 @@ export default function LLMConfigView() {
           }
         }
       } else {
-        toast(t('llm.testFailed') + ': ' + (result.error || 'unknown'), 'error');
+        toast(t('llm.testFailed') + ': ' + (result.error || t('error.unknown')), 'error');
       }
     } catch (err) {
       toast(t('llm.testFailed') + ': ' + (err as Error).message, 'error');
@@ -408,8 +408,8 @@ export default function LLMConfigView() {
                 type="button"
                 className="btn"
                 onClick={() => setShowApiKey(value => !value)}
-                aria-label={showApiKey ? '隐藏 API Key' : '显示 API Key'}
-                title={showApiKey ? '隐藏本次输入的 API Key' : '显示本次输入的 API Key'}
+                aria-label={showApiKey ? t('llm.hideApiKey') : t('llm.showApiKey')}
+                title={showApiKey ? t('llm.hideApiKey') : t('llm.showApiKey')}
                 style={{ borderRadius: '0 var(--radius-md) var(--radius-md) 0', borderLeft: 0 }}
               >
                 {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}

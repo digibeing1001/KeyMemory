@@ -8,7 +8,7 @@ import './index.css';
 import './styles/memory-cards.css';
 import './styles/integrations.css';
 import './styles/tags-panels.css';
-import './styles/valley-graph.css';
+import './styles/tags-markdown.css';
 import './styles/widgets.css';
 import './styles/agents-mailbox.css';
 

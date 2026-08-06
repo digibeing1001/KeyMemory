@@ -48,6 +48,12 @@ assert.throws(() => mailbox.createMailThread({
   senderType: 'human',
 }), /已经存在/, 'one body of work must not create duplicate subjects');
 
+// 空水位规则：主题建立前就已存在的记忆不算“新内容”，必须以主题最近来信时间为初始水位；
+// 只有主题建立后记忆内容发生真实变更，记忆秘书才应发出更新信。
+atom.updateMemory(reusableMemory.id, {
+  content: `${reusableMemory.content}\n验收补充：邮件列表需要展示每个主题已被哪些 Agent 读取。`,
+}, '为邮箱验收补充已读展示要求');
+
 const secretaryMessage = await mailbox.syncMailThread(first.thread.id);
 assert.equal(secretaryMessage?.senderType, 'secretary');
 assert.equal(secretaryMessage?.messageType, 'digest');

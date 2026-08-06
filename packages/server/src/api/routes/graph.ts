@@ -155,7 +155,6 @@ export function registerGraphRoutes(app: FastifyInstance): void {
         layer: r.layer,
         tags,
         project,
-        valley: r.mail_subject || project || tags[0] || '独立记忆',
         updatedAt: r.updated_at,
         mailThreadId: r.mail_thread_id ?? undefined,
         relations: [...new Set(relationsMap.get(r.id) ?? [])],

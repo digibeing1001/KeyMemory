@@ -1,3 +1,17 @@
+---
+name: budget-control
+description: >-
+  Bounded cost, token, and iteration behavior for KeyMemory agent loops.
+  Use when a loop needs token budget enforcement, cost observability,
+  circuit-breaker escalation, or stagnation detection.
+trigger:
+  - Starting any loop via memory_loop_start that may exceed one checkpoint of work
+  - A loop checkpoint reports tokenUsage approaching configured thresholds (warning 80%, critical 95%)
+  - Circuit breaker emits circuit-breaker.token-budget, circuit-breaker.max-iterations, stagnation, or no-progress
+  - External model/API calls require cost observability (costUsdBudget)
+  - Same error signature repeats 3 times or 5 consecutive failures occur
+---
+
 # Budget Control
 
 Use this skill when a KeyMemory agent loop needs bounded cost, token, or iteration behavior.

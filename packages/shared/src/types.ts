@@ -65,6 +65,8 @@ export interface MailThread {
   updatedAt: string;
   lastMessageAt?: string;
   metadata?: Record<string, unknown>;
+  /** 已读该主题的 Agent 回执摘要（仅列表接口聚合返回），仅含 recipientId 以 agent: 开头且已读的回执，按 readAt 降序 */
+  agentReaders?: Array<{ recipientId: string; readAt: string }>;
 }
 
 export interface MailMessage {

@@ -26,6 +26,15 @@
 
 这套顺序防止 Agent 只读到几条零散记忆，就误以为掌握了整个项目进度。
 
+## 已读回执与读取标识
+
+Agent 调用 `memory_thread_read` 或 `memory_thread_context` 读取某个主题时，KeyMemory 会记录一条已读回执（读取人与读取时间）。基于这些回执：
+
+- 邮件详情页的“Agent 阅读状态”徽章会显示每个 Agent 是否已读及读取时间；
+- 邮件列表行会显示已读 Agent 的 mini-logo 组（最多 3 个，超出显示 +N）。
+
+只调用 `memory_inbox_list` 或 `memory_search` 不会产生已读回执，UI 也不会显示读取标识。因此 Agent 需要按标准读取顺序真实调用 `memory_thread_read` / `memory_thread_context`，人类才能看到其读取痕迹。
+
 ## Agent 的标准写入顺序
 
 工作出现有意义的变化时，调用 `memory_thread_reply` 回复原主题。适合写回的内容包括：

@@ -10,7 +10,6 @@ import Timeline from './components/Timeline';
 import MemoryCard from './components/MemoryCard';
 import MemoryDetailPanel from './components/MemoryDetailPanel';
 import LayerCards from './components/LayerCards';
-import MemoryValley from './components/MemoryValley';
 import AppHeader from './components/AppHeader';
 import TagCloud from './components/TagCloud';
 import DreamView from './components/DreamView';
@@ -35,7 +34,6 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { I18nProvider, useI18n } from './i18n';
 import {
   getHealth,
-  getMemoryConnections,
   getTagCloud,
   searchMemories,
   listRecycleBin,
@@ -43,15 +41,14 @@ import {
   permanentlyDeleteMemory,
   discoverAgentIntegrations,
 } from './lib/api';
-import type { MemoryGraphData, TagCloudData, UserRole } from './lib/api';
+import type { TagCloudData, UserRole } from './lib/api';
 import { formatDate, formatMemoryTitle, LAYER_COLORS } from './lib/memoryFormat';
 
-type ViewMode = 'memories' | 'mailbox' | 'valley' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users' | 'today' | 'timeline' | 'library' | 'graph' | 'insights';
+type ViewMode = 'memories' | 'mailbox' | 'nebula' | 'tags' | 'dream' | 'llm' | 'migration' | 'organize' | 'recycle' | 'workingSet' | 'integrations' | 'users' | 'today' | 'timeline' | 'library' | 'graph' | 'insights';
 
 function isViewMode(value: string | null): value is ViewMode {
   return value === 'mailbox'
     || value === 'memories'
-    || value === 'valley'
     || value === 'nebula'
     || value === 'tags'
     || value === 'dream'
@@ -69,7 +66,7 @@ function isViewMode(value: string | null): value is ViewMode {
     || value === 'insights';
 }
 
-const ADMIN_ONLY_VIEWS: ViewMode[] = ['dream', 'migration', 'organize', 'users'];
+const ADMIN_ONLY_VIEWS: ViewMode[] = ['dream', 'llm', 'migration', 'organize', 'users'];
 
 function isAdminRole(role: UserRole | undefined): boolean {
   return role === 'boss' || role === 'admin';
@@ -126,9 +123,7 @@ function AppInner() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [healthReport, setHealthReport] = useState<HealthReport | null>(null);
-  const [graphData, setGraphData] = useState<MemoryGraphData | null>(null);
   const [tagCloudData, setTagCloudData] = useState<TagCloudData | null>(null);
-  const [graphLoading, setGraphLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [guideFirstRun, setGuideFirstRun] = useState(() => localStorage.getItem('keymemory_onboarding_completed_v1') !== 'true');
   const [guideOpen, setGuideOpen] = useState(() => {
@@ -176,16 +171,6 @@ function AppInner() {
       localStorage.setItem(`${prefPrefix}view_mode`, 'memories');
     }
   }, [isAdmin, viewMode, prefPrefix]);
-
-  useEffect(() => {
-    if (viewMode === 'valley' && !graphData) {
-      setGraphLoading(true);
-      getMemoryConnections()
-        .then(setGraphData)
-        .catch(() => setGraphData(null))
-        .finally(() => setGraphLoading(false));
-    }
-  }, [viewMode, graphData]);
 
   useEffect(() => {
     if (viewMode === 'tags' && !tagCloudData) {
@@ -248,7 +233,6 @@ function AppInner() {
     try {
       await store.save(data);
       toast(store.selectedMemory ? (language === 'zh' ? '已更新' : 'Updated') : (language === 'zh' ? '已创建' : 'Created'), 'success');
-      setGraphData(null);
       setTagCloudData(null);
     } catch {
       toast(language === 'zh' ? '保存失败' : 'Save failed', 'error');
@@ -256,7 +240,6 @@ function AppInner() {
   };
 
   const handleProjectChanged = () => {
-    setGraphData(null);
     setTagCloudData(null);
     store.refresh();
   };
@@ -265,7 +248,6 @@ function AppInner() {
     store.deleteMemory(id)
       .then(() => {
         toast(language === 'zh' ? '已删除' : 'Deleted', 'success');
-        setGraphData(null);
         setTagCloudData(null);
       })
       .catch(() => toast(language === 'zh' ? '删除失败' : 'Delete failed', 'error'));
@@ -275,7 +257,6 @@ function AppInner() {
     store.archiveMemory(id)
       .then(() => {
         toast(language === 'zh' ? '已归档' : 'Archived', 'success');
-        setGraphData(null);
         setTagCloudData(null);
       })
       .catch(() => toast(language === 'zh' ? '归档失败' : 'Archive failed', 'error'));
@@ -285,7 +266,6 @@ function AppInner() {
     try {
       await store.moveLayer(id, layer);
       toast(language === 'zh' ? '记忆状态已更新' : 'Memory state updated', 'success');
-      setGraphData(null);
       setTagCloudData(null);
     } catch {
       toast(language === 'zh' ? '移动失败' : 'Move failed', 'error');
@@ -376,7 +356,7 @@ function AppInner() {
         />
 
         <div className="app-content-row flex flex-1 overflow-hidden">
-          {viewMode === 'mailbox' && <MailboxView />}
+          {viewMode === 'mailbox' && <MailboxView onOpenIntegrations={() => setViewMode('integrations')} />}
 
           {viewMode === 'memories' && (
             <MemoriesWorkspace
@@ -394,19 +374,6 @@ function AppInner() {
             />
           )}
 
-          {viewMode === 'valley' && (
-            <div className="flex-1 relative">
-              <MemoryValley
-                data={graphData}
-                onNodeClick={(nodeId) => {
-                  setViewMode('memories');
-                  store.selectMemory(nodeId);
-                }}
-                loading={graphLoading}
-              />
-            </div>
-          )}
-
           {viewMode === 'tags' && (
             <div className="flex-1 overflow-y-auto px-6 py-5">
               <TagCloud
@@ -422,6 +389,7 @@ function AppInner() {
           {viewMode === 'dream' && (
             <div className="flex-1 overflow-y-auto">
               <DreamView
+                degradedPaths={healthReport?.degradedPaths ?? []}
                 onHealthChanged={() => {
                   getHealth().then((res) => setHealthReport(res as unknown as HealthReport)).catch(() => {});
                 }}

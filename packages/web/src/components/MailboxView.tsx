@@ -129,6 +129,15 @@ function formatMailboxDate(value: string | undefined, zh: boolean, full = false)
 
 type DateGroup = 'today' | 'yesterday' | 'thisWeek' | 'earlier';
 
+// 后端在 MailThread 上追加的可选已读回执字段（可能暂不存在，前端需容错）。
+type ThreadAgentReader = { recipientId: string; readAt: string };
+type MailThreadWithReaders = MailThread & { agentReaders?: ThreadAgentReader[] };
+
+interface MailboxViewProps {
+  /** 可选：跳转 Agent 接入页（integrations 视图）的回调，由宿主提供。 */
+  onOpenIntegrations?: () => void;
+}
+
 function getDateGroup(dateStr: string): DateGroup {
   const date = new Date(dateStr);
   const now = new Date();
@@ -207,7 +216,7 @@ function Composer({ onClose, onCreated, zh }: ComposerProps) {
   );
 }
 
-export default function MailboxView() {
+export default function MailboxView({ onOpenIntegrations }: MailboxViewProps = {}) {
   const { language } = useI18n();
   const zh = language === 'zh';
   const [folder, setFolder] = useState<MailboxFolder>('inbox');
@@ -324,6 +333,54 @@ export default function MailboxView() {
     if (diff < 86400000) return zh ? `${Math.floor(diff / 3600000)} 小时前` : `${Math.floor(diff / 3600000)}h ago`;
     return zh ? `${Math.floor(diff / 86400000)} 天前` : `${Math.floor(diff / 86400000)}d ago`;
   }
+
+  // Agent 面板：桌面在邮箱左栏，窄屏（.mailbox-folders 被隐藏时）以横向条带显示在邮件列表顶部。
+  const renderAgentsPanel = (extraClass: string) => {
+    if (connectedAgents.length === 0) return null;
+    return (
+      <div className={`mailbox-agents-online${extraClass ? ` ${extraClass}` : ''}`}>
+        <span className="mailbox-agents-label">
+          <span className="agent-pulse" />
+          {zh ? '已发现的 Agent' : 'Discovered Agents'}
+        </span>
+        <div className="mailbox-agents-list">
+          {connectedAgents.map(agent => (
+            <button type="button" key={agent.id} className="mailbox-agent-row"
+              onClick={() => onOpenIntegrations?.()}
+              title={`${agent.name} · ${agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '待接入' : 'Pending')} · ${zh ? '点击查看接入' : 'Open integrations'}`}>
+              <span className={`agent-avatar is-${agent.status}`} style={{ '--agent-active-color': agent.color } as React.CSSProperties}>
+                <img src={agent.logo} alt="" width={28} height={28} />
+              </span>
+              <span className="mailbox-agent-copy">
+                <strong>{agent.name}</strong>
+              </span>
+              <span className={`mailbox-agent-status ${agent.status === 'active' ? 'is-connected' : 'is-pending'}`}>
+                {agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '待接入' : 'Pending')}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // 邮件列表行已读标识：后端 agentReaders 只含已读回执，字段可能暂不存在，undefined 时不渲染。
+  const renderThreadReaders = (thread: MailThread) => {
+    const readers = (thread as MailThreadWithReaders).agentReaders;
+    if (!Array.isArray(readers) || readers.length === 0) return null;
+    const shown = readers.slice(0, 3);
+    const rest = readers.length - shown.length;
+    return (
+      <span className="mail-row-read-indicators" aria-label={zh ? '已读 Agent' : 'Read by agents'}>
+        {shown.map(reader => {
+          const config = getAgentConfig(String(reader?.recipientId ?? '').replace(/^agent:/, ''));
+          const when = typeof reader?.readAt === 'string' && reader.readAt ? formatAgentReadTime(reader.readAt) : '';
+          return <img key={reader.recipientId} className="mail-row-read-logo" src={config.logo} alt={config.name} width={14} height={14} title={`${config.name} · ${zh ? '已读' : 'Read'}${when ? ` · ${when}` : ''}`} />;
+        })}
+        {rest > 0 && <span className="mail-row-read-more">+{rest}</span>}
+      </span>
+    );
+  };
 
   const filteredThreads = useMemo(() => {
     let result = threads;
@@ -539,26 +596,7 @@ export default function MailboxView() {
             return <button type="button" key={item.key} className={folder === item.key ? 'active' : ''} onClick={() => { setFolder(item.key); setMobileDetail(false); }}><Icon size={16} /><span>{zh ? item.zh : item.en}</span>{Boolean(count) && <b>{count}</b>}</button>;
           })}
         </nav>
-        {connectedAgents.length > 0 && <div className="mailbox-agents-online">
-          <span className="mailbox-agents-label">
-            <span className="agent-pulse" />
-            {zh ? '已发现的 Agent' : 'Discovered Agents'}
-          </span>
-          <div className="mailbox-agents-list">
-            {connectedAgents.map(agent => (
-              <div key={agent.id} className="mailbox-agent-row" title={`${agent.name} · ${agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '已安装，待接入' : 'Detected')}`}>
-                <span className={`agent-avatar is-${agent.status}`} style={{ '--agent-active-color': agent.color } as React.CSSProperties}>
-                  <img src={agent.logo} alt="" width={28} height={28} />
-                  <span className="agent-status-dot" style={{ background: agent.status === 'active' ? agent.color : '#999' }} />
-                </span>
-                <span className="mailbox-agent-copy">
-                  <strong>{agent.name}</strong>
-                  <small>{agent.status === 'active' ? (zh ? '已接入' : 'Connected') : (zh ? '已安装，待接入' : 'Detected')}</small>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>}
+        {renderAgentsPanel('')}
         <div className="mailbox-rule-card">
           <strong>{zh ? '人与 Agent 的上下文中转站' : 'Human-Agent context relay'}</strong>
           <p>{zh ? '每项工作使用一个主题。Agent 会先结合主题和记忆整理上下文，再用邮件汇报理解与进展。' : 'Each body of work uses one subject. Agents combine the thread with memory before reporting context and progress.'}</p>
@@ -570,6 +608,7 @@ export default function MailboxView() {
       </aside>
 
       <section className={`mailbox-list${mobileDetail ? ' is-hidden-mobile' : ''}`}>
+        {renderAgentsPanel('mailbox-agents-mobile')}
         <div className="mailbox-list-toolbar">
           <form onSubmit={(event) => { event.preventDefault(); setSearch(query.trim()); }}>
             <Search size={16} />
@@ -646,7 +685,7 @@ export default function MailboxView() {
                   onClick={() => openThread(thread.id)}
                   onKeyDown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) { event.preventDefault(); openThread(thread.id); } }}>
                   <button type="button" className="mail-row-star" aria-label={thread.starred ? (zh ? '取消星标' : 'Unstar') : (zh ? '加星标' : 'Star')} aria-pressed={thread.starred} onClick={(event) => { event.stopPropagation(); toggleStar(thread); }}><Star size={15} style={{ fill: thread.starred ? 'var(--warning)' : 'none', color: thread.starred ? 'var(--warning)' : undefined }} /></button>
-                  <span className="mail-row-content"><span className="mail-row-top"><strong>{thread.subject}</strong><time>{formatMailboxDate(thread.lastMessageAt || thread.updatedAt, zh)}</time></span><span className="mail-row-preview"><em>{zh ? KIND_LABEL[thread.kind].zh : KIND_LABEL[thread.kind].en}</em>{thread.currentSummary || (zh ? '打开查看完整往来' : 'Open to read the conversation')}</span><span className="mail-row-meta"><span>{thread.messageCount} {zh ? '封' : 'messages'}</span>{thread.status === 'waiting' && <span>{zh ? '等待回复' : 'Waiting'}</span>}{thread.status === 'completed' && <span>{zh ? '已完成' : 'Completed'}</span>}{(thread.metadata as any)?.lastAgentActivity && (
+                  <span className="mail-row-content"><span className="mail-row-top"><strong>{thread.subject}</strong><time>{formatMailboxDate(thread.lastMessageAt || thread.updatedAt, zh)}</time></span><span className="mail-row-preview"><em>{zh ? KIND_LABEL[thread.kind].zh : KIND_LABEL[thread.kind].en}</em>{thread.currentSummary || (zh ? '打开查看完整往来' : 'Open to read the conversation')}</span><span className="mail-row-meta"><span>{thread.messageCount} {zh ? '封' : 'messages'}</span>{renderThreadReaders(thread)}{thread.status === 'waiting' && <span>{zh ? '等待回复' : 'Waiting'}</span>}{thread.status === 'completed' && <span>{zh ? '已完成' : 'Completed'}</span>}{(thread.metadata as any)?.lastAgentActivity && (
                       <span className="mail-row-agent-activity">
                         <img className="agent-activity-logo" src={getAgentConfig((thread.metadata as any).lastAgentActivity.split(' ')[0] || 'secretary').logo} alt="" width={12} height={12} />
                         <span className="agent-activity-pulse" />

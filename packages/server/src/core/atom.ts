@@ -726,11 +726,12 @@ export function recordHit(id: string): void {
   
   const newDecayFactor = Math.min(1.0, row.decay_factor * 1.2);
   
+  // 检索命中不是内容变更：不刷新 updated_at，避免邮箱 digest 水位被假信号顶过，
+  // 造成“发信 → 命中 → updated_at 刷新 → 重复发信”的自激励循环。
   db.prepare(`
     UPDATE memories 
     SET hit_count = hit_count + 1, 
-        last_hit_at = @now, 
-        updated_at = @now,
+        last_hit_at = @now,
         decay_factor = @decayFactor
     WHERE id = @id
   `).run({ id, now, decayFactor: newDecayFactor });

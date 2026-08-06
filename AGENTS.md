@@ -17,6 +17,8 @@ This repository implements a local-first memory plugin and MCP server for agents
 
 ## Verification
 
+- After each edit, run `node scripts/verify.mjs` to confirm the change does not break existing functionality.
+- Before completing a task, run `node scripts/verify.mjs` and confirm all checks pass.
 - Before pushing, run `node scripts/verify.mjs`.
 - For release readiness, run `pnpm release:check`.
 - If a verification step fails, checkpoint the failure context before retrying or changing strategy.
