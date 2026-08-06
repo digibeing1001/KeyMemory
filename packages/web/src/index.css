@@ -131,6 +131,9 @@
 }
 
 html {
+  /* 根字号随视口平滑缩放：1280px 约 13.5px → 1920px 16px，超大屏封顶；
+     浏览器 125%/150% 缩放时视口 CSS 宽度变小，自动落入更小字号区间，避免溢出 */
+  font-size: clamp(13px, 0.39vw + 8.5px, 16px);
   scroll-behavior: smooth;
 }
 
@@ -149,8 +152,9 @@ body {
     var(--bg-main);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.5;
+  overflow-x: hidden;
 }
 
 h1,
@@ -196,7 +200,7 @@ input[type="password"],
 select,
 textarea {
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.5;
   box-shadow: var(--shadow-inset);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);

@@ -364,6 +364,9 @@ const zh: Record<string, string> = {
   'workingSet.noProject': '未关联项目',
   'workingSet.hitCount': '{count} 次命中',
   'workingSet.lastHit': '最近命中',
+
+  'mailbox.resizeFolders': '拖动调整文件夹栏宽度（方向键微调，Home 重置）',
+  'mailbox.resizeList': '拖动调整邮件列表栏宽度（方向键微调，Home 重置）',
 };
 
 const en: Record<string, string> = {
@@ -726,6 +729,9 @@ const en: Record<string, string> = {
   'workingSet.noProject': 'No project',
   'workingSet.hitCount': '{count} hits',
   'workingSet.lastHit': 'Last hit',
+
+  'mailbox.resizeFolders': 'Drag to resize the folders column (arrow keys to adjust, Home to reset)',
+  'mailbox.resizeList': 'Drag to resize the mail list column (arrow keys to adjust, Home to reset)',
 };
 
 const dictionaries: Record<Language, Record<string, string>> = { zh, en };

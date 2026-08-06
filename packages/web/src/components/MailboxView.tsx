@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { MailMessageType, MailThread, MailThreadDetail, MailThreadKind } from '@keymemory/shared';
 import { Archive, ArrowLeft, ChevronDown, Clock, Close, Inbox, Layers, Mail, Paperclip, Plus, RefreshCw, Search, Send, Star, Trash, User } from './Icons';
@@ -138,6 +138,40 @@ interface MailboxViewProps {
   onOpenIntegrations?: () => void;
 }
 
+// ===== 三栏宽度拖拽：限制、持久化与兜底 =====
+const MB_COL_WIDTHS_KEY = 'km-mailbox-col-widths';
+const MB_COL_LIMITS = {
+  left: { min: 140, max: 320, fallback: 196 },
+  mid: { min: 260, max: 520, fallback: 340 },
+  rightMin: 420,
+} as const;
+
+interface MailboxColWidths { left: number; mid: number; }
+
+function clampWidth(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function loadMailboxColWidths(): MailboxColWidths {
+  const fallback: MailboxColWidths = { left: MB_COL_LIMITS.left.fallback, mid: MB_COL_LIMITS.mid.fallback };
+  try {
+    const raw = localStorage.getItem(MB_COL_WIDTHS_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<MailboxColWidths>;
+    return {
+      left: clampWidth(Number(parsed.left) || fallback.left, MB_COL_LIMITS.left.min, MB_COL_LIMITS.left.max),
+      mid: clampWidth(Number(parsed.mid) || fallback.mid, MB_COL_LIMITS.mid.min, MB_COL_LIMITS.mid.max),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveMailboxColWidths(widths: MailboxColWidths): void {
+  try { localStorage.setItem(MB_COL_WIDTHS_KEY, JSON.stringify(widths)); } catch { /* 存储不可用时静默降级 */ }
+}
+
 function getDateGroup(dateStr: string): DateGroup {
   const date = new Date(dateStr);
   const now = new Date();
@@ -217,7 +251,7 @@ function Composer({ onClose, onCreated, zh }: ComposerProps) {
 }
 
 export default function MailboxView({ onOpenIntegrations }: MailboxViewProps = {}) {
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const zh = language === 'zh';
   const [folder, setFolder] = useState<MailboxFolder>('inbox');
   const [threads, setThreads] = useState<MailThread[]>([]);
@@ -243,6 +277,81 @@ export default function MailboxView({ onOpenIntegrations }: MailboxViewProps = {
   const [agentIntegrations, setAgentIntegrations] = useState<AgentIntegrationStatus[]>([]);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [colWidths, setColWidths] = useState<MailboxColWidths>(loadMailboxColWidths);
+  const [resizingCol, setResizingCol] = useState<'left' | 'mid' | null>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const colWidthsRef = useRef(colWidths);
+  colWidthsRef.current = colWidths;
+
+  const resolveColumnWidths = useCallback((which: 'left' | 'mid', value: number, prev: MailboxColWidths): MailboxColWidths => {
+    if (which === 'left') {
+      return { ...prev, left: clampWidth(value, MB_COL_LIMITS.left.min, MB_COL_LIMITS.left.max) };
+    }
+    // 中栏右边界受阅读区最小宽度约束，避免拖拽时把右栏挤没。
+    const shellWidth = shellRef.current?.clientWidth ?? window.innerWidth;
+    const maxMid = Math.max(MB_COL_LIMITS.mid.min, Math.min(MB_COL_LIMITS.mid.max, shellWidth - prev.left - MB_COL_LIMITS.rightMin - 12));
+    return { ...prev, mid: clampWidth(value, MB_COL_LIMITS.mid.min, maxMid) };
+  }, []);
+
+  const applyColumnWidth = useCallback((which: 'left' | 'mid', value: number) => {
+    setColWidths(prev => resolveColumnWidths(which, value, prev));
+  }, [resolveColumnWidths]);
+
+  const persistColumnWidths = useCallback(() => saveMailboxColWidths(colWidthsRef.current), []);
+
+  const resetColumnWidths = useCallback(() => {
+    const fallback: MailboxColWidths = { left: MB_COL_LIMITS.left.fallback, mid: MB_COL_LIMITS.mid.fallback };
+    setColWidths(fallback);
+    saveMailboxColWidths(fallback);
+  }, []);
+
+  // pointermove + requestAnimationFrame 节流，拖拽过程直接更新 CSS 变量，流畅且无布局抖动。
+  const startColumnResize = useCallback((which: 'left' | 'mid') => (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const baseWidth = which === 'left' ? colWidthsRef.current.left : colWidthsRef.current.mid;
+    document.body.classList.add('is-col-resizing');
+    setResizingCol(which);
+    let rafId = 0;
+    let lastX = startX;
+    const apply = () => { rafId = 0; applyColumnWidth(which, baseWidth + (lastX - startX)); };
+    const handleMove = (moveEvent: PointerEvent) => {
+      lastX = moveEvent.clientX;
+      if (!rafId) rafId = requestAnimationFrame(apply);
+    };
+    const handleEnd = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      target.removeEventListener('pointermove', handleMove);
+      target.removeEventListener('pointerup', handleEnd);
+      target.removeEventListener('pointercancel', handleEnd);
+      document.body.classList.remove('is-col-resizing');
+      setResizingCol(null);
+      persistColumnWidths();
+    };
+    target.addEventListener('pointermove', handleMove);
+    target.addEventListener('pointerup', handleEnd);
+    target.addEventListener('pointercancel', handleEnd);
+  }, [applyColumnWidth, persistColumnWidths]);
+
+  // 键盘可访问：方向键微调（Shift 加速），Home 恢复默认宽度。
+  // 注意：键盘分支直接用同步计算出的新值写 localStorage，不依赖重渲染后的 ref，避免持久化旧值。
+  const handleResizerKeyDown = useCallback((which: 'left' | 'mid') => (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 40 : 16;
+    const current = which === 'left' ? colWidthsRef.current.left : colWidthsRef.current.mid;
+    let target: number | null = null;
+    if (event.key === 'ArrowLeft') target = current - step;
+    else if (event.key === 'ArrowRight') target = current + step;
+    else if (event.key === 'Home') target = MB_COL_LIMITS[which].fallback;
+    if (target === null) return;
+    event.preventDefault();
+    const next = resolveColumnWidths(which, target, colWidthsRef.current);
+    colWidthsRef.current = next;
+    setColWidths(next);
+    saveMailboxColWidths(next);
+  }, [resolveColumnWidths]);
 
   const toggleGroup = useCallback((group: string) => {
     setCollapsedGroups(prev => {
@@ -586,7 +695,8 @@ export default function MailboxView({ onOpenIntegrations }: MailboxViewProps = {
   }, [selectedId, detail, folder, filteredThreads, zh, mobileDetail, patchThread, refresh, requestArchive]);
 
   return (
-    <div className="mailbox-shell">
+    <div className="mailbox-shell" ref={shellRef}
+      style={{ '--mb-col-left': `${colWidths.left}px`, '--mb-col-mid': `${colWidths.mid}px` } as React.CSSProperties}>
       <aside className="mailbox-folders">
         <button type="button" className="mail-compose-button" onClick={() => setComposeOpen(true)}><Plus size={18} />{zh ? '写邮件' : 'Compose'}</button>
         <nav aria-label={zh ? '邮箱文件夹' : 'Mailbox folders'}>
@@ -606,6 +716,15 @@ export default function MailboxView({ onOpenIntegrations }: MailboxViewProps = {
           <span>{zh ? '快捷键: J/K 导航 · Enter 打开 · S 星标 · R 回复 · Esc 返回' : 'Shortcuts: J/K navigate · Enter open · S star · R reply · Esc back'}</span>
         </div>
       </aside>
+
+      <div className={`mailbox-col-resizer is-left${resizingCol === 'left' ? ' is-active' : ''}`}
+        role="separator" aria-orientation="vertical" tabIndex={0}
+        aria-label={t('mailbox.resizeFolders')}
+        aria-valuemin={MB_COL_LIMITS.left.min} aria-valuemax={MB_COL_LIMITS.left.max} aria-valuenow={colWidths.left}
+        title={zh ? '拖动调整栏宽 · 双击重置' : 'Drag to resize · double-click to reset'}
+        onPointerDown={startColumnResize('left')}
+        onKeyDown={handleResizerKeyDown('left')}
+        onDoubleClick={resetColumnWidths} />
 
       <section className={`mailbox-list${mobileDetail ? ' is-hidden-mobile' : ''}`}>
         {renderAgentsPanel('mailbox-agents-mobile')}
@@ -699,6 +818,15 @@ export default function MailboxView({ onOpenIntegrations }: MailboxViewProps = {
           ))}
         </div>
       </section>
+
+      <div className={`mailbox-col-resizer is-right${resizingCol === 'mid' ? ' is-active' : ''}`}
+        role="separator" aria-orientation="vertical" tabIndex={0}
+        aria-label={t('mailbox.resizeList')}
+        aria-valuemin={MB_COL_LIMITS.mid.min} aria-valuemax={MB_COL_LIMITS.mid.max} aria-valuenow={colWidths.mid}
+        title={zh ? '拖动调整栏宽 · 双击重置' : 'Drag to resize · double-click to reset'}
+        onPointerDown={startColumnResize('mid')}
+        onKeyDown={handleResizerKeyDown('mid')}
+        onDoubleClick={resetColumnWidths} />
 
       <main className={`mailbox-reader${mobileDetail ? ' is-visible-mobile' : ''}`}>
         {!selectedId ? <div className="mail-reader-empty"><Mail size={38} /><strong>{zh ? '选择一封邮件开始阅读' : 'Select a message to read'}</strong><p>{zh ? '这里是人类与 Agent 共同了解工作进度的地方。' : 'This is where humans and Agents share progress.'}</p></div> : detailLoading || !detail ? <div className="mail-reader-empty">{zh ? '正在打开邮件…' : 'Opening message…'}</div> : (

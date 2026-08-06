@@ -5,6 +5,8 @@
 .mailbox-agents-online {
   padding: 12px 8px;
   border-top: 1px solid var(--border-primary);
+  min-width: 0;
+  flex-shrink: 0;
 }
 .mailbox-agents-label {
   display: flex;
@@ -19,13 +21,17 @@
 .mailbox-agents-list {
   display: grid;
   gap: 2px;
-  max-height: 248px; /* 约 5 行（44px 行高 + 行间距），超出滚动 */
+  /* 约 5 行（44px 行高 + 行间距），超出纵向滚动；矮窗口下按视口高度收缩 */
+  max-height: min(248px, 32vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  min-width: 0;
 }
 .mailbox-agent-row {
   display: flex;
   align-items: center;
   width: 100%;
+  min-width: 0;
   height: 44px;
   padding: 0 8px;
   gap: 9px;
@@ -34,6 +40,7 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
   transition: background 0.15s ease;
 }
 .mailbox-agent-row:hover {
@@ -49,8 +56,10 @@
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 650;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  /* 宽度不足时单行截断，完整名称由行级 title 属性保留 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* 状态文字徽章（取代原 8px 小圆点） */
 .mailbox-agent-status {
@@ -310,6 +319,39 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* 左栏被拖窄时按实际宽度降级（container 定义在 .mailbox-folders）：
+   状态徽章收窄为色点、隐藏次要提示，避免文字重叠溢出。
+   阈值说明：默认左栏 196px 时内容盒约 171px，圆点降级取 160px，
+   保证默认宽度下徽章仍为文字态，仅拖到很窄时才降级 */
+@container mb-left (max-width: 160px) {
+  .mailbox-agent-status {
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    color: transparent;
+    font-size: 0;
+  }
+  .mailbox-agent-row { gap: 6px; padding: 0 6px; }
+  .mailbox-agents-online { padding: 10px 4px; }
+}
+
+@container mb-left (max-width: 148px) {
+  .mailbox-agents-label { font-size: 0; justify-content: center; }
+  .mailbox-folders nav button { padding: 0 6px; }
+}
+
+/* 窗口过窄（≤1100px）左栏降级为图标模式：头像缩至 18px 防止被行 overflow 裁切。
+   几何链：60px 列宽扣除各级 padding 与垂直滚动条后行容器仅约 19px，头像必须小于它。
+   必须放在本文件内（且在本文件顶层 28px 基础规则之后），因为 widgets.css 先加载，
+   其中同特异性的 .agent-avatar 规则会被本文件后加载的基础规则覆盖 */
+@media (max-width: 1100px) {
+  .agent-avatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px; }
+  .agent-avatar img { width: 18px; height: 18px; border-radius: 4px; }
+  .agent-avatar.is-active::after { inset: -2px; border-radius: 7px; }
 }
 
 /* ===== 消息卡片容器化 ===== */

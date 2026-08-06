@@ -121,20 +121,83 @@
 /* === 记忆邮箱 === */
 .mailbox-shell {
   display: grid;
-  grid-template-columns: 196px minmax(310px, 390px) minmax(460px, 1fr);
+  /* 左右两栏宽度由 JS 写入的 CSS 变量控制（拖拽可调，localStorage 持久化），两条 6px 轨道为拖拽分隔条 */
+  grid-template-columns:
+    var(--mb-col-left, 196px) 6px
+    var(--mb-col-mid, 340px) 6px
+    minmax(420px, 1fr);
   width: 100%;
   height: 100%;
+  min-width: 0;
   overflow: hidden;
   min-height: 0;
   background: var(--bg-primary);
 }
 
+/* 拖拽分隔条：6px 可见轨道，::before 向两侧扩到约 16px 命中区 */
+.mailbox-col-resizer {
+  position: relative;
+  z-index: 6;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  min-height: 0;
+}
+.mailbox-col-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  right: -5px;
+}
+.mailbox-col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  opacity: 0;
+  transition: opacity var(--transition-fast), width var(--transition-fast);
+}
+.mailbox-col-resizer:hover::after,
+.mailbox-col-resizer:focus-visible::after,
+.mailbox-col-resizer.is-active::after {
+  opacity: 1;
+}
+.mailbox-col-resizer.is-active::after {
+  width: 3px;
+  background: var(--accent);
+}
+.mailbox-col-resizer:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* 拖拽中：全局锁定光标与选中，避免拖动时选中文字 */
+body.is-col-resizing,
+body.is-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 .mailbox-folders {
+  grid-column: 1;
   padding: 18px 12px;
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-primary));
   overflow-y: auto;
   min-height: 0;
+  min-width: 0;
+  /* 左栏作为容器：内部区块（Agent 面板等）用 container query 按实际宽度优雅降级 */
+  container-type: inline-size;
+  container-name: mb-left;
 }
 
 .mail-compose-button {
@@ -160,9 +223,10 @@
   height: 36px;
   padding: 0 10px;
   display: grid;
-  grid-template-columns: 18px 1fr auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -171,6 +235,7 @@
   text-align: left;
   cursor: pointer;
 }
+.mailbox-folders nav button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mailbox-folders nav button:hover { background: var(--bg-hover); color: var(--text-primary); }
 .mailbox-folders nav button.active { background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent); font-weight: 750; }
 .mailbox-folders nav button b { font-size: 11px; font-weight: 750; }
@@ -494,13 +559,61 @@
   }
 }
 
+/* === 邮箱响应式断点 === */
+
+/* 小屏笔记本（≤1366px）：收紧阅读区与工具条密度 */
+@media (max-width: 1366px) {
+  .mail-thread-header { padding: 22px 28px 14px; }
+  .mail-message-stack { padding: 0 28px; }
+  .mail-reply-box { padding: 0 28px; margin-top: 22px; }
+  .mailbox-list-toolbar, .mail-reader-toolbar { height: 52px; }
+  .mailbox-shortcuts-hint { display: none; }
+}
+
 @media (max-width: 1180px) {
-  .mailbox-shell { grid-template-columns: 160px minmax(300px, 355px) minmax(420px, 1fr); }
   .mailbox-rule-card { display: none; }
+}
+
+/* 窗口过窄（≤1100px）：左栏降级为图标模式，隐藏左分隔条，保证中/右栏可用 */
+@media (max-width: 1100px) {
+  .mailbox-shell {
+    grid-template-columns: 60px var(--mb-col-mid, 320px) 6px minmax(380px, 1fr);
+  }
+  .mailbox-col-resizer.is-left { display: none; }
+  .mailbox-folders { padding: 14px 6px; }
+  .mail-compose-button { height: 40px; margin-bottom: 12px; font-size: 0; gap: 0; border-radius: 10px; }
+  .mailbox-folders nav button { grid-template-columns: minmax(0, 1fr); justify-items: center; padding: 0; }
+  .mailbox-folders nav button span,
+  .mailbox-folders nav button b { display: none; }
+  /* 提升特异性（.mailbox-folders 前缀）压过 agents-mailbox.css 容器查询里
+     同特异性的 padding/gap 规则，保证图标模式下真正生效 */
+  .mailbox-folders .mailbox-agents-online { padding: 10px 2px; }
+  /* 窄行内容盒装不下默认 28px 头像（纵向滚动条还要占位）：
+     scrollbar-gutter 预留滚动条位 + scrollbar-width:thin 减小滚动条占宽；
+     头像缩小规则见 agents-mailbox.css 的 ≤1100px 媒体查询
+     （本文件先于 agents-mailbox.css 加载，同特异性规则会被其顶层基础规则覆盖） */
+  .mailbox-agents-list { scrollbar-gutter: stable; scrollbar-width: thin; }
+  .mailbox-agents-label,
+  .mailbox-agent-copy,
+  .mailbox-agent-status { display: none; }
+  /* 提升特异性：压过 agents-mailbox.css @container(≤160px) 内的 .mailbox-agent-row{padding:0 6px}，
+     否则行内容盒被再挤 12px，头像仍会被裁切 */
+  .mailbox-folders .mailbox-agent-row { justify-content: center; padding: 0; gap: 0; }
+  .mailbox-rule-card, .mailbox-shortcuts-hint { display: none; }
+}
+
+/* FHD / 2K / 超宽屏：放宽阅读区内容宽度，提升大屏利用率 */
+@media (min-width: 1920px) {
+  .mail-thread-header, .mail-message-stack, .mail-reply-box { max-width: 960px; }
+}
+@media (min-width: 2560px) {
+  .mail-thread-header, .mail-message-stack, .mail-reply-box { max-width: 1120px; }
+  .mail-message-body { font-size: 0.9375rem; }
 }
 
 @media (max-width: 920px) {
   .mailbox-shell { grid-template-columns: 150px minmax(280px, 1fr); }
+  .mailbox-col-resizer { display: none; }
   .mailbox-reader { position: absolute; inset: 0; z-index: 8; display: none; }
   .mailbox-reader.is-visible-mobile { display: flex; }
   .mail-mobile-back { display: inline-flex; }
@@ -558,6 +671,7 @@
   .tag-cloud-projects > header { align-items: flex-start; flex-direction: column; }
   .mailbox-shell { display: block; position: relative; }
   .mailbox-folders { display: none; }
+  .mailbox-col-resizer { display: none; }
   /* 左栏被隐藏时，Agent 面板以横向条带显示在邮件列表顶部 */
   .mailbox-agents-mobile { display: block; }
   .mailbox-list { height: 100%; }
